@@ -1,0 +1,24 @@
+# Estilo de codigo comun para cualquier editor. https://editorconfig.org
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+indent_style = space
+indent_size = 2
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# Markdown: dos espacios al final significan salto de linea, no se recortan.
+[*.md]
+trim_trailing_whitespace = false
+
+# Make exige tabulaciones reales al inicio de cada receta.
+[Makefile]
+indent_style = tab
+
+[*.{yml,yaml,json,jsonc}]
+indent_size = 2
+
+[*.{sh,mjs,js,ts,tsx,css,html,sql}]
+indent_size = 2

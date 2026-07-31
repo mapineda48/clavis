@@ -1,0 +1,287 @@
+{
+  "id": "__KEYCLOAK_REALM__",
+  "realm": "__KEYCLOAK_REALM__",
+  "displayName": "ERP Demo",
+  "displayNameHtml": "<b>ERP Demo</b>",
+  "enabled": true,
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "registrationEmailAsUsername": false,
+  "editUsernameAllowed": false,
+  "resetPasswordAllowed": false,
+  "rememberMe": true,
+  "verifyEmail": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "bruteForceProtected": false,
+  "defaultSignatureAlgorithm": "RS256",
+  "accessTokenLifespan": 900,
+  "ssoSessionIdleTimeout": 1800,
+  "ssoSessionMaxLifespan": 36000,
+  "offlineSessionIdleTimeout": 2592000,
+  "defaultRole": {
+    "name": "default-roles-__KEYCLOAK_REALM__",
+    "description": "Rol por defecto del realm: cuenta propia, offline access y permisos basicos de ERP",
+    "composite": true,
+    "clientRole": false
+  },
+  "roles": {
+    "realm": [
+      {
+        "name": "default-roles-__KEYCLOAK_REALM__",
+        "description": "Rol por defecto del realm: cuenta propia, offline access y permisos basicos de ERP",
+        "composite": true,
+        "clientRole": false,
+        "composites": {
+          "realm": [
+            "offline_access",
+            "uma_authorization",
+            "erp-user"
+          ],
+          "client": {
+            "account": [
+              "manage-account",
+              "view-profile"
+            ]
+          }
+        }
+      },
+      {
+        "name": "offline_access",
+        "description": "${role_offline-access}",
+        "composite": false,
+        "clientRole": false
+      },
+      {
+        "name": "uma_authorization",
+        "description": "${role_uma_authorization}",
+        "composite": false,
+        "clientRole": false
+      },
+      {
+        "name": "erp-user",
+        "description": "Usuario basico: consulta y crea sus propias tareas",
+        "composite": true,
+        "clientRole": false,
+        "composites": {
+          "client": {
+            "__KEYCLOAK_API_CLIENT_ID__": [
+              "todos:read",
+              "todos:write"
+            ]
+          }
+        }
+      },
+      {
+        "name": "erp-manager",
+        "description": "Responsable de equipo: ve todas las tareas, las elimina y consulta usuarios",
+        "composite": true,
+        "clientRole": false,
+        "composites": {
+          "realm": [
+            "erp-user"
+          ],
+          "client": {
+            "__KEYCLOAK_API_CLIENT_ID__": [
+              "todos:read:all",
+              "todos:delete",
+              "users:read"
+            ]
+          }
+        }
+      },
+      {
+        "name": "erp-admin",
+        "description": "Administracion completa: todo lo del responsable mas gestion y auditoria",
+        "composite": true,
+        "clientRole": false,
+        "composites": {
+          "realm": [
+            "erp-manager"
+          ],
+          "client": {
+            "__KEYCLOAK_API_CLIENT_ID__": [
+              "admin:manage"
+            ]
+          }
+        }
+      }
+    ],
+    "client": {
+      "__KEYCLOAK_API_CLIENT_ID__": [
+        {
+          "name": "todos:read",
+          "description": "Leer las tareas propias o asignadas",
+          "composite": false,
+          "clientRole": true
+        },
+        {
+          "name": "todos:read:all",
+          "description": "Leer las tareas de todos los usuarios",
+          "composite": false,
+          "clientRole": true
+        },
+        {
+          "name": "todos:write",
+          "description": "Crear y modificar tareas",
+          "composite": false,
+          "clientRole": true
+        },
+        {
+          "name": "todos:delete",
+          "description": "Eliminar tareas y adjuntos",
+          "composite": false,
+          "clientRole": true
+        },
+        {
+          "name": "users:read",
+          "description": "Consultar el listado de usuarios",
+          "composite": false,
+          "clientRole": true
+        },
+        {
+          "name": "admin:manage",
+          "description": "Acceder a estadisticas, auditoria y funciones de administracion",
+          "composite": false,
+          "clientRole": true
+        }
+      ]
+    }
+  },
+  "clients": [
+    {
+      "clientId": "__KEYCLOAK_APP_CLIENT_ID__",
+      "name": "ERP Demo SPA",
+      "description": "Cliente publico del frontend (React + Vite) con PKCE S256",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "bearerOnly": false,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "consentRequired": false,
+      "frontchannelLogout": true,
+      "fullScopeAllowed": true,
+      "rootUrl": "__APP_DEV_URL__",
+      "baseUrl": "__APP_DEV_URL__",
+      "adminUrl": "__APP_DEV_URL__",
+      "redirectUris": [
+        "__APP_DEV_URL__/*",
+        "__APP_PROD_URL__/*"
+      ],
+      "webOrigins": [
+        "__APP_DEV_URL__",
+        "__APP_PROD_URL__",
+        "+"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "+",
+        "oauth2.device.authorization.grant.enabled": "false",
+        "backchannel.logout.session.required": "true"
+      },
+      "protocolMappers": [
+        {
+          "name": "audience-erp-api",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "__KEYCLOAK_API_CLIENT_ID__",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "introspection.token.claim": "true",
+            "lightweight.claim": "false"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "__KEYCLOAK_API_CLIENT_ID__",
+      "name": "ERP Demo API",
+      "description": "Cliente confidencial que representa a la API y contiene los permisos como client roles",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "bearerOnly": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "__KEYCLOAK_API_CLIENT_SECRET__",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "consentRequired": false,
+      "frontchannelLogout": false,
+      "fullScopeAllowed": true,
+      "redirectUris": [],
+      "webOrigins": [],
+      "attributes": {
+        "oauth2.device.authorization.grant.enabled": "false"
+      }
+    }
+  ],
+  "users": [
+    {
+      "username": "__DEMO_ADMIN_USERNAME__",
+      "email": "__DEMO_ADMIN_EMAIL__",
+      "firstName": "Administrador",
+      "lastName": "Demo",
+      "enabled": true,
+      "emailVerified": true,
+      "requiredActions": [],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "__DEMO_ADMIN_PASSWORD__",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "default-roles-__KEYCLOAK_REALM__",
+        "erp-admin"
+      ]
+    },
+    {
+      "username": "__DEMO_MANAGER_USERNAME__",
+      "email": "__DEMO_MANAGER_EMAIL__",
+      "firstName": "Gerente",
+      "lastName": "Demo",
+      "enabled": true,
+      "emailVerified": true,
+      "requiredActions": [],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "__DEMO_MANAGER_PASSWORD__",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "default-roles-__KEYCLOAK_REALM__",
+        "erp-manager"
+      ]
+    },
+    {
+      "username": "__DEMO_USER_USERNAME__",
+      "email": "__DEMO_USER_EMAIL__",
+      "firstName": "Operario",
+      "lastName": "Demo",
+      "enabled": true,
+      "emailVerified": true,
+      "requiredActions": [],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "__DEMO_USER_PASSWORD__",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "default-roles-__KEYCLOAK_REALM__",
+        "erp-user"
+      ]
+    }
+  ]
+}

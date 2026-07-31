@@ -1,0 +1,29 @@
+# Contexto de build minimo: acelera el envio al daemon y evita filtrar secretos.
+#
+# IMPORTANTE: este archivo NO debe excluir pnpm-lock.yaml, pnpm-workspace.yaml,
+# tsconfig.base.json, package.json ni packages/. El Dockerfile de la API los necesita
+# para instalar con --frozen-lockfile y compilar el workspace.
+
+# --- dependencias y artefactos: se generan dentro de la imagen
+**/node_modules
+**/dist
+**/build
+**/coverage
+**/*.tsbuildinfo
+**/.vite
+.pnpm-store
+
+# --- control de versiones
+.git
+.gitignore
+
+# --- entorno: las variables llegan por docker compose, no por la imagen
+.env
+.env.*
+
+# --- ruido
+**/*.log
+docs
+.vscode
+.idea
+**/.DS_Store

@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Comprobacion silenciosa de sesion</title>
+  </head>
+  <body>
+    <!--
+      keycloak-js carga esta pagina dentro de un iframe oculto durante `check-sso`.
+      Su unica funcion es devolver la URL de retorno (con el codigo o el error)
+      a la ventana principal, que es quien completa el intercambio PKCE.
+    -->
+    <script>
+      parent.postMessage(location.href, location.origin)
+    </script>
+  </body>
+</html>

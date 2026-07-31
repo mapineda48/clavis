@@ -1,0 +1,15 @@
+# Paquetes que forman el workspace del monorepo.
+packages:
+  - "packages/*"
+
+# pnpm 10+ bloquea por defecto los scripts de instalacion (preinstall/install/postinstall)
+# de las dependencias. Se aprueban de forma explicita y versionada solo los que de verdad
+# los necesitan para enlazar su binario nativo: esbuild es el que usa Vite por debajo.
+allowBuilds:
+  esbuild: true
+
+# Paquetes excluidos de la politica de antiguedad minima de publicacion.
+# Se dejan fijados aqui para que la instalacion sea reproducible sin intervencion manual.
+minimumReleaseAgeExclude:
+  - '@types/pg@8.20.2'
+  - jose@6.2.6

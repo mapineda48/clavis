@@ -1,0 +1,21 @@
+{
+  // Configuracion aparte para los archivos que ejecuta Node (la config de Vite).
+  // Se mantiene fuera de `tsconfig.json` porque usa APIs de Node y no el DOM.
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "moduleDetection": "force",
+    "types": ["vite/client"],
+    "allowSyntheticDefaultImports": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "strict": true,
+    "noUncheckedIndexedAccess": true
+  },
+  "include": ["vite.config.ts"]
+}

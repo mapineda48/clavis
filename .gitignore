@@ -1,0 +1,20 @@
+# --- dependencias
+node_modules/
+.pnpm-store/
+
+# --- artefactos de build
+dist/
+build/
+coverage/
+*.tsbuildinfo
+.vite/
+
+# --- entorno: los valores reales nunca se versionan
+.env
+.env.*
+!.env.example
+
+# --- logs y basura del sistema operativo / editores
+*.log
+.DS_Store
+.idea/

@@ -1,0 +1,31 @@
+{
+  // Opciones de compilacion compartidas por todos los paquetes del workspace.
+  // Cada paquete extiende este archivo y define lo suyo: "module"/"moduleResolution"
+  // (la API usa NodeNext, la app usa bundler), "rootDir", "outDir", "jsx", "include", etc.
+  // Aqui NO se declaran "include" ni "files" a proposito: este tsconfig no compila nada.
+  "compilerOptions": {
+    // Node 22 y los navegadores modernos soportan ES2023 sin transpilar de mas.
+    "target": "ES2023",
+    "useDefineForClassFields": true,
+
+    // --- rigor de tipos
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    // Se deja en false a proposito: con true, `{ foo?: string }` deja de aceptar
+    // `{ foo: undefined }` y genera friccion constante al construir objetos de opciones.
+    "exactOptionalPropertyTypes": false,
+
+    // --- interoperabilidad y ergonomia
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
+
+    // --- salida
+    "sourceMap": true,
+    "newLine": "lf"
+  }
+}
