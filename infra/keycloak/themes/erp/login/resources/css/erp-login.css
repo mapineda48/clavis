@@ -1,0 +1,1239 @@
+/* =============================================================================
+   Tema de login del demo ERP — hoja de estilos unica.
+
+   Sin fuentes remotas, sin CDNs, sin dependencias: todo se resuelve con la pila
+   de fuentes del sistema y con iconos SVG embebidos como data URI.
+
+   Indice:
+     1. Variables (color, forma, espaciado, iconos)
+     2. Modo oscuro (solo redefine variables de color)
+     3. Reset acotado al tema
+     4. Estructura: layout, panel de marca, panel de formulario
+     5. Chuleta de usuarios de demostracion
+     6. Tarjeta, cabecera y selector de idioma
+     7. Formularios: campos, inputs, mostrar/ocultar contrasena, opciones
+     8. Botones y enlaces
+     9. Avisos (alerts)
+    10. Identidades federadas, info y pie
+    11. Iconos por mascara
+    12. Adaptacion a pantallas estrechas
+    13. Movimiento reducido
+   ========================================================================== */
+
+
+/* =============================================================================
+   1. Variables
+   ========================================================================== */
+
+:root {
+  /* --- Tipografia del sistema (sin descargas) --------------------------- */
+  --erp-font-sans:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
+    Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+  --erp-font-mono:
+    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+
+  /* --- Forma ------------------------------------------------------------ */
+  --erp-radius-sm: 8px;
+  --erp-radius-md: 12px;
+  --erp-radius-lg: 20px;
+  --erp-radius-pill: 999px;
+
+  /* --- Espaciado -------------------------------------------------------- */
+  --erp-space-1: 0.375rem;
+  --erp-space-2: 0.625rem;
+  --erp-space-3: 1rem;
+  --erp-space-4: 1.5rem;
+  --erp-space-5: 2rem;
+  --erp-space-6: 3rem;
+  --erp-gutter: clamp(1.25rem, 4vw, 3rem);
+
+  /* --- Color: superficies y texto --------------------------------------- */
+  --erp-bg: #f2f1f8;
+  --erp-bg-2: #e8e6f2;
+  --erp-surface: #ffffff;
+  --erp-surface-2: #f7f6fb;
+  --erp-text: #1a1830;
+  --erp-text-muted: #56546e;
+  --erp-border: #dcd9ea;
+  --erp-border-strong: #bcb7d3;
+
+  /* --- Color: identidad -------------------------------------------------- */
+  /* --erp-primary rellena botones (texto blanco encima);
+     --erp-accent tine texto y enlaces (debe leerse sobre la superficie). */
+  --erp-primary: #4c2fb0;
+  --erp-primary-hover: #3d2492;
+  --erp-primary-soft: #ece7fb;
+  --erp-on-primary: #ffffff;
+  --erp-accent: #4c2fb0;
+  --erp-focus: #6d4ae0;
+  --erp-focus-ring: 0 0 0 3px rgba(109, 74, 224, 0.32);
+
+  /* --- Color: panel de marca (degradado y superficies translucidas) ------ */
+  --erp-brand-gradient: linear-gradient(155deg, #241155 0%, #3b1f8f 46%, #0f5f66 100%);
+  --erp-on-brand: #ffffff;
+  --erp-on-brand-muted: rgba(255, 255, 255, 0.84);
+  --erp-brand-surface: rgba(255, 255, 255, 0.11);
+  --erp-brand-surface-strong: rgba(255, 255, 255, 0.2);
+  --erp-brand-border: rgba(255, 255, 255, 0.26);
+
+  /* --- Color: estados de aviso ------------------------------------------ */
+  --erp-danger: #b3261e;
+  --erp-danger-bg: #fdeceb;
+  --erp-warning: #8a5200;
+  --erp-warning-bg: #fdf3e2;
+  --erp-success: #0d6b46;
+  --erp-success-bg: #e8f6ef;
+  --erp-info: #17558c;
+  --erp-info-bg: #e9f1fd;
+
+  /* --- Color: sombras ---------------------------------------------------- */
+  --erp-shadow-sm: 0 1px 2px rgba(20, 16, 50, 0.08);
+  --erp-shadow-md: 0 10px 30px -14px rgba(20, 16, 50, 0.35), 0 2px 6px rgba(20, 16, 50, 0.06);
+  --erp-shadow-lg: 0 28px 64px -28px rgba(20, 16, 50, 0.5), 0 6px 16px rgba(20, 16, 50, 0.08);
+
+  /* --- Iconos: SVG embebido para usar como mascara ----------------------- */
+  /* Se pintan con background-color: currentColor, asi que siguen al texto. */
+  --erp-icon-eye: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12Z'/%3E%3Ccircle cx='12' cy='12' r='3'/%3E%3C/svg%3E");
+  --erp-icon-eye-off: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10.6 5.7A9.9 9.9 0 0 1 12 5.5c6.4 0 10 6.5 10 6.5a17.7 17.7 0 0 1-3.3 4.2'/%3E%3Cpath d='M6.6 7A17.6 17.6 0 0 0 2 12s3.6 6.5 10 6.5a9.7 9.7 0 0 0 4-.8'/%3E%3Cpath d='M9.9 9.9a3 3 0 0 0 4.2 4.2'/%3E%3Cpath d='m3 3 18 18'/%3E%3C/svg%3E");
+  --erp-icon-info: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M12 11v5.4'/%3E%3Cpath d='M12 7.7h.01'/%3E%3C/svg%3E");
+  --erp-icon-success: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6.5 9.4 17.1 4 11.7'/%3E%3C/svg%3E");
+  --erp-icon-warning: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3.2 1.9 20.6h20.2z'/%3E%3Cpath d='M12 9.6v4.6'/%3E%3Cpath d='M12 17.4h.01'/%3E%3C/svg%3E");
+  --erp-icon-error: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M12 7.4v5.2'/%3E%3Cpath d='M12 16.4h.01'/%3E%3C/svg%3E");
+
+  /* Respaldo para las alertas PatternFly de paginas heredadas que quedan fuera
+     de un .erp-alert: sin este valor la mascara seria invalida y el icono se
+     veria como un cuadrado solido. */
+  --erp-alert-icon: var(--erp-icon-info);
+}
+
+
+/* =============================================================================
+   2. Modo oscuro — redefine UNICAMENTE variables de color
+   ========================================================================== */
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --erp-bg: #0d0c14;
+    --erp-bg-2: #14131d;
+    --erp-surface: #171621;
+    --erp-surface-2: #1f1d2b;
+    --erp-text: #ecebf5;
+    --erp-text-muted: #a7a3bd;
+    --erp-border: #2e2b3f;
+    --erp-border-strong: #423e57;
+
+    --erp-primary: #6d4ae0;
+    --erp-primary-hover: #7c5cf0;
+    --erp-primary-soft: #221a44;
+    --erp-on-primary: #ffffff;
+    --erp-accent: #b3a0ff;
+    --erp-focus: #9b82ff;
+    --erp-focus-ring: 0 0 0 3px rgba(155, 130, 255, 0.35);
+
+    --erp-brand-gradient: linear-gradient(155deg, #170e33 0%, #2c1670 46%, #0b4950 100%);
+    --erp-on-brand: #ffffff;
+    --erp-on-brand-muted: rgba(255, 255, 255, 0.8);
+    --erp-brand-surface: rgba(255, 255, 255, 0.1);
+    --erp-brand-surface-strong: rgba(255, 255, 255, 0.18);
+    --erp-brand-border: rgba(255, 255, 255, 0.22);
+
+    --erp-danger: #ff9d95;
+    --erp-danger-bg: #2c1518;
+    --erp-warning: #f0c274;
+    --erp-warning-bg: #2b2010;
+    --erp-success: #74dfae;
+    --erp-success-bg: #10251d;
+    --erp-info: #8fc2ff;
+    --erp-info-bg: #14202f;
+
+    --erp-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5);
+    --erp-shadow-md: 0 10px 30px -14px rgba(0, 0, 0, 0.8), 0 2px 6px rgba(0, 0, 0, 0.4);
+    --erp-shadow-lg: 0 28px 64px -28px rgba(0, 0, 0, 0.9), 0 6px 16px rgba(0, 0, 0, 0.45);
+  }
+}
+
+
+/* =============================================================================
+   3. Reset acotado al tema
+   ========================================================================== */
+
+.erp-html,
+.erp-html *,
+.erp-html *::before,
+.erp-html *::after {
+  box-sizing: border-box;
+}
+
+.erp-html {
+  height: 100%;
+  /* Que los controles nativos (scrollbars, autofill, checkbox) sigan al tema. */
+  color-scheme: light dark;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+.erp-body {
+  margin: 0;
+  min-height: 100%;
+  font-family: var(--erp-font-sans);
+  font-size: 1rem;
+  line-height: 1.55;
+  color: var(--erp-text);
+  background-color: var(--erp-bg);
+  /* Red de seguridad: ningun ancho debe producir scroll horizontal. */
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+.erp-html h1,
+.erp-html h2,
+.erp-html h3,
+.erp-html p,
+.erp-html ul,
+.erp-html ol,
+.erp-html figure {
+  margin: 0;
+}
+
+.erp-html ul,
+.erp-html ol {
+  padding: 0;
+  list-style: none;
+}
+
+.erp-html img,
+.erp-html svg {
+  max-width: 100%;
+}
+
+.erp-html button,
+.erp-html input,
+.erp-html select,
+.erp-html textarea {
+  font: inherit;
+  color: inherit;
+}
+
+/* Palabras muy largas (correos, tokens) nunca ensanchan el layout. */
+.erp-html p,
+.erp-html label,
+.erp-html a,
+.erp-html span,
+.erp-html h1,
+.erp-html h2,
+.erp-html h3 {
+  overflow-wrap: break-word;
+}
+
+/* Foco visible y consistente en todo lo interactivo. */
+.erp-html :focus-visible {
+  outline: 2px solid var(--erp-focus);
+  outline-offset: 2px;
+}
+
+
+/* =============================================================================
+   4. Estructura
+   ========================================================================== */
+
+.erp-layout {
+  display: grid;
+  /* minmax(0, …) evita que el contenido fuerce columnas mas anchas que la rejilla. */
+  grid-template-columns: minmax(0, 42%) minmax(0, 1fr);
+  min-height: 100vh;
+  min-height: 100dvh;
+  width: 100%;
+}
+
+/* Banda de degradado que solo se usa en la version apilada (ver seccion 12). */
+.erp-layout::before {
+  content: none;
+}
+
+.erp-brand,
+.erp-panel {
+  min-width: 0;
+}
+
+/* --- Panel de marca (izquierda) ---------------------------------------- */
+
+.erp-brand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--erp-gutter);
+  color: var(--erp-on-brand);
+  background-image: var(--erp-brand-gradient);
+  background-repeat: no-repeat;
+  background-size: cover;
+}
+
+.erp-brand__inner {
+  display: flex;
+  flex-direction: column;
+  gap: var(--erp-space-4);
+  width: 100%;
+  max-width: 30rem;
+}
+
+.erp-brand__logo {
+  width: 3rem;
+  height: 3rem;
+  color: var(--erp-on-brand);
+  filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.35));
+}
+
+.erp-brand__title {
+  font-size: clamp(1.75rem, 1.2rem + 1.6vw, 2.5rem);
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  margin-top: calc(var(--erp-space-2) * -1);
+}
+
+.erp-brand__tagline {
+  max-width: 34ch;
+  color: var(--erp-on-brand-muted);
+  font-size: 1.0625rem;
+}
+
+.erp-brand__points {
+  display: flex;
+  flex-direction: column;
+  gap: var(--erp-space-2);
+}
+
+.erp-brand__point {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--erp-space-2);
+  font-size: 0.9375rem;
+  color: var(--erp-on-brand);
+}
+
+.erp-brand__point-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 1.375rem;
+  height: 1.375rem;
+  margin-top: 0.1rem;
+  border-radius: var(--erp-radius-pill);
+  background-color: var(--erp-brand-surface-strong);
+  border: 1px solid var(--erp-brand-border);
+  color: var(--erp-on-brand);
+}
+
+.erp-brand__point-icon svg {
+  width: 0.875rem;
+  height: 0.875rem;
+  display: block;
+}
+
+/* --- Panel del formulario (derecha) ------------------------------------ */
+
+.erp-panel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--erp-gutter);
+  background-color: var(--erp-bg);
+}
+
+
+/* =============================================================================
+   5. Chuleta de usuarios de demostracion
+   ========================================================================== */
+
+.erp-users {
+  display: flex;
+  flex-direction: column;
+  gap: var(--erp-space-2);
+  margin-top: var(--erp-space-2);
+}
+
+.erp-users__title {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--erp-on-brand-muted);
+}
+
+.erp-user {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--erp-space-1) var(--erp-space-2);
+  padding: var(--erp-space-2) var(--erp-space-3);
+  border: 1px solid var(--erp-brand-border);
+  border-radius: var(--erp-radius-md);
+  background-color: var(--erp-brand-surface);
+  color: var(--erp-on-brand);
+}
+
+.erp-user__head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.erp-user__name {
+  font-family: var(--erp-font-mono);
+  font-size: 0.9375rem;
+  font-weight: 700;
+}
+
+.erp-user__role {
+  font-size: 0.75rem;
+  color: var(--erp-on-brand-muted);
+}
+
+.erp-user__perms {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+/* Chips de permisos: blanco puro sobre superficie translucida => AA holgado. */
+.erp-perm {
+  display: inline-block;
+  padding: 0.1rem 0.45rem;
+  border: 1px solid var(--erp-brand-border);
+  border-radius: var(--erp-radius-pill);
+  background-color: var(--erp-brand-surface-strong);
+  color: var(--erp-on-brand);
+  font-family: var(--erp-font-mono);
+  font-size: 0.6875rem;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+.erp-user__use {
+  grid-column: 2;
+  grid-row: 1;
+  justify-self: end;
+  padding: 0.3rem 0.7rem;
+  border: 1px solid var(--erp-brand-border);
+  border-radius: var(--erp-radius-pill);
+  background-color: var(--erp-brand-surface-strong);
+  color: var(--erp-on-brand);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+}
+
+.erp-user__use:hover {
+  background-color: rgba(255, 255, 255, 0.3);
+  border-color: rgba(255, 255, 255, 0.45);
+}
+
+.erp-user__use:active {
+  transform: translateY(1px);
+}
+
+.erp-user__use:focus-visible {
+  outline: 2px solid var(--erp-on-brand);
+  outline-offset: 2px;
+}
+
+.erp-user__use[disabled] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.erp-users__note {
+  margin-top: var(--erp-space-1);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--erp-on-brand-muted);
+}
+
+
+/* =============================================================================
+   6. Tarjeta, cabecera y selector de idioma
+   ========================================================================== */
+
+.erp-card {
+  width: 100%;
+  max-width: 440px;
+  margin: 0 auto;
+  padding: clamp(1.5rem, 1rem + 2vw, 2.5rem);
+  background-color: var(--erp-surface);
+  border: 1px solid var(--erp-border);
+  border-radius: var(--erp-radius-lg);
+  box-shadow: var(--erp-shadow-lg);
+}
+
+.erp-card__head {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: var(--erp-space-4);
+}
+
+.erp-card__title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: -0.015em;
+  color: var(--erp-text);
+}
+
+.erp-card__subtitle {
+  margin-top: var(--erp-space-1);
+  font-size: 0.9375rem;
+  color: var(--erp-text-muted);
+}
+
+.erp-card__subtitle .required {
+  color: var(--erp-danger);
+}
+
+.erp-card__body {
+  display: block;
+}
+
+/* Eco del usuario ya identificado (pantallas con auth.showUsername()). */
+.erp-username-echo {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--erp-space-1) var(--erp-space-2);
+  margin-top: var(--erp-space-3);
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--erp-border);
+  border-radius: var(--erp-radius-md);
+  background-color: var(--erp-surface-2);
+  font-size: 0.875rem;
+  min-width: 0;
+}
+
+.erp-username-echo label {
+  font-family: var(--erp-font-mono);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
+.erp-restart-link {
+  color: var(--erp-accent);
+  font-size: 0.8125rem;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.erp-restart-link:hover {
+  text-decoration-thickness: 2px;
+}
+
+/* --- Selector de idioma ------------------------------------------------- */
+/* menu-button-links.js (tema base) abre el menu poniendo style="display:block"
+   en el elemento [role="menu"] y aria-expanded="true" en el boton, y al cerrar
+   quita esa propiedad en linea. Por eso la lista se oculta con display:none:
+   el estilo en linea del script tiene prioridad y la muestra. */
+
+.erp-locale {
+  align-self: flex-end;
+  margin-bottom: var(--erp-space-2);
+}
+
+.erp-locale__dropdown {
+  position: relative;
+}
+
+.erp-locale__button,
+.erp-locale__dropdown > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0.65rem;
+  border: 1px solid var(--erp-border);
+  border-radius: var(--erp-radius-pill);
+  background-color: var(--erp-surface-2);
+  color: var(--erp-text-muted);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.erp-locale__button::after,
+.erp-locale__dropdown > button::after {
+  content: "";
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid currentColor;
+}
+
+.erp-locale__button:hover,
+.erp-locale__dropdown > button:hover {
+  color: var(--erp-text);
+  border-color: var(--erp-border-strong);
+}
+
+.erp-locale__list {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  inset-inline-end: 0;
+  z-index: 30;
+  display: none;
+  min-width: 9rem;
+  padding: 0.25rem;
+  margin: 0;
+  border: 1px solid var(--erp-border);
+  border-radius: var(--erp-radius-md);
+  background-color: var(--erp-surface);
+  box-shadow: var(--erp-shadow-md);
+}
+
+/* Respaldo declarativo por si el estilo en linea no llegara a aplicarse. */
+.erp-locale__dropdown > button[aria-expanded="true"] + .erp-locale__list {
+  display: block;
+}
+
+.erp-locale__list li {
+  list-style: none;
+}
+
+.erp-locale__item {
+  display: block;
+  padding: 0.4rem 0.6rem;
+  border-radius: var(--erp-radius-sm);
+  color: var(--erp-text);
+  font-size: 0.875rem;
+  text-decoration: none;
+}
+
+.erp-locale__item:hover,
+.erp-locale__item:focus {
+  background-color: var(--erp-primary-soft);
+  color: var(--erp-text);
+}
+
+
+/* =============================================================================
+   7. Formularios
+   ========================================================================== */
+
+.erp-field {
+  margin-bottom: var(--erp-space-3);
+}
+
+.erp-label {
+  display: block;
+  margin-bottom: 0.35rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--erp-text);
+}
+
+.erp-input,
+.erp-card__body select,
+.erp-card__body textarea {
+  display: block;
+  width: 100%;
+  min-height: 2.875rem;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid var(--erp-border-strong);
+  border-radius: var(--erp-radius-md);
+  background-color: var(--erp-surface);
+  color: var(--erp-text);
+  font-size: 1rem; /* 16px: evita el zoom automatico en iOS */
+  line-height: 1.4;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+}
+
+.erp-input::placeholder {
+  color: var(--erp-text-muted);
+  opacity: 0.8;
+}
+
+.erp-input:hover,
+.erp-card__body select:hover,
+.erp-card__body textarea:hover {
+  border-color: var(--erp-focus);
+}
+
+.erp-input:focus-visible,
+.erp-input:focus,
+.erp-card__body select:focus,
+.erp-card__body textarea:focus {
+  /* Contorno transparente en lugar de `outline: none`: asi el modo de colores
+     forzados del sistema sigue pintando un foco visible. */
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  border-color: var(--erp-focus);
+  box-shadow: var(--erp-focus-ring);
+}
+
+.erp-input[disabled],
+.erp-input[readonly] {
+  background-color: var(--erp-surface-2);
+  color: var(--erp-text-muted);
+  cursor: not-allowed;
+}
+
+/* Estado de error: lo emite la plantilla con aria-invalid="true". */
+.erp-input[aria-invalid="true"] {
+  border-color: var(--erp-danger);
+}
+
+.erp-input[aria-invalid="true"]:focus,
+.erp-input[aria-invalid="true"]:focus-visible {
+  border-color: var(--erp-danger);
+  box-shadow: 0 0 0 3px var(--erp-danger-bg);
+}
+
+.erp-field-error {
+  display: block;
+  margin-top: 0.4rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--erp-danger);
+}
+
+/* --- Grupo de entrada con boton de mostrar/ocultar --------------------- */
+
+.erp-input-group {
+  position: relative;
+  display: block;
+  width: 100%;
+}
+
+/* Hueco reservado para que el boton nunca tape el texto escrito. */
+.erp-input-group .erp-input {
+  padding-inline-end: 3rem;
+}
+
+.erp-toggle {
+  position: absolute;
+  inset-inline-end: 0.35rem;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  padding: 0;
+  border: 0;
+  border-radius: var(--erp-radius-sm);
+  background-color: transparent;
+  color: var(--erp-text-muted);
+  cursor: pointer;
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.erp-toggle:hover {
+  color: var(--erp-text);
+  background-color: var(--erp-primary-soft);
+}
+
+/* --- Fila de opciones (recordarme / olvide mi contrasena) -------------- */
+
+.erp-options {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+}
+
+.erp-options > * {
+  min-width: 0;
+}
+
+/* En nuestro login.ftl la clase va SOBRE el <label>; en las paginas heredadas
+   del tema base la estructura es <div class="checkbox"><label>. Se cubren las
+   dos formas para que la fila de "recordarme" se vea igual en ambas. */
+.erp-checkbox,
+.erp-options .checkbox label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: var(--erp-text-muted);
+  cursor: pointer;
+}
+
+.erp-options .checkbox {
+  display: flex;
+  align-items: center;
+}
+
+.erp-html input[type="checkbox"] {
+  width: 1rem;
+  height: 1rem;
+  margin: 0;
+  accent-color: var(--erp-primary);
+  cursor: pointer;
+}
+
+
+/* =============================================================================
+   8. Botones y enlaces
+   ========================================================================== */
+
+.erp-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.65rem 1.1rem;
+  border: 1px solid transparent;
+  border-radius: var(--erp-radius-md);
+  background-color: var(--erp-surface-2);
+  color: var(--erp-text);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  line-height: 1.2;
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease,
+    color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+.erp-btn:active {
+  transform: translateY(1px);
+}
+
+.erp-btn[disabled],
+.erp-btn[aria-disabled="true"] {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.erp-btn--primary {
+  background-color: var(--erp-primary);
+  border-color: var(--erp-primary);
+  color: var(--erp-on-primary);
+  box-shadow: var(--erp-shadow-sm);
+}
+
+.erp-btn--primary:hover {
+  background-color: var(--erp-primary-hover);
+  border-color: var(--erp-primary-hover);
+}
+
+.erp-btn--ghost {
+  background-color: transparent;
+  border-color: var(--erp-border-strong);
+  color: var(--erp-text);
+}
+
+.erp-btn--ghost:hover {
+  background-color: var(--erp-surface-2);
+  border-color: var(--erp-focus);
+}
+
+.erp-btn--block {
+  display: flex;
+  width: 100%;
+}
+
+.erp-btn--lg {
+  padding: 0.85rem 1.25rem;
+  font-size: 1rem;
+  border-radius: var(--erp-radius-md);
+}
+
+/* Los enlaces con aspecto de boton quedan fuera: ya tienen su propio estilo. */
+.erp-link,
+.erp-card__body a:not(.erp-btn):not(.erp-social__link),
+.erp-options a {
+  color: var(--erp-accent);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.erp-link:hover,
+.erp-card__body a:not(.erp-btn):not(.erp-social__link):hover,
+.erp-options a:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+
+/* =============================================================================
+   9. Avisos
+   ========================================================================== */
+
+/* Nuestras plantillas emiten .erp-alert--<tipo>; las plantillas heredadas del
+   tema base emiten .alert-<tipo> (y .pf-m-*). Se cubren ambas variantes. */
+
+.erp-alert {
+  --erp-alert-fg: var(--erp-info);
+  --erp-alert-bg: var(--erp-info-bg);
+  --erp-alert-icon: var(--erp-icon-info);
+
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  margin-bottom: var(--erp-space-3);
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--erp-border);
+  border-inline-start: 4px solid var(--erp-alert-fg);
+  border-radius: var(--erp-radius-md);
+  background-color: var(--erp-alert-bg);
+  color: var(--erp-text);
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.erp-alert--error,
+.erp-alert.alert-error,
+.erp-alert.pf-m-danger {
+  --erp-alert-fg: var(--erp-danger);
+  --erp-alert-bg: var(--erp-danger-bg);
+  --erp-alert-icon: var(--erp-icon-error);
+}
+
+.erp-alert--warning,
+.erp-alert.alert-warning,
+.erp-alert.pf-m-warning {
+  --erp-alert-fg: var(--erp-warning);
+  --erp-alert-bg: var(--erp-warning-bg);
+  --erp-alert-icon: var(--erp-icon-warning);
+}
+
+.erp-alert--success,
+.erp-alert.alert-success,
+.erp-alert.pf-m-success {
+  --erp-alert-fg: var(--erp-success);
+  --erp-alert-bg: var(--erp-success-bg);
+  --erp-alert-icon: var(--erp-icon-success);
+}
+
+.erp-alert--info,
+.erp-alert.alert-info,
+.erp-alert.pf-m-info {
+  --erp-alert-fg: var(--erp-info);
+  --erp-alert-bg: var(--erp-info-bg);
+  --erp-alert-icon: var(--erp-icon-info);
+}
+
+.erp-alert__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 1.125rem;
+  height: 1.125rem;
+  margin-top: 0.15rem;
+  color: var(--erp-alert-fg);
+}
+
+.erp-alert__icon svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.erp-alert__text {
+  min-width: 0;
+  color: var(--erp-text);
+}
+
+.erp-alert__text a {
+  color: var(--erp-accent);
+}
+
+/* Avisos de las paginas heredadas que dibujan su propia alerta PatternFly
+   (p. ej. login-recovery-authn-code-config.ftl, que no sobrescribimos): el
+   contenedor del icono llega vacio y lo pintamos por mascara. `--erp-alert-icon`
+   tiene valor por defecto en :root para que nunca quede un bloque solido. */
+.pf-c-alert__icon {
+  flex: none;
+  width: 1.125rem;
+  height: 1.125rem;
+  margin-top: 0.15rem;
+  background-color: var(--erp-alert-fg);
+  -webkit-mask-image: var(--erp-alert-icon);
+  mask-image: var(--erp-alert-icon);
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+}
+
+
+/* =============================================================================
+   10. Identidades federadas, info y pie
+   ========================================================================== */
+
+.erp-social {
+  margin-top: var(--erp-space-4);
+}
+
+.erp-social hr {
+  border: 0;
+  border-top: 1px solid var(--erp-border);
+  margin: 0 0 var(--erp-space-3);
+}
+
+.erp-social h2 {
+  margin-bottom: var(--erp-space-2);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--erp-text-muted);
+}
+
+.erp-social__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--erp-space-2);
+}
+
+.erp-social__item {
+  min-width: 0;
+}
+
+.erp-social__link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.65rem 1rem;
+  border: 1px solid var(--erp-border-strong);
+  border-radius: var(--erp-radius-md);
+  background-color: var(--erp-surface);
+  color: var(--erp-text);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.erp-social__link:hover {
+  background-color: var(--erp-surface-2);
+  border-color: var(--erp-focus);
+  text-decoration: none;
+}
+
+.erp-signup,
+#kc-info {
+  margin-top: var(--erp-space-4);
+  padding-top: var(--erp-space-3);
+  border-top: 1px solid var(--erp-border);
+  font-size: 0.875rem;
+  color: var(--erp-text-muted);
+  text-align: center;
+}
+
+.erp-footer {
+  margin-top: var(--erp-space-4);
+  padding-top: var(--erp-space-3);
+  border-top: 1px solid var(--erp-border);
+  font-size: 0.75rem;
+  line-height: 1.6;
+  color: var(--erp-text-muted);
+  text-align: center;
+}
+
+.erp-footer a {
+  color: var(--erp-accent);
+  font-weight: 600;
+}
+
+
+/* =============================================================================
+   11. Iconos por mascara
+   ========================================================================== */
+
+/* passwordVisibility.js sustituye el className completo del <i> por
+   "erp-icon erp-icon--eye" o "erp-icon erp-icon--eye-off". Por robustez, cada
+   uno de los tres selectores define por si solo tamano y presentacion. */
+.erp-icon,
+.erp-icon--eye,
+.erp-icon--eye-off {
+  display: inline-block;
+  flex: none;
+  width: 1.25rem;
+  height: 1.25rem;
+  background-color: currentColor;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+}
+
+.erp-icon--eye {
+  -webkit-mask-image: var(--erp-icon-eye);
+  mask-image: var(--erp-icon-eye);
+}
+
+.erp-icon--eye-off {
+  -webkit-mask-image: var(--erp-icon-eye-off);
+  mask-image: var(--erp-icon-eye-off);
+}
+
+
+/* =============================================================================
+   12. Adaptacion a pantallas estrechas (< 900 px)
+   ========================================================================== */
+
+/* Una sola columna. El panel de marca se disuelve (display: contents) para que
+   sus piezas se coloquen directamente en la rejilla: cabecera compacta arriba
+   (logo + titulo + frase sobre el degradado) y chuleta de usuarios DEBAJO del
+   formulario. La banda de degradado la pinta .erp-layout::before. */
+
+@media (max-width: 899.98px) {
+  .erp-layout {
+    grid-template-columns: auto minmax(0, 1fr);
+    align-content: start;
+    min-height: 100vh;
+    min-height: 100dvh;
+  }
+
+  .erp-layout::before {
+    content: "";
+    grid-column: 1 / -1;
+    grid-row: 1 / 3;
+    background-image: var(--erp-brand-gradient);
+    background-repeat: no-repeat;
+    background-size: cover;
+  }
+
+  .erp-brand,
+  .erp-brand__inner {
+    display: contents;
+  }
+
+  /* Posicionadas para quedar por encima de la banda de degradado. */
+  .erp-brand__logo,
+  .erp-brand__title,
+  .erp-brand__tagline {
+    position: relative;
+    color: var(--erp-on-brand);
+  }
+
+  .erp-brand__logo {
+    grid-column: 1;
+    grid-row: 1;
+    align-self: center;
+    width: 2.25rem;
+    height: 2.25rem;
+    margin: 1.1rem 0 0.9rem 1.25rem;
+  }
+
+  .erp-brand__title {
+    grid-column: 2;
+    grid-row: 1;
+    align-self: center;
+    margin: 0;
+    padding: 0 1.25rem 0 0.75rem;
+    font-size: 1.375rem;
+  }
+
+  .erp-brand__tagline {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    max-width: none;
+    padding: 0 1.25rem 1.25rem;
+    font-size: 0.875rem;
+  }
+
+  /* Los tres puntos de venta sobran en la cabecera compacta. */
+  .erp-brand__points {
+    display: none;
+  }
+
+  .erp-panel {
+    grid-column: 1 / -1;
+    grid-row: 3;
+    padding: clamp(1.25rem, 4vw, 2rem) 1rem;
+  }
+
+  /* Fuera del degradado: la chuleta se convierte en su propia tarjeta con el
+     mismo fondo, asi los chips translucidos conservan su contraste. */
+  .erp-users {
+    grid-column: 1 / -1;
+    grid-row: 4;
+    margin: 0 1rem 1.5rem;
+    padding: var(--erp-space-3);
+    border-radius: var(--erp-radius-lg);
+    background-image: var(--erp-brand-gradient);
+    background-repeat: no-repeat;
+    background-size: cover;
+    color: var(--erp-on-brand);
+    box-shadow: var(--erp-shadow-md);
+  }
+}
+
+/* Moviles muy estrechos (320 px): nada puede desbordar a lo ancho. */
+@media (max-width: 420px) {
+  .erp-card {
+    padding: 1.25rem 1rem;
+    border-radius: var(--erp-radius-md);
+  }
+
+  .erp-panel {
+    padding: 1.25rem 0.75rem;
+  }
+
+  .erp-users {
+    margin-inline: 0.75rem;
+  }
+
+  .erp-user {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .erp-user__use {
+    grid-column: 1;
+    grid-row: 3;
+    justify-self: start;
+  }
+
+  .erp-perm {
+    white-space: normal;
+  }
+
+  .erp-username-echo {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
+
+/* =============================================================================
+   13. Movimiento reducido
+   ========================================================================== */
+
+@media (prefers-reduced-motion: reduce) {
+  .erp-html *,
+  .erp-html *::before,
+  .erp-html *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .erp-btn:active,
+  .erp-user__use:active {
+    transform: none;
+  }
+}

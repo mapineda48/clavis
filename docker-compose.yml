@@ -66,6 +66,11 @@ services:
       KEYCLOAK_API_CLIENT_ID: ${KEYCLOAK_API_CLIENT_ID:-erp-api}
       KEYCLOAK_API_CLIENT_SECRET: ${KEYCLOAK_API_CLIENT_SECRET:-erp_api_dev_secret}
       KEYCLOAK_PUBLIC_URL: ${KEYCLOAK_PUBLIC_URL:-http://localhost:8080}
+      # --- tema de la pantalla de login
+      # Sustituye el marcador __KEYCLOAK_LOGIN_THEME__ de la plantilla del realm.
+      # `erp` es el tema propio de ./infra/keycloak/themes/erp; `keycloak` vuelve
+      # al tema que trae el servidor.
+      KEYCLOAK_LOGIN_THEME: ${KEYCLOAK_LOGIN_THEME:-erp}
       # --- URLs del SPA (redirect URIs y web origins)
       APP_DEV_URL: ${APP_DEV_URL:-http://localhost:5173}
       APP_PROD_URL: ${APP_PROD_URL:-http://localhost:8081}
@@ -115,6 +120,14 @@ services:
       - "8080:8080"
     volumes:
       - keycloak-import:/opt/keycloak/data/import
+      # Tema de login propio (`erp`), en solo lectura.
+      # Montar encima de /opt/keycloak/themes es seguro: en la imagen oficial ese
+      # directorio solo contiene un README. Los temas integrados (base, keycloak,
+      # keycloak.v2) NO estan ahi, viajan dentro de los JAR del servidor, asi que
+      # este montaje no tapa nada y `parent=base` se sigue resolviendo.
+      # Con `start-dev` los temas no se cachean: editar un .ftl o el CSS y
+      # recargar el navegador basta (ver README y docs/operacion.md).
+      - ./infra/keycloak/themes:/opt/keycloak/themes:ro
     healthcheck:
       # La imagen no trae curl ni wget: hablamos HTTP a pelo con /dev/tcp de bash
       # contra el puerto de management (9000) y buscamos el estado UP.

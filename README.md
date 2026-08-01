@@ -23,6 +23,8 @@ datos versionadas con checksum.
   asignado; con ese permiso ves todo.
 - **Provisión JIT de usuarios**: la primera petición autenticada crea/actualiza la fila en
   `erp.users` usando el `sub` del token como clave primaria.
+- **Tema de login propio en Freemarker**: pantalla partida con la chuleta de usuarios demo,
+  heredando de `base` y sin dependencias externas ([detalle](#tema-de-login-propio)).
 - Infraestructura de apoyo: **PostgreSQL 17**, **Valkey** (caché con invalidación por versión),
   **Azurite** (adjuntos en blob storage) y **Resend** (correo, con modo *dry-run*).
 
@@ -143,6 +145,117 @@ piden cambio en el primer login). El rol por defecto del realm (`default-roles-e
 Emails: `DEMO_*_EMAIL` en `.env.example` (`admin@erp.local`, `manager@erp.local`,
 `worker@erp.local`). Son dominios ficticios: sirven para probar el flujo de notificación, no
 para recibir correo real.
+
+---
+
+## Tema de login propio
+
+La pantalla de acceso **no es la que trae Keycloak**: el realm `erp` usa un tema Freemarker
+propio llamado **`erp`**, escrito a mano y sin dependencias externas (nada de CDNs ni fuentes
+remotas).
+
+### Qué se ve
+
+Una **pantalla partida**:
+
+- **Izquierda** — panel de marca con degradado: logo SVG en línea, el título *ERP Demo*, una
+  frase que recuerda que el acceso lo gobierna Keycloak, tres puntos (roles compuestos, permisos
+  por recurso, tokens JWT) y la **chuleta de usuarios demo**: `admin`, `manager` y `worker`, cada
+  uno con su rol de realm y sus permisos como *chips*. Cada tarjeta lleva un botón que **rellena
+  el campo usuario** y mueve el foco a la contraseña.
+- **Derecha** — la tarjeta con el formulario de acceso, centrada verticalmente.
+
+Por debajo de 900 px se apila en una sola columna: el panel de marca se reduce a una cabecera
+(logo + título) y la chuleta de usuarios queda accesible debajo del formulario. Hay tema claro y
+oscuro vía `prefers-color-scheme`, y selector de idioma **español/inglés**, porque el realm se
+importa con `internationalizationEnabled: true`, `supportedLocales: ["es","en"]` y
+`defaultLocale: "es"`.
+
+> **El tema no contiene ninguna contraseña.** La chuleta solo escribe el nombre de usuario; las
+> contraseñas de los usuarios demo siguen viviendo únicamente en `.env.example`.
+
+Para verla sin pasar por la SPA, abre <http://localhost:8080/realms/erp/account> en una ventana
+privada: la consola de cuenta del realm exige iniciar sesión y usa este mismo tema.
+
+### Dónde vive
+
+```
+infra/keycloak/themes/erp/
+├── theme.properties            # types=login
+└── login/
+    ├── theme.properties        # parent=base, styles, scripts, locales y mapeo de clases kc*
+    ├── template.ftl            # layout de pantalla partida (macro registrationLayout)
+    ├── login.ftl               # formulario de acceso + chuleta de usuarios
+    ├── footer.ftl  error.ftl  info.ftl
+    ├── login-page-expired.ftl  logout-confirm.ftl
+    ├── messages/               # messages_es.properties + messages_en.properties
+    └── resources/
+        ├── css/erp-login.css
+        └── js/erp-login.js
+```
+
+El directorio se monta en el contenedor desde `docker-compose.yml`:
+
+```yaml
+volumes:
+  - ./infra/keycloak/themes:/opt/keycloak/themes:ro
+```
+
+Montar encima de `/opt/keycloak/themes` es seguro: en la imagen oficial ese directorio **solo
+contiene un README**. Los temas integrados (`base`, `keycloak`, `keycloak.v2`) viajan dentro de
+los JAR del servidor, así que el montaje no tapa nada.
+
+### Qué hereda de `base`
+
+`login/theme.properties` empieza por `parent=base`, de modo que el tema **solo sobrescribe** las
+plantillas de la lista de arriba. Todo lo demás lo sigue sirviendo el tema `base` de Keycloak:
+
+- Las páginas que no tocamos (OTP, actualizar contraseña, verificar correo, seleccionar
+  autenticador…) adoptan igualmente el aspecto ERP gracias al **mapeo de propiedades**
+  (`kcInputClass=erp-input`, `kcButtonClass=erp-btn`, `kcAlertClass=erp-alert`, …) declarado en
+  `login/theme.properties`.
+- Los recursos JavaScript del propio servidor (`authChecker.js` para detectar sesión iniciada en
+  otra pestaña, `menu-button-links.js`, `passwordVisibility.js`) se resuelven por la cadena de
+  herencia: `${url.resourcesPath}/js/…` sigue apuntando a los del tema `base`.
+- Los textos no traducidos caen a los `messages_*.properties` de `base`.
+
+El realm aplica el tema con `"loginTheme": "__KEYCLOAK_LOGIN_THEME__"` en
+`infra/keycloak/realm-erp.template.json`; `render-realm.mjs` sustituye ese marcador por el valor
+de `KEYCLOAK_LOGIN_THEME` (por defecto `erp`).
+
+### Cómo iterar
+
+Keycloak arranca con `start-dev` y en ese modo **los temas no se cachean**, así que el ciclo es
+corto:
+
+| Qué cambias | Qué hace falta |
+|---|---|
+| Un `.ftl`, `resources/css/erp-login.css` o `resources/js/erp-login.js` | **Nada**: guarda y recarga el navegador (`Ctrl+Shift+R` para saltarte la caché del navegador) |
+| Cualquiera de los dos `theme.properties` | `docker compose restart keycloak` |
+| Añadir un archivo o un directorio nuevo al tema | `docker compose restart keycloak` |
+| El valor de `KEYCLOAK_LOGIN_THEME` | Reimportar el realm (`docker compose down -v && docker compose up -d --build`) o aplicarlo en caliente con `kcadm.sh` — ver [`docs/operacion.md`](docs/operacion.md#tema-de-login) |
+
+Comprobar que el montaje llegó al contenedor:
+
+```bash
+docker compose exec keycloak ls /opt/keycloak/themes/erp/login
+```
+
+### Volver al tema por defecto
+
+Cambia la variable en `.env` y reimporta:
+
+```dotenv
+KEYCLOAK_LOGIN_THEME=keycloak      # o keycloak.v2; erp para volver al propio
+```
+
+```bash
+docker compose down -v && docker compose up -d --build
+```
+
+Un realm **ya importado** no cambia de tema por editar la plantilla: Keycloak solo importa un
+realm que no exista todavía. Si no quieres perder los datos de la demo, aplícalo en caliente con
+`kcadm.sh` siguiendo [`docs/operacion.md`](docs/operacion.md#tema-de-login).
 
 ---
 
@@ -380,6 +493,7 @@ máquina y en cualquier momento:
 ├── docs/                       # arquitectura, autenticación y operación
 ├── infra/
 │   ├── keycloak/               # plantilla del realm + renderizador
+│   │   └── themes/erp/         # tema de login propio (Freemarker + CSS/JS, sin dependencias)
 │   ├── nginx/                  # configuración SPA + inyección de config en runtime
 │   └── postgres/               # init de la base de datos de Keycloak
 └── packages/

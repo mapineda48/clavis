@@ -72,6 +72,10 @@ docker compose config                   # ver el compose ya interpolado con el .
 `docker compose config` es la forma más rápida de comprobar qué valor final tienen las variables
 derivadas (`DATABASE_URL`, `KEYCLOAK_ISSUER`, `CORS_ORIGINS`, …) sin entrar en ningún contenedor.
 
+Para iterar sobre el **tema de login** (`infra/keycloak/themes/erp`) no hace falta ninguno de
+estos comandos: con `start-dev` los temas no se cachean y basta recargar el navegador, salvo que
+toques `theme.properties` o añadas archivos. Detalle en la [sección 8](#tema-de-login).
+
 ### Comprobaciones de salud
 
 ```bash
@@ -114,7 +118,12 @@ El servicio one-shot `keycloak-realm` sí se ejecuta en cada `up`, así que el f
 plantilla y al `.env`. Lo que no se refresca sin `-v` es lo que Keycloak ya guardó en Postgres.
 
 Regla práctica: **cualquier cambio en `infra/keycloak/realm-erp.template.json` o en las variables
-`DEMO_*`, `KEYCLOAK_*`, `APP_*_URL` exige `down -v`.**
+`DEMO_*`, `KEYCLOAK_*`, `APP_*_URL` exige `down -v`.** Eso incluye `KEYCLOAK_LOGIN_THEME`, que
+alimenta el campo `loginTheme` del realm; para ese caso concreto hay una alternativa en caliente
+con `kcadm.sh` que no borra datos, en la [sección 8](#tema-de-login).
+
+Los archivos del tema de login (`infra/keycloak/themes/`) **no** entran en esa regla: van por
+bind mount, no por el realm, y se recargan sin reimportar nada.
 
 Un reset borra también las tareas, los adjuntos y la auditoría. Para repoblar, entra en la SPA y
 pulsa "Crear datos de ejemplo", o llama a `POST /api/todos/seed-demo`.
@@ -404,9 +413,146 @@ con su **checksum**.
 
 ---
 
+<a id="tema-de-login"></a>
+
+## 8. Tema de login
+
+La pantalla de acceso del realm usa un tema Freemarker propio llamado **`erp`**.
+
+### Dónde vive y cómo llega al contenedor
+
+```
+infra/keycloak/themes/erp/
+├── theme.properties            # types=login
+└── login/
+    ├── theme.properties        # parent=base, styles, scripts, locales y mapeo de clases kc*
+    ├── template.ftl            # layout de pantalla partida (macro registrationLayout)
+    ├── login.ftl               # formulario + chuleta de usuarios demo
+    ├── footer.ftl  error.ftl  info.ftl
+    ├── login-page-expired.ftl  logout-confirm.ftl
+    ├── messages/               # messages_es.properties + messages_en.properties
+    └── resources/
+        ├── css/erp-login.css
+        └── js/erp-login.js
+```
+
+El servicio `keycloak` de `docker-compose.yml` lo monta en solo lectura:
+
+```yaml
+volumes:
+  - keycloak-import:/opt/keycloak/data/import
+  - ./infra/keycloak/themes:/opt/keycloak/themes:ro
+```
+
+Montar encima de `/opt/keycloak/themes` no rompe nada: en la imagen oficial ese directorio **solo
+contiene un README**; los temas integrados (`base`, `keycloak`, `keycloak.v2`) viajan dentro de
+los JAR del servidor. Por eso `parent=base` se sigue resolviendo y las páginas que el tema `erp`
+no sobrescribe (OTP, actualizar contraseña, verificar correo…) las sirve `base` con el mapeo de
+clases `kc*` declarado en `login/theme.properties`.
+
+Comprobación de que el montaje existe:
+
+```bash
+docker compose exec keycloak ls /opt/keycloak/themes/erp/login
+# error.ftl  footer.ftl  info.ftl  login.ftl  login-page-expired.ftl
+# logout-confirm.ftl  messages  resources  template.ftl  theme.properties
+```
+
+Quién selecciona el tema: el campo `loginTheme` del realm, que sale de
+`infra/keycloak/realm-erp.template.json` (`"loginTheme": "__KEYCLOAK_LOGIN_THEME__"`) y que
+`render-realm.mjs` sustituye por la variable `KEYCLOAK_LOGIN_THEME` (`.env`, por defecto `erp`).
+El mismo bloque activa los idiomas: `internationalizationEnabled: true`,
+`supportedLocales: ["es","en"]`, `defaultLocale: "es"`.
+
+### Editar el tema en caliente
+
+Keycloak arranca con `start-dev`, y en ese modo **no cachea los temas**:
+
+| Qué tocas | Qué hace falta |
+|---|---|
+| Un `.ftl`, `resources/css/erp-login.css`, `resources/js/erp-login.js` | Nada. Guardar y recargar el navegador con `Ctrl+Shift+R` |
+| Un `messages_*.properties` | Nada, recargar la página |
+| Cualquiera de los dos `theme.properties` | `docker compose restart keycloak` |
+| Añadir un archivo o directorio nuevo | `docker compose restart keycloak` |
+| Añadir o cambiar el montaje en `docker-compose.yml` | `docker compose up -d --force-recreate keycloak` (un `restart` **no** aplica volúmenes nuevos) |
+
+Para ver la pantalla sin arrancar la SPA, abre <http://localhost:8080/realms/erp/account> en una
+ventana privada: la consola de cuenta del realm exige login y usa el mismo tema.
+
+<a id="cambiar-el-tema-de-un-realm-ya-importado"></a>
+
+### Cambiar de tema (o volver al de por defecto)
+
+En `.env`:
+
+```dotenv
+KEYCLOAK_LOGIN_THEME=erp          # el tema propio
+# KEYCLOAK_LOGIN_THEME=keycloak   # tema integrado clásico
+# KEYCLOAK_LOGIN_THEME=keycloak.v2
+```
+
+Y después, **una de estas dos vías**:
+
+**A) Reimportar el realm** (limpio, pero borra los datos de la demo):
+
+```bash
+docker compose down -v
+docker compose up -d --build
+```
+
+**B) Aplicarlo en caliente con `kcadm.sh`** (conserva usuarios, tareas, adjuntos y auditoría).
+Un realm que ya existe **no** vuelve a importarse, así que editar la plantilla no basta:
+
+```bash
+set -a; source .env; set +a
+
+# 1. Autenticarse contra el realm master con el admin de bootstrap.
+#    --config fija dónde se guarda el token; /tmp siempre es escribible en el contenedor.
+docker compose exec keycloak /opt/keycloak/bin/kcadm.sh config credentials \
+  --config /tmp/kcadm.config \
+  --server http://localhost:8080 \
+  --realm master \
+  --user "$KC_BOOTSTRAP_ADMIN_USERNAME" \
+  --password "$KC_BOOTSTRAP_ADMIN_PASSWORD"
+
+# 2. Aplicar tema e idiomas al realm erp (sin tocar nada más)
+docker compose exec keycloak /opt/keycloak/bin/kcadm.sh update "realms/$KEYCLOAK_REALM" \
+  --config /tmp/kcadm.config \
+  -s "loginTheme=$KEYCLOAK_LOGIN_THEME" \
+  -s 'internationalizationEnabled=true' \
+  -s 'supportedLocales=["es","en"]' \
+  -s 'defaultLocale=es'
+
+# 3. Verificar
+docker compose exec keycloak /opt/keycloak/bin/kcadm.sh get "realms/$KEYCLOAK_REALM" \
+  --config /tmp/kcadm.config \
+  --fields realm,loginTheme,internationalizationEnabled,supportedLocales,defaultLocale
+# {
+#   "realm" : "erp",
+#   "loginTheme" : "erp",
+#   "internationalizationEnabled" : true,
+#   "supportedLocales" : [ "es", "en" ],
+#   "defaultLocale" : "es"
+# }
+```
+
+El cambio surte efecto en la siguiente carga de la pantalla de login; no hace falta reiniciar.
+
+Notas:
+
+- Es el admin de la consola (`KC_BOOTSTRAP_ADMIN_*`), no un usuario demo del realm `erp`.
+- El token de `kcadm` vive en `/tmp/kcadm.config` **dentro** del contenedor: se pierde al
+  recrearlo, y entonces hay que repetir el paso 1.
+- Lo mismo se puede hacer por la consola: <http://localhost:8080/admin> → realm `erp` →
+  *Realm settings* → *Themes* → *Login theme*.
+- Un cambio aplicado con `kcadm` o por consola **no se versiona**. Refléjalo también en `.env` /
+  `realm-erp.template.json` para que el siguiente arranque limpio lo conserve.
+
+---
+
 <a id="resolucion-de-problemas"></a>
 
-## 8. Resolución de problemas
+## 9. Resolución de problemas
 
 ### Keycloak tarda mucho en arrancar o aparece `unhealthy`
 
@@ -535,6 +681,71 @@ docker compose logs keycloak-realm            # el render debe terminar sin marc
 Si no quieres perder los datos de la demo, la alternativa es aplicar el cambio a mano en la
 consola de administración (<http://localhost:8080/admin>) **y además** reflejarlo en la plantilla,
 para que el siguiente arranque limpio lo conserve.
+
+### La pantalla de login sale sin estilos (o con el tema de Keycloak)
+
+Recórrelo en este orden; cada paso descarta una causa distinta.
+
+**1. Caché del navegador.** El servidor no cachea temas con `start-dev`, pero el navegador sí
+cachea `erp-login.css` y `erp-login.js` por URL. Recarga con `Ctrl+Shift+R`, o abre las
+herramientas de desarrollo → pestaña *Network* → *Disable cache*, o usa una ventana privada. En
+*Network*, `erp-login.css` debe responder **200**; un **404** significa que el archivo no está
+donde dice `styles=` en `login/theme.properties`.
+
+**2. ¿Llegó el montaje al contenedor?**
+
+```bash
+docker compose exec keycloak ls /opt/keycloak/themes/erp/login
+```
+
+Debe listar `template.ftl`, `login.ftl`, `theme.properties`, `messages` y `resources`. Si
+responde `No such file or directory`:
+
+```bash
+docker compose config | grep -A6 'keycloak:' | grep themes   # ¿está el bind mount?
+docker compose up -d --force-recreate keycloak               # añadir un volumen exige RECREAR
+```
+
+Un `docker compose restart keycloak` **no** aplica volúmenes nuevos: hay que recrear el
+contenedor.
+
+**3. ¿Qué tema tiene el realm de verdad?**
+
+```bash
+set -a; source .env; set +a
+docker compose exec keycloak /opt/keycloak/bin/kcadm.sh get "realms/$KEYCLOAK_REALM" \
+  --config /tmp/kcadm.config --fields realm,loginTheme
+```
+
+(Si no te has autenticado antes, ejecuta primero el paso 1 de
+[la sección 8](#cambiar-el-tema-de-un-realm-ya-importado).)
+
+Si `loginTheme` no es `erp`, la causa casi siempre es esta: **un realm ya importado no cambia de
+tema por editar la plantilla**. Keycloak solo importa un realm que no exista todavía en su base
+de datos, y esa base vive en el volumen `pg-data`. Dos salidas:
+
+```bash
+# Reimportar desde cero (borra datos de la demo)
+docker compose down -v && docker compose up -d --build
+```
+
+o aplicarlo en caliente sin perder datos con `kcadm.sh`, como se explica en
+[la sección 8](#cambiar-el-tema-de-un-realm-ya-importado).
+
+**4. ¿Has tocado `theme.properties` o añadido archivos?** Esos cambios sí necesitan reinicio:
+
+```bash
+docker compose restart keycloak
+docker compose logs --since=2m keycloak | grep -i -e theme -e freemarker
+```
+
+Un error de Freemarker en una plantilla aparece en ese log y hace que la página se sirva con el
+mensaje de error del servidor en vez del formulario.
+
+**5. Estilos a medias en una página que no es la de login** (OTP, actualizar contraseña,
+verificar correo). Esas plantillas las sirve el tema `base` y solo adoptan el aspecto ERP por el
+mapeo `kc*` de `infra/keycloak/themes/erp/login/theme.properties`. Si falta una propiedad, ese
+elemento sale sin clase. Añádela ahí y reinicia el contenedor.
 
 ### `render-realm.mjs` falla con "marcador sin sustituir"
 
