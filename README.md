@@ -8,6 +8,30 @@ Todo el stack se levanta con `docker compose` y queda igual en cualquier máquin
 fijadas, imágenes con tag exacto, realm importado de forma declarativa y migraciones de base de
 datos versionadas con checksum.
 
+![Pantalla de acceso del laboratorio](docs/img/login.png)
+
+> La pantalla de login es un **tema propio en Freemarker**, no el de Keycloak. La chuleta de la
+> izquierda lista los tres usuarios de demostración con sus permisos y rellena el formulario al
+> pulsar «Usar»: el objetivo del laboratorio es que compares, en la misma pantalla, qué cambia
+> según con quién entres.
+
+---
+
+> [!WARNING]
+> **Esto es un laboratorio de aprendizaje, no una plantilla de producción.**
+>
+> - Las credenciales de `.env.example` (`Admin123!`, `erp_dev_password`, `erp_api_dev_secret`…)
+>   son **valores de desarrollo local a la vista de todo el mundo**. Nunca las reutilices.
+> - El realm usa `sslRequired: "none"` y Keycloak arranca en `start-dev`: sin HTTPS, con la
+>   consola de administración abierta en `localhost:8080` y sin caché de temas.
+> - `bruteForceProtected` está desactivado y las sesiones son largas, para que la demostración
+>   no se interrumpa.
+> - El único secreto real del proyecto es `RESEND_API_KEY`, y vive solo en `.env`, que está en
+>   `.gitignore` y **nunca se ha versionado**.
+>
+> Para llevar algo de aquí a un entorno real: HTTPS obligatorio, `start` en vez de `start-dev`,
+> protección contra fuerza bruta, secretos en un gestor de secretos y credenciales rotadas.
+
 ## Qué demuestra
 
 - **OIDC + PKCE `S256`** desde una SPA de React contra un cliente público (`erp-app`).
@@ -25,6 +49,9 @@ datos versionadas con checksum.
   `erp.users` usando el `sub` del token como clave primaria.
 - **Tema de login propio en Freemarker**: pantalla partida con la chuleta de usuarios demo,
   heredando de `base` y sin dependencias externas ([detalle](#tema-de-login-propio)).
+- **Flujo completo de «he olvidado mi contraseña»**: enviado por Keycloak vía SMTP, con las
+  pantallas y el **correo** maquetados en el mismo tema
+  ([detalle](#recuperar-contraseña-he-olvidado-mi-contraseña)).
 - Infraestructura de apoyo: **PostgreSQL 17**, **Valkey** (caché con invalidación por versión),
   **Azurite** (adjuntos en blob storage) y **Resend** (correo, con modo *dry-run*).
 
@@ -170,6 +197,10 @@ Por debajo de 900 px se apila en una sola columna: el panel de marca se reduce a
 oscuro vía `prefers-color-scheme`, y selector de idioma **español/inglés**, porque el realm se
 importa con `internationalizationEnabled: true`, `supportedLocales: ["es","en"]` y
 `defaultLocale: "es"`.
+
+<p align="center">
+  <img src="docs/img/login-movil.png" alt="La misma pantalla de acceso a 390 px de ancho" width="360">
+</p>
 
 > **El tema no contiene ninguna contraseña.** La chuleta solo escribe el nombre de usuario; las
 > contraseñas de los usuarios demo siguen viviendo únicamente en `.env.example`.
@@ -413,6 +444,10 @@ KEYCLOAK_SMTP_PASSWORD: ${RESEND_API_KEY:-sin-configurar}
    cambia `DEMO_ADMIN_EMAIL` en tu `.env` por una dirección tuya antes de probarlo.
 
 ### El recorrido
+
+| Pedir el enlace | El correo que llega |
+|---|---|
+| ![Pantalla de recuperación](docs/img/recuperar-contrasena.png) | ![Correo de recuperación](docs/img/correo-recuperacion.png) |
 
 1. En el login, enlace **"¿Has olvidado la contraseña?"** (aparece porque el realm tiene
    `resetPasswordAllowed: true`).
