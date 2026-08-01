@@ -598,9 +598,46 @@ máquina y en cualquier momento:
 | `pnpm dev` | `make dev` | Arranca API y SPA en paralelo, fuera de Docker |
 | `pnpm build` | `make build` | Compila ambos paquetes |
 | `pnpm typecheck` | `make typecheck` | Comprueba tipos en todo el monorepo |
+| `pnpm run verify` | `make verify` | Verificación end-to-end (API + tema de login) |
 
 > Make no admite `:` en los nombres de objetivo, así que el único que cambia de nombre es
 > `up:full` → `up-full`.
 
 El resto de operaciones (psql, valkey-cli, blobs, migraciones, problemas frecuentes) está en
 [`docs/operacion.md`](docs/operacion.md).
+
+---
+
+## Verificación
+
+El laboratorio trae tres suites que se ejecutan **contra el stack en marcha**, no con mocks,
+porque las tres capas que lo componen se rompen de formas que no detecta el compilador:
+
+```bash
+pnpm run verify          # API + tema de login
+pnpm run verify:api      # permisos, caché, adjuntos y correo
+pnpm run verify:theme    # que el tema Freemarker siga autenticando
+pnpm run verify:reset    # recuperación de contraseña (requiere la CLI resend)
+```
+
+Lo que de verdad cubren:
+
+- **Permisos ejercitados desde fuera**: que `worker` recibe **403** al borrar y al pedir
+  `scope=all`, que `manager` entra en `/admin/users` pero no en `/admin/stats`, y que `admin`
+  entra en ambos. Si alguien afloja un `requirePermissions`, aquí salta.
+- **El flujo OIDC entero**: autorización con PKCE `S256` → formulario → *authorization code* →
+  canje por *access token*. Un tema propio puede renderizar perfecto y haber perdido el `id` del
+  formulario, y entonces nadie inicia sesión.
+- **El correo de recuperación de verdad**: se solicita, se **lee con la API de Resend**, se sigue
+  su enlace, se fija la contraseña y se comprueba que sirve para entrar.
+
+Detalle de cada una en [`scripts/README.md`](scripts/README.md).
+
+---
+
+## Licencia
+
+[MIT](LICENSE) © Miguel Angel Pineda Vega.
+
+Recuerda el aviso del principio: es un laboratorio de aprendizaje. La licencia te deja
+reutilizarlo, pero la configuración de seguridad de aquí **no** es apta para producción.

@@ -16,7 +16,8 @@ COMPOSE := docker compose -f $(ROOT_DIR)/docker-compose.yml --project-directory 
 KC_USER ?= admin
 
 .DEFAULT_GOAL := help
-.PHONY: help install dev build typecheck up up-full down reset logs ps token
+.PHONY: help install dev build typecheck up up-full down reset logs ps token \
+        verify verify-api verify-theme verify-reset
 
 help: ## Muestra esta tabla de targets
 	@printf '\n\033[1mERP Demo\033[0m — targets disponibles\n\n'
@@ -36,6 +37,17 @@ build: ## Compila todos los paquetes
 
 typecheck: ## Comprueba los tipos de todos los paquetes
 	$(PNPM) -r typecheck
+
+verify: verify-api verify-theme ## Verificacion end-to-end (API + tema de login)
+
+verify-api: ## Verifica permisos, cache, adjuntos y correo de la API
+	@bash $(ROOT_DIR)/scripts/verify-api.sh
+
+verify-theme: ## Verifica que el tema de login sigue autenticando
+	@bash $(ROOT_DIR)/scripts/verify-login-theme.sh
+
+verify-reset: ## Verifica el flujo de recuperar contrasena (requiere la CLI resend)
+	@bash $(ROOT_DIR)/scripts/verify-password-reset.sh
 
 up: ## Levanta la infraestructura y la API (docker compose)
 	$(COMPOSE) up -d --build
