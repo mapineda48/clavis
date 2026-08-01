@@ -1,21 +1,21 @@
 -- =============================================================================
--- 0001_init.sql — Esquema inicial del ERP demo.
--- Se aplica una única vez (el migrador registra el checksum en
--- erp.schema_migrations), pero está escrito de forma idempotente para que
--- reejecutarlo a mano sobre una base ya inicializada no rompa nada.
--- gen_random_uuid() es nativo en PostgreSQL 17: no se instala ninguna extensión.
+-- 0001_init.sql — Initial schema of the demo ERP.
+-- It is applied exactly once (the migrator stores the checksum in
+-- erp.schema_migrations), but it is written idempotently so that re-running it
+-- by hand against an already initialized database breaks nothing.
+-- gen_random_uuid() is built into PostgreSQL 17: no extension is installed.
 -- =============================================================================
 
 CREATE SCHEMA IF NOT EXISTS erp;
 
 COMMENT ON SCHEMA erp IS
-  'Esquema principal del ERP demo: usuarios, tareas, adjuntos y auditoría.';
+  'Main schema of the demo ERP: users, tasks, attachments and audit trail.';
 
 -- -----------------------------------------------------------------------------
--- Usuarios
+-- Users
 -- -----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS erp.users (
-  id            uuid PRIMARY KEY,                -- 'sub' de Keycloak
+  id            uuid PRIMARY KEY,                -- Keycloak 'sub'
   username      text NOT NULL UNIQUE,
   email         text,
   display_name  text,
@@ -25,16 +25,16 @@ CREATE TABLE IF NOT EXISTS erp.users (
 );
 
 COMMENT ON TABLE erp.users IS
-  'Usuarios del ERP. Se crean y actualizan "just in time" al validar el access token de Keycloak.';
+  'ERP users. They are created and refreshed just in time while validating the Keycloak access token.';
 COMMENT ON COLUMN erp.users.id IS
-  'Identificador del usuario: claim "sub" del access token de Keycloak.';
+  'User identifier: the "sub" claim of the Keycloak access token.';
 COMMENT ON COLUMN erp.users.username IS
-  'Claim "preferred_username" del token; único dentro del realm.';
+  'The "preferred_username" claim of the token; unique within the realm.';
 COMMENT ON COLUMN erp.users.last_seen_at IS
-  'Última vez que el usuario presentó un token válido contra la API.';
+  'Last time the user presented a valid token to the API.';
 
 -- -----------------------------------------------------------------------------
--- Tareas (todos)
+-- Tasks (todos)
 -- -----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS erp.todos (
   id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -52,20 +52,20 @@ CREATE TABLE IF NOT EXISTS erp.todos (
 );
 
 COMMENT ON TABLE erp.todos IS
-  'Tareas del ERP. Visibilidad: sin el permiso todos:read:all solo se ven las propias o las asignadas.';
+  'ERP tasks. Visibility: without the todos:read:all permission a user only sees their own or assigned tasks.';
 COMMENT ON COLUMN erp.todos.status IS
-  'Estado de la tarea: todo | in_progress | done.';
+  'Task status: todo | in_progress | done.';
 COMMENT ON COLUMN erp.todos.priority IS
-  'Prioridad de 1 (máxima) a 4 (mínima); 3 por defecto.';
+  'Priority from 1 (highest) to 4 (lowest); 3 by default.';
 COMMENT ON COLUMN erp.todos.owner_id IS
-  'Usuario que creó la tarea.';
+  'User who created the task.';
 COMMENT ON COLUMN erp.todos.assignee_id IS
-  'Usuario asignado; si se borra el usuario la tarea queda sin asignar.';
+  'Assigned user; if that user is deleted the task is left unassigned.';
 COMMENT ON COLUMN erp.todos.completed_at IS
-  'Momento en que la tarea pasó a estado done.';
+  'Moment the task moved to the done status.';
 
 -- -----------------------------------------------------------------------------
--- Adjuntos (los binarios viven en Azure Blob Storage / Azurite)
+-- Attachments (the binaries live in Azure Blob Storage / Azurite)
 -- -----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS erp.todo_attachments (
   id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -79,12 +79,12 @@ CREATE TABLE IF NOT EXISTS erp.todo_attachments (
 );
 
 COMMENT ON TABLE erp.todo_attachments IS
-  'Metadatos de los ficheros adjuntos a una tarea; el contenido se guarda en Azure Blob Storage.';
+  'Metadata of the files attached to a task; the content itself is stored in Azure Blob Storage.';
 COMMENT ON COLUMN erp.todo_attachments.blob_name IS
-  'Nombre del blob dentro del contenedor configurado en AZURE_STORAGE_CONTAINER.';
+  'Name of the blob inside the container configured in AZURE_STORAGE_CONTAINER.';
 
 -- -----------------------------------------------------------------------------
--- Auditoría
+-- Audit trail
 -- -----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS erp.audit_log (
   id         bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -97,14 +97,14 @@ CREATE TABLE IF NOT EXISTS erp.audit_log (
 );
 
 COMMENT ON TABLE erp.audit_log IS
-  'Registro de auditoría: una fila por cada escritura de dominio (crear, editar, borrar, adjuntar, notificar).';
+  'Audit trail: one row per domain write (create, edit, delete, attach, notify).';
 COMMENT ON COLUMN erp.audit_log.action IS
-  'Acción en formato entidad.verbo, por ejemplo todo.created.';
+  'Action in entity.verb form, for example todo.created.';
 COMMENT ON COLUMN erp.audit_log.actor_id IS
-  'Usuario que ejecutó la acción; sin clave foránea para conservar la traza aunque se borre el usuario.';
+  'User who performed the action; no foreign key, so the trail survives the deletion of the user.';
 
 -- -----------------------------------------------------------------------------
--- Índices
+-- Indexes
 -- -----------------------------------------------------------------------------
 CREATE INDEX IF NOT EXISTS idx_todos_owner_id
   ON erp.todos (owner_id);
@@ -118,7 +118,7 @@ CREATE INDEX IF NOT EXISTS idx_todo_attachments_todo_id
   ON erp.todo_attachments (todo_id);
 
 -- -----------------------------------------------------------------------------
--- Mantenimiento automático de updated_at
+-- Automatic maintenance of updated_at
 -- -----------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION erp.set_updated_at()
 RETURNS trigger
@@ -131,7 +131,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION erp.set_updated_at() IS
-  'Trigger BEFORE UPDATE: refresca la columna updated_at con la hora actual.';
+  'BEFORE UPDATE trigger: refreshes the updated_at column with the current time.';
 
 DROP TRIGGER IF EXISTS trg_users_set_updated_at ON erp.users;
 CREATE TRIGGER trg_users_set_updated_at

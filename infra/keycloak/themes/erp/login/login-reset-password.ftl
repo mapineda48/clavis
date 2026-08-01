@@ -1,23 +1,23 @@
 <#--
-    Paso 1 del flujo de recuperacion: pedir el usuario (o el correo) al que
-    enviar el enlace para crear una contrasena nueva.
+    Step 1 of the recovery flow: ask for the username (or email) the link to
+    create a new password should be sent to.
 
-    Adaptada del login-reset-password.ftl del tema `base` de Keycloak 26.4. Se
-    conserva TODO lo funcional del original:
-      - el formulario id="kc-reset-password-form" con action="${url.loginAction}"
-        y method="post",
-      - el campo name="username" con value="${(auth.attemptedUsername!'')}", su
-        aria-invalid y el bloque messagesPerField.existsError('username'),
-      - la etiqueta condicional segun realm.loginWithEmailAllowed y
+    Adapted from the login-reset-password.ftl of Keycloak 26.4's `base` theme.
+    EVERYTHING functional in the original is preserved:
+      - the form id="kc-reset-password-form" with action="${url.loginAction}"
+        and method="post",
+      - the name="username" field with value="${(auth.attemptedUsername!'')}", its
+        aria-invalid and the messagesPerField.existsError('username') block,
+      - the conditional label driven by realm.loginWithEmailAllowed and
         realm.registrationEmailAsUsername,
-      - el enlace a ${url.loginUrl} para volver al login,
-      - la seccion "info" con emailInstruction / emailInstructionUsername segun
-        realm.duplicateEmailsAllowed.
-    Lo unico que cambia es el marcado: usa las clases del tema.
+      - the link to ${url.loginUrl} to go back to the login screen,
+      - the "info" section with emailInstruction / emailInstructionUsername
+        depending on realm.duplicateEmailsAllowed.
+    Only the markup changes: it uses the theme classes.
 
-    Orden de tabulacion: 1 = idioma (lo fija template.ftl), 2..4 = formulario,
-    9..11 = botones de la chuleta de usuarios. Aqui existe el campo #username,
-    asi que erp-login.js los deja activos y sirven para rellenarlo.
+    Tab order: 1 = language (set by template.ftl), 2..4 = form, 9..11 = buttons of
+    the demo user cheat sheet. The #username field exists on this screen, so
+    erp-login.js leaves those buttons enabled and they do fill it in.
 -->
 <#import "template.ftl" as layout>
 <#global erpSubtitle = msg("erpResetSubtitle")>
@@ -55,7 +55,7 @@
             </div>
         </form>
     <#elseif section = "info">
-        <#-- Nunca se confirma si la cuenta existe: el texto vale para ambos casos. -->
+        <#-- We never confirm whether the account exists: the wording fits both cases. -->
         <p>
             <#if realm.duplicateEmailsAllowed>
                 ${msg("emailInstructionUsername")}

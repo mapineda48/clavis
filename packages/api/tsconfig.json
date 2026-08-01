@@ -1,7 +1,7 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    /* ESM estricto: todo import relativo debe llevar extensión .js */
+    /* Strict ESM: every relative import must carry the .js extension */
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "target": "ES2023",

@@ -1,20 +1,20 @@
-# --- dependencias
+# --- dependencies
 node_modules/
 .pnpm-store/
 
-# --- artefactos de build
+# --- build artefacts
 dist/
 build/
 coverage/
 *.tsbuildinfo
 .vite/
 
-# --- entorno: los valores reales nunca se versionan
+# --- environment: real values are never committed
 .env
 .env.*
 !.env.example
 
-# --- logs y basura del sistema operativo / editores
+# --- logs and OS / editor noise
 *.log
 .DS_Store
 .idea/

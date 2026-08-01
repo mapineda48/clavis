@@ -2,10 +2,11 @@ import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { useCreateTodo } from '../api/todos'
 import type { CreateTodoInput } from '../api/todos'
+import { useI18n } from '../i18n/I18nProvider'
 import {
   PRIORITIES,
-  PRIORITY_LABELS,
-  STATUS_LABELS,
+  PRIORITY_LABEL_KEYS,
+  STATUS_LABEL_KEYS,
   TODO_STATUSES,
   isTodoStatus,
   toPriority,
@@ -24,6 +25,7 @@ export function TodoForm() {
   const [form, setForm] = useState<CreateTodoInput>(EMPTY_FORM)
   const createTodo = useCreateTodo()
   const toast = useToast()
+  const { t } = useI18n()
 
   const update = (patch: Partial<CreateTodoInput>): void => {
     setForm((current) => ({ ...current, ...patch }))
@@ -33,7 +35,7 @@ export function TodoForm() {
     event.preventDefault()
     const title = form.title.trim()
     if (title === '') {
-      toast.error(new Error('El titulo es obligatorio.'))
+      toast.error(new Error(t('error.titleRequired')))
       return
     }
     createTodo.mutate(
@@ -41,7 +43,7 @@ export function TodoForm() {
       {
         onSuccess: (todo) => {
           setForm(EMPTY_FORM)
-          toast.success(`Tarea «${todo.title}» creada.`)
+          toast.success(t('toast.todoCreated', { title: todo.title }))
         },
         onError: (error) => {
           toast.error(error)
@@ -52,16 +54,16 @@ export function TodoForm() {
 
   return (
     <section className="panel">
-      <h2 className="panel__title">Nueva tarea</h2>
+      <h2 className="panel__title">{t('todo.formTitle')}</h2>
       <form className="todo-form" onSubmit={submit}>
         <label className="field field--wide">
-          <span className="field__label">Titulo</span>
+          <span className="field__label">{t('todo.fieldTitle')}</span>
           <input
             type="text"
             className="input"
             required
             maxLength={200}
-            placeholder="Revisar el cierre mensual"
+            placeholder={t('todo.fieldTitlePlaceholder')}
             value={form.title}
             onChange={(event) => {
               update({ title: event.target.value })
@@ -70,12 +72,12 @@ export function TodoForm() {
         </label>
 
         <label className="field field--wide">
-          <span className="field__label">Descripcion</span>
+          <span className="field__label">{t('todo.fieldDescription')}</span>
           <textarea
             className="input"
             rows={2}
             maxLength={2000}
-            placeholder="Detalles opcionales de la tarea"
+            placeholder={t('todo.fieldDescriptionPlaceholder')}
             value={form.description}
             onChange={(event) => {
               update({ description: event.target.value })
@@ -84,7 +86,7 @@ export function TodoForm() {
         </label>
 
         <label className="field">
-          <span className="field__label">Estado</span>
+          <span className="field__label">{t('todo.fieldStatus')}</span>
           <select
             className="input"
             value={form.status}
@@ -95,14 +97,14 @@ export function TodoForm() {
           >
             {TODO_STATUSES.map((value) => (
               <option key={value} value={value}>
-                {STATUS_LABELS[value]}
+                {t(STATUS_LABEL_KEYS[value])}
               </option>
             ))}
           </select>
         </label>
 
         <label className="field">
-          <span className="field__label">Prioridad</span>
+          <span className="field__label">{t('todo.fieldPriority')}</span>
           <select
             className="input"
             value={String(form.priority)}
@@ -112,14 +114,14 @@ export function TodoForm() {
           >
             {PRIORITIES.map((value) => (
               <option key={value} value={value}>
-                {value} · {PRIORITY_LABELS[value]}
+                {t('todo.priorityOption', { value, label: t(PRIORITY_LABEL_KEYS[value]) })}
               </option>
             ))}
           </select>
         </label>
 
         <label className="field">
-          <span className="field__label">Vencimiento</span>
+          <span className="field__label">{t('todo.fieldDueDate')}</span>
           <input
             type="date"
             className="input"
@@ -132,7 +134,7 @@ export function TodoForm() {
 
         <div className="todo-form__actions">
           <button type="submit" className="btn btn--primary" disabled={createTodo.isPending}>
-            {createTodo.isPending ? 'Creando…' : 'Crear tarea'}
+            {createTodo.isPending ? t('common.creating') : t('todo.createButton')}
           </button>
           <button
             type="button"
@@ -142,7 +144,7 @@ export function TodoForm() {
             }}
             disabled={createTodo.isPending}
           >
-            Limpiar
+            {t('common.clear')}
           </button>
         </div>
       </form>

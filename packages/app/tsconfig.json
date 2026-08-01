@@ -1,5 +1,5 @@
 {
-  // Configuracion de la SPA. Solo comprueba tipos: quien emite es Vite.
+  // SPA config. Type checking only: Vite is what emits.
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "target": "ES2023",

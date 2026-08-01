@@ -1,21 +1,21 @@
 import { z } from 'zod'
 
 /**
- * Configuración de la API leída de `process.env` y validada con zod.
+ * API configuration, read from `process.env` and validated with zod.
  *
- * Los valores por defecto son los de **desarrollo local** (infraestructura de
- * docker compose publicada en localhost) para que `pnpm dev` funcione sin
- * exportar nada a mano. En los contenedores, docker compose inyecta los valores
- * reales derivados del `.env` de la raíz.
+ * The defaults are the **local development** ones (the docker compose
+ * infrastructure published on localhost) so that `pnpm dev` works without
+ * exporting anything by hand. Inside the containers, docker compose injects the
+ * real values derived from the root `.env`.
  */
 
-/** Convierte cadenas vacías en `undefined` para poder tratarlas como ausentes. */
+/** Turns empty strings into `undefined` so they can be treated as absent. */
 const optionalText = z.preprocess(
   (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
   z.string().min(1).optional(),
 )
 
-/** Interpreta booleanos escritos como texto ("true", "1", "yes", "on"). */
+/** Reads booleans written as text ("true", "1", "yes", "on"). */
 const booleanFromText = z.preprocess((value) => {
   if (typeof value === 'boolean') return value
   if (typeof value !== 'string') return value
@@ -26,7 +26,7 @@ const booleanFromText = z.preprocess((value) => {
 }, z.boolean())
 
 const envSchema = z.object({
-  // --- proceso
+  // --- process
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   HOST: z.string().min(1).default('0.0.0.0'),
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
@@ -34,7 +34,7 @@ const envSchema = z.object({
     .enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'])
     .default('info'),
 
-  // --- CORS: lista separada por comas -> array de orígenes
+  // --- CORS: comma-separated list -> array of origins
   CORS_ORIGINS: z
     .string()
     .default('http://localhost:5173,http://localhost:8081')
@@ -52,16 +52,16 @@ const envSchema = z.object({
     .default('postgres://erp:erp_dev_password@localhost:5432/erp'),
 
   // --- keycloak
-  // Issuer público: el que viaja dentro del token (`iss`).
+  // Public issuer: the one carried inside the token (`iss`).
   KEYCLOAK_ISSUER: z.string().min(1).default('http://localhost:8080/realms/erp'),
-  // Issuer interno: desde donde la API descarga el JWKS (red de docker).
+  // Internal issuer: where the API downloads the JWKS from (docker network).
   KEYCLOAK_INTERNAL_ISSUER: z.string().min(1).default('http://localhost:8080/realms/erp'),
   KEYCLOAK_AUDIENCE: z.string().min(1).default('erp-api'),
 
   // --- valkey
   VALKEY_URL: z.string().min(1).default('redis://localhost:6379'),
 
-  // --- azure blob storage (Azurite en desarrollo)
+  // --- azure blob storage (Azurite in development)
   AZURE_STORAGE_CONNECTION_STRING: z
     .string()
     .min(1)
@@ -70,11 +70,11 @@ const envSchema = z.object({
     ),
   AZURE_STORAGE_CONTAINER: z.string().min(1).default('erp-attachments'),
 
-  // --- caché y subidas
+  // --- cache and uploads
   CACHE_TTL_SECONDS: z.coerce.number().int().min(1).max(86400).default(60),
   MAX_UPLOAD_BYTES: z.coerce.number().int().min(1024).default(10485760),
 
-  // --- correo (Resend)
+  // --- email (Resend)
   RESEND_API_KEY: optionalText,
   MAIL_FROM: z.string().min(1).default('ERP Demo <onboarding@resend.dev>'),
   MAIL_REPLY_TO: optionalText,
@@ -84,13 +84,13 @@ const envSchema = z.object({
 export type Env = z.infer<typeof envSchema>
 
 /**
- * Fuente de datos para el esquema.
+ * Input data for the schema.
  *
- * - Las variables vacías se descartan: docker compose sustituye por cadena
- *   vacía cualquier variable no definida en el `.env`, y eso debe equivaler a
- *   "no configurada" para que se apliquen los valores por defecto.
- * - `PORT` tiene prioridad sobre `API_PORT`; el contrato define `API_PORT` en
- *   el `.env` de la raíz, pero muchos entornos inyectan `PORT`.
+ * - Empty variables are dropped: docker compose replaces any variable missing
+ *   from the `.env` with an empty string, and that must mean "not configured"
+ *   so the defaults kick in.
+ * - `PORT` wins over `API_PORT`; the contract defines `API_PORT` in the root
+ *   `.env`, but many environments inject `PORT` instead.
  */
 function buildRawEnv(): Record<string, unknown> {
   const raw: Record<string, unknown> = {}
@@ -110,19 +110,19 @@ const parsed = envSchema.safeParse(rawEnv)
 if (!parsed.success) {
   const details = parsed.error.issues
     .map((issue) => {
-      const path = issue.path.length > 0 ? issue.path.join('.') : '(raíz)'
+      const path = issue.path.length > 0 ? issue.path.join('.') : '(root)'
       return `  - ${path}: ${issue.message}`
     })
     .join('\n')
 
   console.error(
-    ['', '[@erp/api] Configuración de entorno inválida:', details, ''].join('\n'),
+    ['', '[@erp/api] Invalid environment configuration:', details, ''].join('\n'),
   )
   process.exit(1)
 }
 
-/** Configuración validada y tipada de la API. */
+/** Validated and typed API configuration. */
 export const env: Env = parsed.data
 
-/** `true` cuando la API se ejecuta en modo desarrollo (logs con pino-pretty). */
+/** `true` when the API runs in development mode (pino-pretty logs). */
 export const isDevelopment: boolean = env.NODE_ENV === 'development'

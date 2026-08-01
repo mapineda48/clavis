@@ -1,6 +1,6 @@
 /**
- * Catálogo de permisos del ERP. Coinciden uno a uno con los *client roles* del
- * cliente `erp-api` en Keycloak y llegan en el token dentro de
+ * Permission catalogue of the ERP. They map one to one to the *client roles* of
+ * the `erp-api` client in Keycloak and arrive in the token under
  * `resource_access["erp-api"].roles`.
  */
 export const PERMISSIONS = [
@@ -14,7 +14,7 @@ export const PERMISSIONS = [
 
 export type Permission = (typeof PERMISSIONS)[number]
 
-/** Contexto de autenticación que se cuelga de `request.auth`. */
+/** Authentication context attached to `request.auth`. */
 export interface AuthContext {
   sub: string
   username: string
@@ -27,25 +27,25 @@ export interface AuthContext {
 
 const PERMISSION_SET: ReadonlySet<string> = new Set<string>(PERMISSIONS)
 
-/** Indica si una cadena cualquiera es un permiso conocido del catálogo. */
+/** Tells whether an arbitrary string is a known permission from the catalogue. */
 export function isPermission(value: unknown): value is Permission {
   return typeof value === 'string' && PERMISSION_SET.has(value)
 }
 
-/** Comprueba que el usuario autenticado tenga un permiso concreto. */
+/** Checks that the authenticated user holds a specific permission. */
 export function hasPermission(auth: AuthContext, perm: Permission): boolean {
   return auth.permissions.includes(perm)
 }
 
-/** `true` si el usuario puede ver las tareas de todo el mundo. */
+/** `true` if the user is allowed to see everybody's tasks. */
 export function canSeeAllTodos(auth: AuthContext): boolean {
   return hasPermission(auth, 'todos:read:all')
 }
 
 /**
- * Extrae los permisos del payload del access token.
- * Lee `resource_access[audience].roles` y descarta cualquier rol que no
- * pertenezca al catálogo `PERMISSIONS`.
+ * Extracts the permissions from the access token payload.
+ * Reads `resource_access[audience].roles` and drops any role that is not part
+ * of the `PERMISSIONS` catalogue.
  */
 export function extractPermissions(tokenPayload: unknown, audience: string): Permission[] {
   if (typeof tokenPayload !== 'object' || tokenPayload === null) return []
@@ -66,7 +66,7 @@ export function extractPermissions(tokenPayload: unknown, audience: string): Per
   return found
 }
 
-/** Extrae los roles de realm (`realm_access.roles`) del payload del token. */
+/** Extracts the realm roles (`realm_access.roles`) from the token payload. */
 export function extractRealmRoles(tokenPayload: unknown): string[] {
   if (typeof tokenPayload !== 'object' || tokenPayload === null) return []
 

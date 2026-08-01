@@ -1,643 +1,664 @@
-# ERP Demo con Keycloak
+# ERP Demo with Keycloak
 
-Demo **funcional y reproducible** de un mini-ERP (gestión de tareas / *todos*) cuyo control de
-acceso vive completo en **Keycloak**: la aplicación no guarda contraseñas, no define usuarios y
-no decide roles. Solo lee los permisos que vienen firmados dentro del *access token*.
+A **working, reproducible** demo of a mini-ERP (task / *todo* management) whose access control
+lives entirely in **Keycloak**: the application stores no passwords, defines no users and decides
+no roles. It only reads the permissions that arrive signed inside the *access token*.
 
-Todo el stack se levanta con `docker compose` y queda igual en cualquier máquina: versiones
-fijadas, imágenes con tag exacto, realm importado de forma declarativa y migraciones de base de
-datos versionadas con checksum.
+The whole stack comes up with `docker compose` and behaves the same on every machine: pinned
+versions, images with exact tags, a realm imported declaratively and database migrations
+versioned with checksums.
 
-![Pantalla de acceso del laboratorio](docs/img/login.png)
+![Sign-in screen of the lab](docs/img/login.png)
 
-> La pantalla de login es un **tema propio en Freemarker**, no el de Keycloak. La chuleta de la
-> izquierda lista los tres usuarios de demostración con sus permisos y rellena el formulario al
-> pulsar «Usar»: el objetivo del laboratorio es que compares, en la misma pantalla, qué cambia
-> según con quién entres.
+> The login screen is a **custom Freemarker theme**, not Keycloak's. The cheat sheet on the left
+> lists the three demo users with their permissions and fills the form when you press "Use": the
+> whole point of the lab is that you compare, on the same screen, what changes depending on who
+> you sign in as.
 
 ---
 
 > [!WARNING]
-> **Esto es un laboratorio de aprendizaje, no una plantilla de producción.**
+> **This is a learning lab, not a production template.**
 >
-> - Las credenciales de `.env.example` (`Admin123!`, `erp_dev_password`, `erp_api_dev_secret`…)
->   son **valores de desarrollo local a la vista de todo el mundo**. Nunca las reutilices.
-> - El realm usa `sslRequired: "none"` y Keycloak arranca en `start-dev`: sin HTTPS, con la
->   consola de administración abierta en `localhost:8080` y sin caché de temas.
-> - `bruteForceProtected` está desactivado y las sesiones son largas, para que la demostración
->   no se interrumpa.
-> - El único secreto real del proyecto es `RESEND_API_KEY`, y vive solo en `.env`, que está en
->   `.gitignore` y **nunca se ha versionado**.
+> - The credentials in `.env.example` (`Admin123!`, `erp_dev_password`, `erp_api_dev_secret`…)
+>   are **local development values in plain sight for everyone**. Never reuse them.
+> - The realm uses `sslRequired: "none"` and Keycloak runs in `start-dev`: no HTTPS, the admin
+>   console wide open on `localhost:8080`, and no theme cache.
+> - `bruteForceProtected` is off and sessions are long, so a demo never gets interrupted.
+> - The only real secret in the project is `RESEND_API_KEY`, and it lives only in `.env`, which
+>   is in `.gitignore` and **has never been committed**.
 >
-> Para llevar algo de aquí a un entorno real: HTTPS obligatorio, `start` en vez de `start-dev`,
-> protección contra fuerza bruta, secretos en un gestor de secretos y credenciales rotadas.
+> To take anything from here into a real environment: HTTPS enforced, `start` instead of
+> `start-dev`, brute-force protection, secrets in a secret manager and rotated credentials.
 
-## Qué demuestra
+## What it demonstrates
 
-- **OIDC + PKCE `S256`** desde una SPA de React contra un cliente público (`erp-app`).
-- **Separación entre roles de negocio y permisos técnicos**: los roles de realm
-  (`erp-user`, `erp-manager`, `erp-admin`) son *compuestos* y arrastran *client roles* de
-  `erp-api` que actúan como permisos finos (`todos:read`, `todos:delete`, `admin:manage`, …).
-  Añadir un permiso no obliga a reasignar usuarios.
-- **Validación de token en el backend sin librería de Keycloak**: `jose` + JWKS remoto,
-  comprobando `iss` y `aud`.
-- **Autorización real en el servidor** (`requirePermissions`) y **autorización cosmética en el
-  cliente** (`<Can perm="…">`): la UI oculta, la API prohíbe.
-- **Reglas de visibilidad por datos**: sin `todos:read:all` solo ves lo tuyo o lo que te han
-  asignado; con ese permiso ves todo.
-- **Provisión JIT de usuarios**: la primera petición autenticada crea/actualiza la fila en
-  `erp.users` usando el `sub` del token como clave primaria.
-- **Tema de login propio en Freemarker**: pantalla partida con la chuleta de usuarios demo,
-  heredando de `base` y sin dependencias externas ([detalle](#tema-de-login-propio)).
-- **Flujo completo de «he olvidado mi contraseña»**: enviado por Keycloak vía SMTP, con las
-  pantallas y el **correo** maquetados en el mismo tema
-  ([detalle](#recuperar-contraseña-he-olvidado-mi-contraseña)).
-- Infraestructura de apoyo: **PostgreSQL 17**, **Valkey** (caché con invalidación por versión),
-  **Azurite** (adjuntos en blob storage) y **Resend** (correo, con modo *dry-run*).
+- **OIDC + PKCE `S256`** from a React SPA against a public client (`erp-app`).
+- **Business roles kept apart from technical permissions**: the realm roles
+  (`erp-user`, `erp-manager`, `erp-admin`) are *composite* and pull in *client roles* of
+  `erp-api` that act as fine-grained permissions (`todos:read`, `todos:delete`, `admin:manage`,
+  …). Adding a permission does not force you to reassign users.
+- **Token validation in the backend without a Keycloak library**: `jose` + remote JWKS, checking
+  `iss` and `aud`.
+- **Real authorization on the server** (`requirePermissions`) and **cosmetic authorization in the
+  client** (`<Can perm="…">`): the UI hides, the API forbids.
+- **Row-level visibility rules**: without `todos:read:all` you only see what is yours or what has
+  been assigned to you; with that permission you see everything.
+- **JIT user provisioning**: the first authenticated request creates/updates the row in
+  `erp.users` using the token's `sub` as primary key.
+- **Custom Freemarker login theme**: split screen with the demo user cheat sheet, inheriting from
+  `base` and with no external dependencies ([detail](#custom-login-theme)).
+- **Complete "I forgot my password" flow**: sent by Keycloak over SMTP, with the screens **and
+  the email** styled by that same theme
+  ([detail](#password-reset-i-forgot-my-password)).
+- **English and Spanish on both front ends**, English by default
+  ([detail](#interface-language)).
+- Supporting infrastructure: **PostgreSQL 17**, **Valkey** (cache invalidated by version),
+  **Azurite** (attachments in blob storage) and **Resend** (email, with a *dry-run* mode).
 
-Documentación detallada:
+Detailed documentation:
 
-- [`docs/arquitectura.md`](docs/arquitectura.md) — monorepo, componentes, base de datos, caché y almacenamiento.
-- [`docs/autenticacion.md`](docs/autenticacion.md) — roles, permisos, contenido del token y cómo añadir un permiso nuevo.
-- [`docs/operacion.md`](docs/operacion.md) — comandos del día a día, inspección y resolución de problemas.
+- [`docs/architecture.md`](docs/architecture.md) — monorepo, components, database, cache and storage.
+- [`docs/authentication.md`](docs/authentication.md) — roles, permissions, token contents and how to add a new permission.
+- [`docs/operations.md`](docs/operations.md) — day-to-day commands, inspection and troubleshooting.
 
 ---
 
-## Requisitos previos
+## Prerequisites
 
-| Herramienta | Versión exigida | Comprobación |
+| Tool | Required version | How to check |
 |---|---|---|
-| Node.js | **22.23.1** (fijada en `.node-version`) | `node -v` |
-| pnpm | **11.9.0** (fijada en `packageManager`) | `pnpm -v` |
-| Docker Engine | 24+ con **Compose v2** (subcomando `docker compose`, no `docker-compose`) | `docker compose version` |
-| GNU Make | opcional, solo para los atajos `make …` | `make -v` |
+| Node.js | **22.23.1** (pinned in `.node-version`) | `node -v` |
+| pnpm | **11.9.0** (pinned in `packageManager`) | `pnpm -v` |
+| Docker Engine | 24+ with **Compose v2** (the `docker compose` subcommand, not `docker-compose`) | `docker compose version` |
+| GNU Make | optional, only for the `make …` shortcuts | `make -v` |
 
-Si usas un gestor de versiones (`fnm`, `nvm`, `asdf`, `mise`), `.node-version` selecciona
-Node automáticamente. Para pnpm basta con `corepack enable && corepack prepare pnpm@11.9.0 --activate`.
+If you use a version manager (`fnm`, `nvm`, `asdf`, `mise`), `.node-version` selects Node for you.
+For pnpm, `corepack enable && corepack prepare pnpm@11.9.0 --activate` is enough.
 
-Puertos que deben estar libres en el host: **5432, 6379, 8080, 3000, 5173, 10000, 10001, 10002**
-(y **8081** si levantas el perfil `full`).
+Ports that must be free on the host: **5432, 6379, 8080, 3000, 5173, 10000, 10001, 10002**
+(plus **8081** if you bring up the `full` profile).
 
 ---
 
-## Arranque rápido
+## Quick start
 
 ```bash
-# 1. Situarse en la raíz del repositorio
+# 1. Move to the repository root
 cd /home/mapineda48/Repo/mapineda48/KeyCloak-Demo
 
-# 2. Crear el .env local a partir del ejemplo versionado
+# 2. Create your local .env from the versioned example
 cp .env.example .env
 
-# 3. Instalar dependencias del monorepo (usa el lockfile)
+# 3. Install the monorepo dependencies (uses the lockfile)
 pnpm install
 
-# 4. Levantar la infraestructura y la API (construye las imágenes propias)
+# 4. Bring up the infrastructure and the API (builds the project's own images)
 docker compose up -d --build
 
-# 5. Esperar a que Keycloak esté sano y el realm 'erp' importado
+# 5. Wait until Keycloak is healthy and the 'erp' realm has been imported
 until curl -sf http://localhost:8080/realms/erp/.well-known/openid-configuration >/dev/null; do
-  echo "esperando a Keycloak…"; sleep 2
+  echo "waiting for Keycloak…"; sleep 2
 done
-echo "Keycloak listo"
+echo "Keycloak ready"
 
-# 6. Arrancar la SPA en modo desarrollo
+# 6. Start the SPA in development mode
 pnpm --filter @erp/app dev
 ```
 
-7. Abre **<http://localhost:5173>** e inicia sesión con cualquiera de los
-   [usuarios demo](#usuarios-demo).
+7. Open **<http://localhost:5173>** and sign in with any of the [demo users](#demo-users).
 
-Comprobación rápida de que el backend está entero:
+Quick check that the backend is complete:
 
 ```bash
 curl -s http://localhost:3000/health/ready | jq
 # { "status": "ok", "checks": { "database": …, "cache": …, "storage": …, "mailer": … } }
 ```
 
-> **Nota:** el paso 4 tarda la primera vez (descarga de imágenes + build de la API). El servicio
-> `api` depende de `postgres`, `valkey`, `azurite` y `keycloak` con `condition: service_healthy`,
-> así que si `docker compose ps` muestra `api` arriba, todo lo demás ya está sano.
+> **Note:** step 4 is slow the first time (image downloads + API build). The `api` service depends
+> on `postgres`, `valkey`, `azurite` and `keycloak` with `condition: service_healthy`, so if
+> `docker compose ps` shows `api` up, everything else is already healthy.
 
-### Variante "todo en contenedores"
+### The "everything in containers" variant
 
-Para servir también la SPA compilada detrás de nginx (puerto **8081**), usa el perfil `full`:
+To also serve the compiled SPA behind nginx (port **8081**), use the `full` profile:
 
 ```bash
 docker compose --profile full up -d --build
-# equivalente: pnpm run up:full   /   make up-full
+# equivalent: pnpm run up:full   /   make up-full
 ```
 
-En ese modo la configuración del frontend no viaja en el bundle: nginx genera `config.js` con
-`window.__ERP_CONFIG__` en el arranque a partir de las variables de entorno.
+In that mode the frontend configuration does not travel inside the bundle: nginx generates
+`config.js` with `window.__ERP_CONFIG__` at startup from the environment variables.
 
 ---
 
-## Servicios y URLs
+## Services and URLs
 
-| Servicio | URL / dirección | Para qué |
+| Service | URL / address | What for |
 |---|---|---|
-| Keycloak | <http://localhost:8080> | Emisor OIDC del realm `erp` |
-| Consola de administración de Keycloak | <http://localhost:8080/admin> | Usuario/contraseña = `KC_BOOTSTRAP_ADMIN_USERNAME` / `KC_BOOTSTRAP_ADMIN_PASSWORD` del `.env` |
-| Metadatos OIDC del realm | <http://localhost:8080/realms/erp/.well-known/openid-configuration> | Endpoints y JWKS |
-| API (`@erp/api`) | <http://localhost:3000> | REST bajo `/api`, salud en `/health` y `/health/ready` |
-| Swagger UI | <http://localhost:3000/docs> | Documentación viva de todos los endpoints |
-| SPA en desarrollo (Vite) | <http://localhost:5173> | `pnpm --filter @erp/app dev` |
-| SPA compilada (nginx, perfil `full`) | <http://localhost:8081> | Solo con `--profile full` |
-| PostgreSQL | `localhost:5432` | Bases `erp` (aplicación) y `keycloak` (identidad) |
-| Valkey | `localhost:6379` | Caché de listados de todos |
-| Azurite — Blob | `http://localhost:10000/devstoreaccount1` | Contenedor `erp-attachments` |
-| Azurite — Queue | `localhost:10001` | No se usa, se expone por completitud |
-| Azurite — Table | `localhost:10002` | No se usa, se expone por completitud |
+| Keycloak | <http://localhost:8080> | OIDC issuer of the `erp` realm |
+| Keycloak admin console | <http://localhost:8080/admin> | Username/password = `KC_BOOTSTRAP_ADMIN_USERNAME` / `KC_BOOTSTRAP_ADMIN_PASSWORD` from `.env` |
+| Realm OIDC metadata | <http://localhost:8080/realms/erp/.well-known/openid-configuration> | Endpoints and JWKS |
+| API (`@erp/api`) | <http://localhost:3000> | REST under `/api`, health on `/health` and `/health/ready` |
+| Swagger UI | <http://localhost:3000/docs> | Living documentation of every endpoint |
+| SPA in development (Vite) | <http://localhost:5173> | `pnpm --filter @erp/app dev` |
+| Compiled SPA (nginx, `full` profile) | <http://localhost:8081> | Only with `--profile full` |
+| PostgreSQL | `localhost:5432` | Databases `erp` (application) and `keycloak` (identity) |
+| Valkey | `localhost:6379` | Cache for todo listings |
+| Azurite — Blob | `http://localhost:10000/devstoreaccount1` | Container `erp-attachments` |
+| Azurite — Queue | `localhost:10001` | Unused, exposed for completeness |
+| Azurite — Table | `localhost:10002` | Unused, exposed for completeness |
 
 ---
 
-## Usuarios demo
+## Demo users
 
-Los tres usuarios se crean de forma declarativa al importar el realm. **Las contraseñas están en
+The three users are created declaratively when the realm is imported. **Their passwords are in
 `.env.example`** (variables `DEMO_ADMIN_PASSWORD`, `DEMO_MANAGER_PASSWORD`,
-`DEMO_USER_PASSWORD`); no se reproducen aquí a propósito, para que el único sitio donde vivan
-sea el fichero de entorno.
+`DEMO_USER_PASSWORD`); they are deliberately not repeated here, so that the environment file
+stays the only place where they live.
 
-| Usuario | Rol de realm | Permisos efectivos (client roles de `erp-api`) | Qué puede hacer en la demo |
+| User | Realm role | Effective permissions (client roles of `erp-api`) | What they can do in the demo |
 |---|---|---|---|
-| `worker` | `erp-user` | `todos:read`, `todos:write` | Ver y editar **solo sus** tareas y las asignadas a él. Crear, subir adjuntos, enviar correo. **No** puede borrar ni usar `scope=all`. |
-| `manager` | `erp-manager` | `erp-user` + `todos:read:all`, `todos:delete`, `users:read` | Todo lo anterior + ver **todas** las tareas (`scope=all`), borrarlas y listar usuarios. Sin panel de administración. |
-| `admin` | `erp-admin` | `erp-manager` + `admin:manage` | Todo lo anterior + estadísticas y registro de auditoría (`/api/admin/*`) y la sección Admin de la SPA. |
+| `worker` | `erp-user` | `todos:read`, `todos:write` | See and edit **only their own** tasks and the ones assigned to them. Create, upload attachments, send email. **Cannot** delete or use `scope=all`. |
+| `manager` | `erp-manager` | `erp-user` + `todos:read:all`, `todos:delete`, `users:read` | Everything above + see **all** tasks (`scope=all`), delete them and list users. No administration panel. |
+| `admin` | `erp-admin` | `erp-manager` + `admin:manage` | Everything above + statistics and audit log (`/api/admin/*`) and the Administration section of the SPA. |
 
-Los tres se crean con `emailVerified: true`, `enabled: true` y contraseña **no temporal** (no
-piden cambio en el primer login). El rol por defecto del realm (`default-roles-erp`) incluye
-`erp-user`, así que cualquier usuario nuevo nace con permisos básicos.
+All three are created with `emailVerified: true`, `enabled: true` and a **non-temporary** password
+(no forced change on first login). The realm's default role (`default-roles-erp`) includes
+`erp-user`, so any new user is born with the basic permissions.
 
-Emails: `DEMO_*_EMAIL` en `.env.example` (`admin@erp.local`, `manager@erp.local`,
-`worker@erp.local`). Son dominios ficticios: sirven para probar el flujo de notificación, no
-para recibir correo real.
+Emails: `DEMO_*_EMAIL` in `.env.example` (`admin@erp.local`, `manager@erp.local`,
+`worker@erp.local`). They are fictional domains: good enough to exercise the notification flow,
+useless for receiving real mail.
 
 ---
 
-## Tema de login propio
+## Custom login theme
 
-La pantalla de acceso **no es la que trae Keycloak**: el realm `erp` usa un tema Freemarker
-propio llamado **`erp`**, escrito a mano y sin dependencias externas (nada de CDNs ni fuentes
-remotas).
+The sign-in screen is **not the one Keycloak ships**: the `erp` realm uses its own Freemarker
+theme called **`erp`**, hand-written and free of external dependencies (no CDNs, no remote fonts).
 
-### Qué se ve
+### What you see
 
-Una **pantalla partida**:
+A **split screen**:
 
-- **Izquierda** — panel de marca con degradado: logo SVG en línea, el título *ERP Demo*, una
-  frase que recuerda que el acceso lo gobierna Keycloak, tres puntos (roles compuestos, permisos
-  por recurso, tokens JWT) y la **chuleta de usuarios demo**: `admin`, `manager` y `worker`, cada
-  uno con su rol de realm y sus permisos como *chips*. Cada tarjeta lleva un botón que **rellena
-  el campo usuario** y mueve el foco a la contraseña.
-- **Derecha** — la tarjeta con el formulario de acceso, centrada verticalmente.
+- **Left** — branding panel with a gradient: inline SVG logo, the *ERP Demo* title, a line
+  reminding you that Keycloak governs access, three bullet points (composite roles, per-resource
+  permissions, JWT tokens) and the **demo user cheat sheet**: `admin`, `manager` and `worker`,
+  each with its realm role and its permissions as *chips*. Every card carries a button that
+  **fills in the username field** and moves focus to the password.
+- **Right** — the card with the sign-in form, vertically centred.
 
-Por debajo de 900 px se apila en una sola columna: el panel de marca se reduce a una cabecera
-(logo + título) y la chuleta de usuarios queda accesible debajo del formulario. Hay tema claro y
-oscuro vía `prefers-color-scheme`, y selector de idioma **español/inglés**, porque el realm se
-importa con `internationalizationEnabled: true`, `supportedLocales: ["es","en"]` y
-`defaultLocale: "es"`.
+Below 900 px it collapses into a single column: the branding panel shrinks to a header
+(logo + title) and the cheat sheet stays reachable under the form. There is a light and a dark
+theme via `prefers-color-scheme`, and an **English/Spanish** language selector, because the realm
+is imported with `internationalizationEnabled: true`, `supportedLocales: ["en", "es"]` and
+`defaultLocale: "en"`.
 
 <p align="center">
-  <img src="docs/img/login-movil.png" alt="La misma pantalla de acceso a 390 px de ancho" width="360">
+  <img src="docs/img/login-mobile.png" alt="The same sign-in screen at 390 px wide" width="360">
 </p>
 
-> **El tema no contiene ninguna contraseña.** La chuleta solo escribe el nombre de usuario; las
-> contraseñas de los usuarios demo siguen viviendo únicamente en `.env.example`.
+> **The theme contains no passwords.** The cheat sheet only writes the username; the demo users'
+> passwords still live exclusively in `.env.example`.
 
-Para verla sin pasar por la SPA, abre <http://localhost:8080/realms/erp/account> en una ventana
-privada: la consola de cuenta del realm exige iniciar sesión y usa este mismo tema.
+To see it without going through the SPA, open <http://localhost:8080/realms/erp/account> in a
+private window: the realm's account console demands a sign-in and uses this very theme.
 
-### Dónde vive
+### Where it lives
 
 ```
 infra/keycloak/themes/erp/
 ├── theme.properties            # types=login
+├── email/                      # password reset email (HTML + text) and its messages
 └── login/
-    ├── theme.properties        # parent=base, styles, scripts, locales y mapeo de clases kc*
-    ├── template.ftl            # layout de pantalla partida (macro registrationLayout)
-    ├── login.ftl               # formulario de acceso + chuleta de usuarios
+    ├── theme.properties        # parent=base, styles, scripts, locales and kc* class mapping
+    ├── template.ftl            # split-screen layout (registrationLayout macro)
+    ├── login.ftl               # sign-in form + demo user cheat sheet
     ├── footer.ftl  error.ftl  info.ftl
     ├── login-page-expired.ftl  logout-confirm.ftl
-    ├── messages/               # messages_es.properties + messages_en.properties
+    ├── login-reset-password.ftl  login-update-password.ftl
+    ├── messages/               # messages_en.properties + messages_es.properties
     └── resources/
         ├── css/erp-login.css
         └── js/erp-login.js
 ```
 
-El directorio se monta en el contenedor desde `docker-compose.yml`:
+The directory is mounted into the container from `docker-compose.yml`:
 
 ```yaml
 volumes:
   - ./infra/keycloak/themes:/opt/keycloak/themes:ro
 ```
 
-Montar encima de `/opt/keycloak/themes` es seguro: en la imagen oficial ese directorio **solo
-contiene un README**. Los temas integrados (`base`, `keycloak`, `keycloak.v2`) viajan dentro de
-los JAR del servidor, así que el montaje no tapa nada.
+Mounting on top of `/opt/keycloak/themes` is safe: in the official image that directory
+**contains nothing but a README**. The built-in themes (`base`, `keycloak`, `keycloak.v2`) travel
+inside the server JARs, so the mount hides nothing.
 
-### Qué hereda de `base`
+### What it inherits from `base`
 
-`login/theme.properties` empieza por `parent=base`, de modo que el tema **solo sobrescribe** las
-plantillas de la lista de arriba. Todo lo demás lo sigue sirviendo el tema `base` de Keycloak:
+`login/theme.properties` starts with `parent=base`, so the theme **only overrides** the templates
+listed above. Everything else is still served by Keycloak's `base` theme:
 
-- Las páginas que no tocamos (OTP, actualizar contraseña, verificar correo, seleccionar
-  autenticador…) adoptan igualmente el aspecto ERP gracias al **mapeo de propiedades**
-  (`kcInputClass=erp-input`, `kcButtonClass=erp-btn`, `kcAlertClass=erp-alert`, …) declarado en
+- The pages we do not touch (OTP, update password, verify email, select authenticator…) still
+  look like the rest of the ERP thanks to the **property mapping**
+  (`kcInputClass=erp-input`, `kcButtonClass=erp-btn`, `kcAlertClass=erp-alert`, …) declared in
   `login/theme.properties`.
-- Los recursos JavaScript del propio servidor (`authChecker.js` para detectar sesión iniciada en
-  otra pestaña, `menu-button-links.js`, `passwordVisibility.js`) se resuelven por la cadena de
-  herencia: `${url.resourcesPath}/js/…` sigue apuntando a los del tema `base`.
-- Los textos no traducidos caen a los `messages_*.properties` de `base`.
+- The server's own JavaScript resources (`authChecker.js` to detect a session started in another
+  tab, `menu-button-links.js`, `passwordVisibility.js`) are resolved through the inheritance
+  chain: `${url.resourcesPath}/js/…` still points at the `base` theme's files.
+- Untranslated texts fall back to the `messages_*.properties` of `base`.
 
-El realm aplica el tema con `"loginTheme": "__KEYCLOAK_LOGIN_THEME__"` en
-`infra/keycloak/realm-erp.template.json`; `render-realm.mjs` sustituye ese marcador por el valor
-de `KEYCLOAK_LOGIN_THEME` (por defecto `erp`).
+The realm applies the theme with `"loginTheme": "__KEYCLOAK_LOGIN_THEME__"` in
+`infra/keycloak/realm-erp.template.json`; `render-realm.mjs` replaces that placeholder with the
+value of `KEYCLOAK_LOGIN_THEME` (`erp` by default).
 
-### Cómo iterar
+### How to iterate
 
-Keycloak arranca con `start-dev` y en ese modo **los temas no se cachean**, así que el ciclo es
-corto:
+Keycloak runs with `start-dev`, and in that mode **themes are not cached**, so the loop is short:
 
-| Qué cambias | Qué hace falta |
+| What you change | What it takes |
 |---|---|
-| Un `.ftl`, `resources/css/erp-login.css` o `resources/js/erp-login.js` | **Nada**: guarda y recarga el navegador (`Ctrl+Shift+R` para saltarte la caché del navegador) |
-| Cualquiera de los dos `theme.properties` | `docker compose restart keycloak` |
-| Añadir un archivo o un directorio nuevo al tema | `docker compose restart keycloak` |
-| El valor de `KEYCLOAK_LOGIN_THEME` | Reimportar el realm (`docker compose down -v && docker compose up -d --build`) o aplicarlo en caliente con `kcadm.sh` — ver [`docs/operacion.md`](docs/operacion.md#tema-de-login) |
+| A `.ftl`, `resources/css/erp-login.css` or `resources/js/erp-login.js` | **Nothing**: save and reload the browser (`Ctrl+Shift+R` to skip the browser cache) |
+| Either of the two `theme.properties` | `docker compose restart keycloak` |
+| Adding a new file or directory to the theme | `docker compose restart keycloak` |
+| The value of `KEYCLOAK_LOGIN_THEME` | Re-import the realm (`docker compose down -v && docker compose up -d --build`) or apply it live with `kcadm.sh` — see [`docs/operations.md`](docs/operations.md#login-theme) |
 
-Comprobar que el montaje llegó al contenedor:
+Check that the mount reached the container:
 
 ```bash
 docker compose exec keycloak ls /opt/keycloak/themes/erp/login
 ```
 
-### Volver al tema por defecto
+### Going back to the default theme
 
-Cambia la variable en `.env` y reimporta:
+Change the variable in `.env` and re-import:
 
 ```dotenv
-KEYCLOAK_LOGIN_THEME=keycloak      # o keycloak.v2; erp para volver al propio
+KEYCLOAK_LOGIN_THEME=keycloak      # or keycloak.v2; erp to come back to the custom one
 ```
 
 ```bash
 docker compose down -v && docker compose up -d --build
 ```
 
-Un realm **ya importado** no cambia de tema por editar la plantilla: Keycloak solo importa un
-realm que no exista todavía. Si no quieres perder los datos de la demo, aplícalo en caliente con
-`kcadm.sh` siguiendo [`docs/operacion.md`](docs/operacion.md#tema-de-login).
+An **already imported** realm does not change its theme just because you edited the template:
+Keycloak only imports a realm that does not exist yet. If you do not want to lose the demo data,
+apply it live with `kcadm.sh` following
+[`docs/operations.md`](docs/operations.md#login-theme).
 
 ---
 
-## Flujo de autenticación
+## Interface language
+
+Both front ends speak **English and Spanish**, and **English is the default**.
+
+- **SPA** — the language selector sits in the application header, next to the user menu, and is
+  reachable by keyboard. The catalogues are a small hand-written module in
+  `packages/app/src/i18n/` (no i18n dependency): `en.ts` is the source of truth and `es.ts` is
+  typed against it, so a missing or leftover key breaks the type check instead of showing up in
+  production as an untranslated string.
+- **Login theme** — the same two languages, from `messages_en.properties` and
+  `messages_es.properties`, with the realm imported as `defaultLocale: "en"`.
+
+The SPA picks the initial language from `?lang=`, then `localStorage['erp.locale']`, then the
+browser language, and it hands the current one to Keycloak when you sign in or out
+(`keycloak.login({ locale })` → `ui_locales`), so the login screen shows up in the language you
+were already reading.
+
+---
+
+## Authentication flow
 
 ```mermaid
 sequenceDiagram
     autonumber
-    participant U as Navegador
+    participant U as Browser
     participant S as SPA @erp/app 5173
     participant K as Keycloak realm erp 8080
     participant A as API @erp/api 3000
 
-    U->>S: Abre http://localhost:5173
+    U->>S: Opens http://localhost:5173
     S->>K: init check-sso + PKCE S256 (client_id=erp-app)
-    K-->>S: Sin sesión
-    U->>S: Pulsa "Iniciar sesión con Keycloak"
+    K-->>S: No session
+    U->>S: Clicks "Sign in with Keycloak"
     S->>K: /protocol/openid-connect/auth (code + code_challenge)
-    U->>K: Credenciales del usuario demo
-    K-->>S: Redirección con authorization code
+    U->>K: Demo user credentials
+    K-->>S: Redirect with authorization code
     S->>K: /protocol/openid-connect/token (code + code_verifier)
     K-->>S: access_token (aud=erp-api) + refresh_token
-    S->>A: GET /api/todos con Authorization Bearer
-    A->>K: GET /realms/erp/protocol/openid-connect/certs (JWKS, red interna)
-    K-->>A: Claves públicas (cacheadas por jose)
-    A->>A: Verifica firma, iss, aud, exp
-    A->>A: Provisión JIT en erp.users + comprueba permisos
-    A-->>S: 200 con datos + cabecera X-Cache
-    S-->>U: Tablero renderizado según sus permisos
+    S->>A: GET /api/todos with Authorization Bearer
+    A->>K: GET /realms/erp/protocol/openid-connect/certs (JWKS, internal network)
+    K-->>A: Public keys (cached by jose)
+    A->>A: Verifies signature, iss, aud, exp
+    A->>A: JIT provisioning in erp.users + permission check
+    A-->>S: 200 with data + X-Cache header
+    S-->>U: Board rendered according to their permissions
 ```
 
-Detalle importante: la SPA obtiene el token contra **`http://localhost:8080`** (issuer público),
-pero la API descarga el JWKS contra **`http://keycloak:8080`** (issuer interno de la red Docker).
-Por eso existen dos variables distintas, `KEYCLOAK_ISSUER` y `KEYCLOAK_INTERNAL_ISSUER`.
-Está explicado en [`docs/arquitectura.md`](docs/arquitectura.md#issuer-publico-vs-issuer-interno).
+An important detail: the SPA gets the token from **`http://localhost:8080`** (public issuer), but
+the API downloads the JWKS from **`http://keycloak:8080`** (internal issuer on the Docker
+network). That is why there are two separate variables, `KEYCLOAK_ISSUER` and
+`KEYCLOAK_INTERNAL_ISSUER`. It is explained in
+[`docs/architecture.md`](docs/architecture.md#public-issuer-vs-internal-issuer).
 
-## Topología de servicios
+## Service topology
 
 ```mermaid
 flowchart LR
-    subgraph host["Máquina anfitriona"]
-        BROWSER["Navegador"]
+    subgraph host["Host machine"]
+        BROWSER["Browser"]
         VITE["Vite dev server :5173"]
     end
 
-    subgraph net["Red Docker erp-net"]
+    subgraph net["Docker network erp-net"]
         KCR["keycloak-realm (one-shot)<br/>node:22.23.1-alpine<br/>render-realm.mjs"]
         KC["keycloak :8080<br/>quay.io/keycloak/keycloak:26.4.0"]
         API["api :3000<br/>@erp/api (Fastify)"]
-        PG[("postgres :5432<br/>bases erp + keycloak")]
+        PG[("postgres :5432<br/>databases erp + keycloak")]
         VK[("valkey :6379")]
         AZ[("azurite :10000-10002<br/>blob erp-attachments")]
-        NGX["app :8081 (perfil full)<br/>nginx:1.29-alpine"]
+        NGX["app :8081 (full profile)<br/>nginx:1.29-alpine"]
     end
 
-    RESEND["Resend API<br/>(externo, opcional)"]
+    RESEND["Resend API<br/>(external, optional)"]
 
     BROWSER -->|"OIDC + PKCE"| KC
     BROWSER -->|"HTTP + Bearer"| API
     BROWSER --> VITE
-    BROWSER -.->|"perfil full"| NGX
-    VITE -.->|"sirve la SPA"| BROWSER
-    KCR -->|"escribe /import/realm-erp.json<br/>volumen keycloak-import"| KC
+    BROWSER -.->|"full profile"| NGX
+    VITE -.->|"serves the SPA"| BROWSER
+    KCR -->|"writes /import/realm-erp.json<br/>keycloak-import volume"| KC
     KC --> PG
-    API -->|"JWKS interno"| KC
+    API -->|"internal JWKS"| KC
     API --> PG
     API --> VK
     API --> AZ
-    API -.->|"si hay RESEND_API_KEY"| RESEND
+    API -.->|"if RESEND_API_KEY is set"| RESEND
 ```
 
-Volúmenes persistentes: `pg-data`, `valkey-data`, `azurite-data`, `keycloak-import`.
+Persistent volumes: `pg-data`, `valkey-data`, `azurite-data`, `keycloak-import`.
 
 ---
 
-## Correo con Resend
+## Email with Resend
 
-El envío de correo (`POST /api/todos/:id/notify`) está pensado para funcionar **sin configurar
-nada**. La API decide su proveedor al arrancar:
+Sending email (`POST /api/todos/:id/notify`) is designed to work **without configuring anything**.
+The API picks its provider at startup:
 
-| Situación | `mailer.provider` | Comportamiento |
+| Situation | `mailer.provider` | Behaviour |
 |---|---|---|
-| `RESEND_API_KEY` vacía (valor de `.env.example`) | `dry-run` | Registra el correo completo en el log (`to`, `subject`, cuerpo) y devuelve `{ delivered: false, provider: 'dry-run', reason: … }`. **La petición responde 200; nunca falla.** |
-| `RESEND_API_KEY` con valor | `resend` | Envía de verdad y devuelve el `id` del mensaje. |
-| `MAIL_ENABLED=false` | `dry-run` | Interruptor manual para silenciar el correo aunque haya clave. |
+| `RESEND_API_KEY` empty (the `.env.example` value) | `dry-run` | Logs the whole message (`to`, `subject`, body) and returns `{ delivered: false, provider: 'dry-run', reason: … }`. **The request answers 200; it never fails.** |
+| `RESEND_API_KEY` set | `resend` | Really sends it and returns the message `id`. |
+| `MAIL_ENABLED=false` | `dry-run` | Manual switch to silence email even when a key is present. |
 
-`GET /health/ready` incluye el estado del *mailer*, de modo que puedes ver en qué modo está sin
-mirar los logs.
+`GET /health/ready` reports the *mailer* status, so you can tell which mode you are in without
+reading the logs.
 
-### Activar el envío real
+### Turning on real delivery
 
-1. Instala e inicia sesión en la CLI de Resend (requiere una cuenta gratuita).
-2. Crea una clave de API para este proyecto:
+1. Install the Resend CLI and log in (a free account is enough).
+2. Create an API key for this project:
 
    ```bash
    resend api-keys create --name erp-demo
    ```
 
-3. Copia el valor devuelto (se muestra **una sola vez**) en `.env`:
+3. Copy the returned value (it is shown **only once**) into `.env`:
 
    ```dotenv
    RESEND_API_KEY=re_xxxxxxxxxxxxxxxxxxxxxxxx
    ```
 
-4. Comprueba qué dominios tienes verificados:
+4. Check which domains you have verified:
 
    ```bash
    resend domains
    ```
 
-   - Si aún no verificas ninguno, deja `MAIL_FROM=ERP Demo <onboarding@resend.dev>`: el dominio
-     de pruebas de Resend solo permite enviar **a la dirección con la que te registraste**.
-   - Con un dominio propio verificado, cambia `MAIL_FROM` a una dirección de ese dominio, por
-     ejemplo `MAIL_FROM=ERP Demo <no-reply@midominio.com>`, y opcionalmente rellena
+   - If you have not verified any yet, leave `MAIL_FROM=ERP Demo <onboarding@resend.dev>`:
+     Resend's test domain can only send **to the address you signed up with**.
+   - With a verified domain of your own, point `MAIL_FROM` at an address on that domain, for
+     example `MAIL_FROM=ERP Demo <no-reply@mydomain.com>`, and optionally fill in
      `MAIL_REPLY_TO`.
 
-5. Reinicia solo la API para que tome la clave:
+5. Restart only the API so it picks up the key:
 
    ```bash
    docker compose up -d --force-recreate api
    ```
 
-`RESEND_API_KEY` es el **único secreto real** del proyecto y por eso va vacío en `.env.example`.
-`.env` está en `.gitignore`.
+`RESEND_API_KEY` is the **only real secret** in the project, which is why it ships empty in
+`.env.example`. `.env` is in `.gitignore`.
 
 ---
 
-## Recuperar contraseña ("he olvidado mi contraseña")
+## Password reset ("I forgot my password")
 
-Hay un detalle que conviene tener claro antes de tocar nada: **son dos caminos de correo
-distintos**, no uno.
+There is one thing worth getting straight before touching anything: **there are two different
+email paths**, not one.
 
-| Quién envía | Cómo | Qué manda |
+| Who sends | How | What it sends |
 |---|---|---|
-| La API (`@erp/api`) | API **HTTP** de Resend (SDK `resend`) | Notificaciones de tareas |
-| **Keycloak** | **SMTP** | Recuperar contraseña, verificar correo, avisos de cuenta |
+| The API (`@erp/api`) | Resend's **HTTP** API (`resend` SDK) | Task notifications |
+| **Keycloak** | **SMTP** | Password reset, email verification, account notices |
 
-Keycloak no sabe hablar con la API HTTP de Resend: solo envía por SMTP. Por eso el realm
-configura el relay SMTP de Resend (`smtp.resend.com:587`, STARTTLS) y `docker-compose.yml`
-reutiliza **la misma** `RESEND_API_KEY` como contraseña SMTP, para que solo tengas un secreto
-que mantener:
+Keycloak cannot talk to Resend's HTTP API: it only sends over SMTP. That is why the realm
+configures Resend's SMTP relay (`smtp.resend.com:587`, STARTTLS) and `docker-compose.yml` reuses
+**the same** `RESEND_API_KEY` as the SMTP password, so you only have one secret to look after:
 
 ```yaml
 KEYCLOAK_SMTP_USER: ${KEYCLOAK_SMTP_USER:-resend}
-KEYCLOAK_SMTP_PASSWORD: ${RESEND_API_KEY:-sin-configurar}
+KEYCLOAK_SMTP_PASSWORD: ${RESEND_API_KEY:-not-configured}
 ```
 
-### Requisitos para que funcione
+### What it takes to work
 
-1. `RESEND_API_KEY` con valor en `.env`.
-2. `KEYCLOAK_SMTP_FROM` con una dirección de un **dominio verificado** en Resend
-   (`resend domains` te lo dice). Con el dominio de pruebas `onboarding@resend.dev` solo puedes
-   escribir a la dirección con la que te registraste.
-3. El usuario debe tener un **correo real**. Los `*@erp.local` de `.env.example` no reciben nada:
-   cambia `DEMO_ADMIN_EMAIL` en tu `.env` por una dirección tuya antes de probarlo.
+1. `RESEND_API_KEY` set in `.env`.
+2. `KEYCLOAK_SMTP_FROM` with an address on a **verified domain** in Resend (`resend domains`
+   tells you). With the `onboarding@resend.dev` test domain you can only write to the address you
+   signed up with.
+3. The user needs a **real email address**. The `*@erp.local` ones from `.env.example` receive
+   nothing: change `DEMO_ADMIN_EMAIL` in your `.env` to an address of yours before trying it.
 
-### El recorrido
+### The walkthrough
 
-| Pedir el enlace | El correo que llega |
+| Requesting the link | The email that arrives |
 |---|---|
-| ![Pantalla de recuperación](docs/img/recuperar-contrasena.png) | ![Correo de recuperación](docs/img/correo-recuperacion.png) |
+| ![Password reset screen](docs/img/password-reset.png) | ![Password reset email](docs/img/password-reset-email.png) |
 
-1. En el login, enlace **"¿Has olvidado la contraseña?"** (aparece porque el realm tiene
+1. On the login screen, the **"Forgot your password?"** link (it shows up because the realm has
    `resetPasswordAllowed: true`).
-2. Formulario que pide usuario o correo → Keycloak envía el mensaje.
-3. El correo llega con el diseño del tema `erp` y un botón de acción.
-4. El enlace abre la pantalla de **nueva contraseña** (con confirmación y la opción de cerrar el
-   resto de sesiones).
-5. Al guardar, la sesión continúa hacia la aplicación.
+2. A form asking for username or email → Keycloak sends the message.
+3. The email arrives styled by the `erp` theme, with an action button.
+4. The link opens the **new password** screen (with confirmation and the option to sign out from
+   the other devices).
+5. Once saved, the session carries on into the application.
 
-Las tres pantallas y el correo usan el tema propio: viven en
+The three screens and the email all use the custom theme: they live in
 `infra/keycloak/themes/erp/login/login-reset-password.ftl`,
-`.../login-update-password.ftl` y `infra/keycloak/themes/erp/email/`.
+`.../login-update-password.ftl` and `infra/keycloak/themes/erp/email/`.
 
-> El realm solo lee `smtpServer`, `resetPasswordAllowed` y `emailTheme` **al importarse**. Si tu
-> realm ya existe, aplícalos en caliente con `kcadm.sh` (ver `docs/operacion.md`) o recrea el
-> stack con `docker compose down -v`.
+> The realm only reads `smtpServer`, `resetPasswordAllowed` and `emailTheme` **when it is
+> imported**. If your realm already exists, apply them live with `kcadm.sh` (see
+> `docs/operations.md`) or recreate the stack with `docker compose down -v`.
 
 ---
 
-## Guion de demostración
+## Demo script
 
-Sesión de 10 minutos que enseña el modelo de permisos de punta a punta. Usa una ventana privada
-del navegador para cada usuario (o cierra sesión entre pasos) porque Keycloak mantiene SSO.
+A 10-minute session that walks the permission model end to end. Use a private browser window per
+user (or sign out between steps), because Keycloak keeps the SSO session.
 
-### 1. `worker` — el permiso que falta se nota
+### 1. `worker` — the missing permission is felt
 
-1. Entra en <http://localhost:5173> como **`worker`** (contraseña en `.env.example`).
-2. El tablero aparece vacío: pulsa **"Crear datos de ejemplo"** (`POST /api/todos/seed-demo`).
-3. Observa la cabecera de la aplicación: muestra el rol `erp-user`.
-4. **No hay botón de borrar** en ninguna tarjeta: la SPA lo envuelve en `<Can perm="todos:delete">`.
-5. El selector de alcance no ofrece **"Todos"**, solo "Mías".
-6. Demuestra que la UI no es la que manda — intenta borrar desde la terminal y recibe **403**:
+1. Go to <http://localhost:5173> and sign in as **`worker`** (password in `.env.example`).
+2. The board comes up empty: press **"Create sample data"** (`POST /api/todos/seed-demo`).
+3. Look at the application header: it shows the `erp-user` role.
+4. **There is no delete button** on any card: the SPA wraps it in `<Can perm="todos:delete">`.
+5. The scope selector does not offer **"Whole team"**, only "My tasks".
+6. Prove that the UI is not the one in charge — try to delete from the terminal and get a **403**:
 
    ```bash
-   # Ver docs/autenticacion.md para la función get_token
+   # See docs/authentication.md for the get_token function
    curl -i -X DELETE http://localhost:3000/api/todos/<id> \
      -H "Authorization: Bearer $WORKER_TOKEN"
    # HTTP/1.1 403  {"error":{"code":"FORBIDDEN","message":"…","statusCode":403}}
    ```
 
-### 2. `manager` — el alcance "todos"
+### 2. `manager` — the "whole team" scope
 
-1. Cierra sesión y entra como **`manager`**.
-2. Cambia el filtro de alcance a **"Todos"**: ahora ves también las tareas de `worker`.
-   Ese selector llama a `GET /api/todos?scope=all`, que exige `todos:read:all`.
-3. Aparece el botón de **borrar** (permiso `todos:delete`). Borra una tarea de `worker`:
-   `manager` puede tocar datos que no son suyos, `worker` no.
-4. No hay sección **Admin**: le falta `admin:manage`.
+1. Sign out and sign in as **`manager`**.
+2. Switch the scope filter to **"Whole team"**: now you also see `worker`'s tasks. That selector
+   calls `GET /api/todos?scope=all`, which requires `todos:read:all`.
+3. The **delete** button appears (`todos:delete` permission). Delete one of `worker`'s tasks:
+   `manager` can touch data that is not theirs, `worker` cannot.
+4. There is no **Administration** section: `admin:manage` is missing.
 
-### 3. `admin` — panel de administración
+### 3. `admin` — administration panel
 
-1. Entra como **`admin`**.
-2. Abre la sección **Admin**: estadísticas (`GET /api/admin/stats`), usuarios
-   (`GET /api/admin/users`) y auditoría (`GET /api/admin/audit`).
-3. En el registro de auditoría se ven las acciones de los pasos anteriores
-   (`todo.created`, `todo.deleted`, …) con el `actor_id` de cada usuario.
+1. Sign in as **`admin`**.
+2. Open the **Administration** section: statistics (`GET /api/admin/stats`), users
+   (`GET /api/admin/users`) and audit (`GET /api/admin/audit`).
+3. The audit log shows the actions from the previous steps (`todo.created`, `todo.deleted`, …)
+   with each user's `actor_id`.
 
-### 4. La cabecera `X-Cache`
+### 4. The `X-Cache` header
 
-1. Con cualquier usuario, recarga el listado dos veces: el badge de la interfaz pasa de
-   **`MISS`** a **`HIT`**.
-2. Desde terminal, con las mismas condiciones:
+1. With any user, reload the listing twice: the badge in the interface goes from **`MISS`** to
+   **`HIT`**.
+2. From the terminal, under the same conditions:
 
    ```bash
    curl -si http://localhost:3000/api/todos -H "Authorization: Bearer $TOKEN" | grep -i x-cache
-   # X-Cache: MISS   (primera vez)
-   # X-Cache: HIT    (dentro de CACHE_TTL_SECONDS = 60 s)
+   # X-Cache: MISS   (first time)
+   # X-Cache: HIT    (within CACHE_TTL_SECONDS = 60 s)
    ```
 
-3. Crea o edita una tarea: la siguiente lectura vuelve a ser **`MISS`**. No se borran claves;
-   se incrementa la versión del *namespace* `todos` y las claves viejas caducan solas.
+3. Create or edit a task: the next read is a **`MISS`** again. No keys are deleted; the version of
+   the `todos` *namespace* is incremented and the old keys expire on their own.
 
-### 5. Adjuntos
+### 5. Attachments
 
-1. Abre una tarea y sube un archivo (límite `MAX_UPLOAD_BYTES` = 10 MiB).
-2. Descárgalo desde la lista de adjuntos: la API lo sirve desde Azurite con su `content_type`.
-3. Comprueba que el blob existe de verdad (ver [`docs/operacion.md`](docs/operacion.md#listar-blobs-de-azurite)).
+1. Open a task and upload a file (limit `MAX_UPLOAD_BYTES` = 10 MiB).
+2. Download it from the attachment list: the API serves it from Azurite with its `content_type`.
+3. Check that the blob really exists (see
+   [`docs/operations.md`](docs/operations.md#list-azurite-blobs)).
 
-### 6. Correo
+### 6. Email
 
-1. Pulsa **"Enviar notificación por correo"** en una tarea.
-2. Sin `RESEND_API_KEY`, mira el log y verás el correo renderizado:
+1. Press **"Notify by email"** on a task.
+2. Without `RESEND_API_KEY`, look at the log and you will see the rendered message:
 
    ```bash
    docker compose logs -f api | grep -i mail
    ```
 
-3. Con clave configurada, el correo llega y la respuesta trae el `id` de Resend.
+3. With a key configured, the email arrives and the response carries Resend's `id`.
 
 ---
 
-## Determinismo y reproducibilidad
+## Determinism and reproducibility
 
-Este repositorio está construido para dar **exactamente el mismo resultado** en cualquier
-máquina y en cualquier momento:
+This repository is built to produce **exactly the same result** on any machine and at any time:
 
-- **Versiones exactas**: ni `^` ni `~` ni `latest` en ningún `package.json`. Node fijado en
-  `.node-version` (22.23.1) y pnpm en `packageManager` (11.9.0), con `engines` que lo verifica.
-- **Lockfile**: `pnpm-lock.yaml` se versiona y las imágenes se construyen con
-  `--frozen-lockfile`; si el lockfile no cuadra con los `package.json`, el build falla en vez de
-  resolver versiones nuevas en silencio.
-- **Imágenes con tag exacto**: `postgres:17.6-alpine`, `quay.io/keycloak/keycloak:26.4.0`,
+- **Exact versions**: no `^`, no `~`, no `latest` in any `package.json`. Node pinned in
+  `.node-version` (22.23.1) and pnpm in `packageManager` (11.9.0), with `engines` enforcing it.
+- **Lockfile**: `pnpm-lock.yaml` is committed and the images are built with `--frozen-lockfile`;
+  if the lockfile does not match the `package.json` files, the build fails instead of quietly
+  resolving new versions.
+- **Images with exact tags**: `postgres:17.6-alpine`, `quay.io/keycloak/keycloak:26.4.0`,
   `valkey/valkey:8.1.3-alpine`, `mcr.microsoft.com/azure-storage/azurite:3.35.0`,
   `node:22.23.1-alpine`, `nginx:1.29-alpine`.
-- **Realm declarativo**: la configuración de Keycloak (clientes, roles, composiciones, mappers y
-  usuarios demo) vive en `infra/keycloak/realm-erp.template.json` y se importa en el arranque.
-  Nada se configura a mano en la consola; si tocas algo por la consola, se pierde con
-  `docker compose down -v`. El renderizador falla con código ≠ 0 si queda algún marcador
-  `__VARIABLE__` sin sustituir, de forma que un `.env` incompleto se detecta al instante.
-- **Migraciones versionadas con checksum**: cada fichero de `packages/api/migrations/` se aplica
-  una sola vez, en orden lexicográfico, y su hash se guarda en `erp.schema_migrations`. Si
-  alguien edita una migración ya aplicada, el arranque falla en vez de dejar dos bases de datos
-  distintas conviviendo.
-- **Sin valores generados en build**: nada de timestamps, IDs aleatorios ni descargas sin fijar.
-- **Un único `.env`** en la raíz consumido por Compose y por Vite (`envDir` apunta a la raíz),
-  para que no existan dos fuentes de verdad de configuración.
+- **Declarative realm**: the Keycloak configuration (clients, roles, compositions, mappers and
+  demo users) lives in `infra/keycloak/realm-erp.template.json` and is imported at startup.
+  Nothing is configured by hand in the console; if you change something there, it is gone after
+  `docker compose down -v`. The renderer exits with a non-zero code if any `__VARIABLE__`
+  placeholder is left unsubstituted, so an incomplete `.env` is caught immediately.
+- **Migrations versioned with checksums**: every file in `packages/api/migrations/` is applied
+  once, in lexicographic order, and its hash is stored in `erp.schema_migrations`. If somebody
+  edits a migration that has already been applied, startup fails instead of leaving two different
+  databases living side by side.
+- **No values generated at build time**: no timestamps, no random IDs, no unpinned downloads.
+- **A single `.env`** at the root, consumed by Compose and by Vite (`envDir` points at the root),
+  so there are never two sources of truth for the configuration.
 
 ---
 
-## Estructura del repositorio
+## Repository layout
 
 ```
 .
 ├── docker-compose.yml          # postgres, keycloak-realm, keycloak, valkey, azurite, api, app
-├── Makefile                    # atajos equivalentes a los scripts de package.json
-├── .env.example                # plantilla de configuración (sin secretos reales)
-├── docs/                       # arquitectura, autenticación y operación
+├── Makefile                    # shortcuts equivalent to the package.json scripts
+├── .env.example                # configuration template (no real secrets)
+├── docs/                       # architecture, authentication and operations
 ├── infra/
-│   ├── keycloak/               # plantilla del realm + renderizador
-│   │   └── themes/erp/         # tema de login propio (Freemarker + CSS/JS, sin dependencias)
-│   ├── nginx/                  # configuración SPA + inyección de config en runtime
-│   └── postgres/               # init de la base de datos de Keycloak
+│   ├── keycloak/               # realm template + renderer
+│   │   └── themes/erp/         # custom login theme (Freemarker + CSS/JS, no dependencies)
+│   ├── nginx/                  # SPA config + runtime config injection
+│   └── postgres/               # init of the Keycloak database
 └── packages/
-    ├── api/                    # @erp/api — Fastify 5, ESM estricto, migraciones SQL
+    ├── api/                    # @erp/api — Fastify 5, strict ESM, SQL migrations
     └── app/                    # @erp/app — React 19 + Vite 7 + keycloak-js
 ```
 
-## Comandos más usados
+## Most used commands
 
-| Comando | Equivalente `make` | Qué hace |
+| Command | `make` equivalent | What it does |
 |---|---|---|
 | `pnpm run up` | `make up` | `docker compose up -d --build` |
-| `pnpm run up:full` | `make up-full` | Igual, con el perfil `full` (SPA en nginx) |
-| `pnpm run down` | `make down` | Para el stack, conserva los datos |
-| `pnpm run reset` | `make reset` | `docker compose down -v` — borra volúmenes y reimporta el realm |
-| `pnpm run logs` | `make logs` | Sigue los logs de todos los servicios |
-| `pnpm run ps` | `make ps` | Estado y salud de los contenedores |
-| `pnpm dev` | `make dev` | Arranca API y SPA en paralelo, fuera de Docker |
-| `pnpm build` | `make build` | Compila ambos paquetes |
-| `pnpm typecheck` | `make typecheck` | Comprueba tipos en todo el monorepo |
-| `pnpm run verify` | `make verify` | Verificación end-to-end (API + tema de login) |
+| `pnpm run up:full` | `make up-full` | The same, with the `full` profile (SPA behind nginx) |
+| `pnpm run down` | `make down` | Stops the stack, keeps the data |
+| `pnpm run reset` | `make reset` | `docker compose down -v` — drops the volumes and re-imports the realm |
+| `pnpm run logs` | `make logs` | Follows the logs of every service |
+| `pnpm run ps` | `make ps` | Container status and health |
+| `pnpm dev` | `make dev` | Runs API and SPA in parallel, outside Docker |
+| `pnpm build` | `make build` | Builds both packages |
+| `pnpm typecheck` | `make typecheck` | Type-checks the whole monorepo |
+| `pnpm run verify` | `make verify` | End-to-end verification (API + login theme) |
 
-> Make no admite `:` en los nombres de objetivo, así que el único que cambia de nombre es
+> Make does not accept `:` in target names, so the only one that changes name is
 > `up:full` → `up-full`.
 
-El resto de operaciones (psql, valkey-cli, blobs, migraciones, problemas frecuentes) está en
-[`docs/operacion.md`](docs/operacion.md).
+Everything else (psql, valkey-cli, blobs, migrations, common problems) is in
+[`docs/operations.md`](docs/operations.md).
 
 ---
 
-## Verificación
+## Verification
 
-El laboratorio trae tres suites que se ejecutan **contra el stack en marcha**, no con mocks,
-porque las tres capas que lo componen se rompen de formas que no detecta el compilador:
+The lab ships three suites that run **against the running stack**, not against mocks, because the
+three layers it is made of break in ways the compiler cannot see:
 
 ```bash
-pnpm run verify          # API + tema de login
-pnpm run verify:api      # permisos, caché, adjuntos y correo
-pnpm run verify:theme    # que el tema Freemarker siga autenticando
-pnpm run verify:reset    # recuperación de contraseña (requiere la CLI resend)
+pnpm run verify          # API + login theme
+pnpm run verify:api      # permissions, cache, attachments and email
+pnpm run verify:theme    # that the Freemarker theme still authenticates
+pnpm run verify:reset    # password reset (needs the resend CLI)
 ```
 
-Lo que de verdad cubren:
+What they really cover:
 
-- **Permisos ejercitados desde fuera**: que `worker` recibe **403** al borrar y al pedir
-  `scope=all`, que `manager` entra en `/admin/users` pero no en `/admin/stats`, y que `admin`
-  entra en ambos. Si alguien afloja un `requirePermissions`, aquí salta.
-- **El flujo OIDC entero**: autorización con PKCE `S256` → formulario → *authorization code* →
-  canje por *access token*. Un tema propio puede renderizar perfecto y haber perdido el `id` del
-  formulario, y entonces nadie inicia sesión.
-- **El correo de recuperación de verdad**: se solicita, se **lee con la API de Resend**, se sigue
-  su enlace, se fija la contraseña y se comprueba que sirve para entrar.
+- **Permissions exercised from outside**: that `worker` gets a **403** when deleting and when
+  asking for `scope=all`, that `manager` gets into `/admin/users` but not into `/admin/stats`,
+  and that `admin` gets into both. If somebody loosens a `requirePermissions`, this is where it
+  shows.
+- **The whole OIDC flow**: authorization with PKCE `S256` → form → *authorization code* →
+  exchange for an *access token*. A custom theme can render perfectly and still have lost the
+  form's `id`, and then nobody can sign in.
+- **The password reset email for real**: it is requested, **read back through the Resend API**,
+  its link is followed, the password is set and then used to sign in.
 
-Detalle de cada una en [`scripts/README.md`](scripts/README.md).
+Details of each one in [`scripts/README.md`](scripts/README.md).
 
 ---
 
-## Licencia
+## License
 
 [MIT](LICENSE) © Miguel Angel Pineda Vega.
 
-Recuerda el aviso del principio: es un laboratorio de aprendizaje. La licencia te deja
-reutilizarlo, pero la configuración de seguridad de aquí **no** es apta para producción.
+Remember the warning at the top: this is a learning lab. The license lets you reuse it, but the
+security configuration in here is **not** fit for production.

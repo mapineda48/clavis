@@ -1,7 +1,7 @@
-// Rutas de tareas (`/api/todos`): listado con cache en Valkey, CRUD, datos de
-// ejemplo y notificacion por correo.
+// Task routes (`/api/todos`): listing cached in Valkey, CRUD, sample data and
+// email notification.
 import type { FastifyInstance, FastifyPluginAsync } from 'fastify'
-// Carga la ampliacion de tipos de @fastify/swagger (tags, summary, security en `schema`).
+// Pulls in the @fastify/swagger type augmentation (tags, summary, security inside `schema`).
 import type {} from '@fastify/swagger'
 import { badRequest } from '../../lib/errors.js'
 import { assertCanTouchTodo, buildScopeFilter, type TodoScope } from '../shared/scope.js'
@@ -22,25 +22,25 @@ import {
   UpdateTodoBody,
 } from './schemas.js'
 
-/** Namespace de version de cache compartido por todas las listas de todos. */
+/** Cache version namespace shared by every todo listing. */
 const CACHE_NAMESPACE = 'todos'
 
-/** TTL por defecto si `CACHE_TTL_SECONDS` no es utilizable. */
+/** Fallback TTL when `CACHE_TTL_SECONDS` is not usable. */
 const DEFAULT_CACHE_TTL_SECONDS = 60
 
-/** Etiquetas legibles del estado, para los correos. */
+/** Human-readable status labels, for the emails. */
 const STATUS_LABELS: Record<TodoStatus, string> = {
-  todo: 'Pendiente',
-  in_progress: 'En curso',
-  done: 'Completada',
+  todo: 'Pending',
+  in_progress: 'In progress',
+  done: 'Completed',
 }
 
-/** Etiquetas legibles de la prioridad, para los correos. */
+/** Human-readable priority labels, for the emails. */
 const PRIORITY_LABELS: Record<number, string> = {
-  1: 'Critica',
-  2: 'Alta',
+  1: 'Critical',
+  2: 'High',
   3: 'Normal',
-  4: 'Baja',
+  4: 'Low',
 }
 
 interface ListTodosQueryInput {
@@ -77,19 +77,19 @@ interface NotifyTodoBodyInput {
   to?: string
 }
 
-/** Cuerpo que se guarda en cache (la paginacion viaja en la propia clave). */
+/** Payload stored in the cache (pagination travels in the key itself). */
 interface CachedList {
   items: TodoDto[]
   total: number
 }
 
-/** Lee el TTL de cache del entorno con un valor por defecto seguro. */
+/** Reads the cache TTL from the environment with a safe default. */
 function resolveCacheTtlSeconds(): number {
   const parsed = Number.parseInt(process.env.CACHE_TTL_SECONDS ?? '', 10)
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_CACHE_TTL_SECONDS
 }
 
-/** Escapa texto de usuario antes de incrustarlo en el HTML del correo. */
+/** Escapes user text before embedding it in the HTML of the email. */
 function escapeHtml(value: string): string {
   return value
     .replace(/&/g, '&amp;')
@@ -99,14 +99,14 @@ function escapeHtml(value: string): string {
     .replace(/'/g, '&#39;')
 }
 
-/** Compone el HTML de la notificacion de una tarea. */
+/** Builds the HTML body of a task notification. */
 function buildNotificationHtml(todo: TodoDto, actorName: string): string {
   const rows: Array<[string, string]> = [
-    ['Estado', STATUS_LABELS[todo.status] ?? todo.status],
-    ['Prioridad', PRIORITY_LABELS[todo.priority] ?? String(todo.priority)],
-    ['Fecha limite', todo.dueDate ?? 'sin fecha'],
-    ['Adjuntos', String(todo.attachmentsCount)],
-    ['Identificador', todo.id],
+    ['Status', STATUS_LABELS[todo.status] ?? todo.status],
+    ['Priority', PRIORITY_LABELS[todo.priority] ?? String(todo.priority)],
+    ['Due date', todo.dueDate ?? 'no due date'],
+    ['Attachments', String(todo.attachmentsCount)],
+    ['Identifier', todo.id],
   ]
 
   const rowsHtml = rows
@@ -119,23 +119,23 @@ function buildNotificationHtml(todo: TodoDto, actorName: string): string {
 
   const description = todo.description
     ? `<p style="margin:16px 0;color:#333;line-height:1.5;">${escapeHtml(todo.description)}</p>`
-    : '<p style="margin:16px 0;color:#777;">Esta tarea no tiene descripcion.</p>'
+    : '<p style="margin:16px 0;color:#777;">This task has no description.</p>'
 
   return `<!doctype html>
-<html lang="es">
+<html lang="en">
   <body style="margin:0;padding:24px;background:#f4f5f7;font-family:Arial,Helvetica,sans-serif;">
     <table role="presentation" style="max-width:560px;margin:0 auto;background:#ffffff;border-radius:8px;padding:24px;">
       <tr>
         <td>
-          <p style="margin:0 0 8px;color:#777;font-size:13px;">ERP Demo &middot; notificacion de tarea</p>
+          <p style="margin:0 0 8px;color:#777;font-size:13px;">ERP Demo &middot; task notification</p>
           <h1 style="margin:0 0 4px;font-size:20px;color:#111;">${escapeHtml(todo.title)}</h1>
-          <p style="margin:0;color:#777;font-size:13px;">Enviada por ${escapeHtml(actorName)}</p>
+          <p style="margin:0;color:#777;font-size:13px;">Sent by ${escapeHtml(actorName)}</p>
           ${description}
           <table role="presentation" style="width:100%;border-collapse:collapse;font-size:14px;">
             ${rowsHtml}
           </table>
           <p style="margin:24px 0 0;color:#999;font-size:12px;">
-            Mensaje automatico de la demo de ERP con Keycloak. No respondas a este correo.
+            Automated message from the ERP with Keycloak demo. Do not reply to this email.
           </p>
         </td>
       </tr>
@@ -144,35 +144,35 @@ function buildNotificationHtml(todo: TodoDto, actorName: string): string {
 </html>`
 }
 
-/** Version en texto plano del correo, como alternativa al HTML. */
+/** Plain-text version of the email, as an alternative to the HTML one. */
 function buildNotificationText(todo: TodoDto, actorName: string): string {
   return [
-    `Tarea: ${todo.title}`,
-    `Estado: ${STATUS_LABELS[todo.status] ?? todo.status}`,
-    `Prioridad: ${PRIORITY_LABELS[todo.priority] ?? todo.priority}`,
-    `Fecha limite: ${todo.dueDate ?? 'sin fecha'}`,
-    `Adjuntos: ${todo.attachmentsCount}`,
-    todo.description ? `Descripcion: ${todo.description}` : 'Sin descripcion.',
-    `Enviada por: ${actorName}`,
-    `Identificador: ${todo.id}`,
+    `Task: ${todo.title}`,
+    `Status: ${STATUS_LABELS[todo.status] ?? todo.status}`,
+    `Priority: ${PRIORITY_LABELS[todo.priority] ?? todo.priority}`,
+    `Due date: ${todo.dueDate ?? 'no due date'}`,
+    `Attachments: ${todo.attachmentsCount}`,
+    todo.description ? `Description: ${todo.description}` : 'No description.',
+    `Sent by: ${actorName}`,
+    `Identifier: ${todo.id}`,
   ].join('\n')
 }
 
-/** Invalida todas las listas cacheadas. Nunca interrumpe la peticion. */
+/** Invalidates every cached listing. It never interrupts the request. */
 async function invalidateListCache(app: FastifyInstance): Promise<void> {
   try {
     await app.cache.bumpVersion(CACHE_NAMESPACE)
   } catch (err) {
-    app.log.warn({ err }, 'No se pudo invalidar la cache de todos')
+    app.log.warn({ err }, 'Could not invalidate the todos cache')
   }
 }
 
-/** Comprueba que el usuario asignado existe antes de tocar la clave foranea. */
+/** Checks that the assigned user exists before touching the foreign key. */
 async function assertAssigneeExists(app: FastifyInstance, assigneeId: string | null | undefined): Promise<void> {
   if (!assigneeId) return
   const user = await repository.findUserById(app.db, assigneeId)
   if (!user) {
-    throw badRequest('El usuario asignado no existe en el ERP')
+    throw badRequest('The assigned user does not exist in the ERP')
   }
 }
 
@@ -185,10 +185,10 @@ export const todosRoutes: FastifyPluginAsync = async (app) => {
       preHandler: [app.authenticate, app.requirePermissions('todos:read')],
       schema: {
         tags: ['todos'],
-        summary: 'Lista las tareas visibles',
+        summary: 'List the visible tasks',
         description:
-          'Devuelve las tareas paginadas. El alcance "all" exige el permiso todos:read:all. ' +
-          'La respuesta se cachea en Valkey e incluye la cabecera X-Cache con HIT o MISS.',
+          'Returns the tasks with pagination. The "all" scope requires the todos:read:all permission. ' +
+          'The response is cached in Valkey and carries the X-Cache header with HIT or MISS.',
         security: [{ bearerAuth: [] }],
         querystring: ListTodosQuery,
         response: {
@@ -208,8 +208,8 @@ export const todosRoutes: FastifyPluginAsync = async (app) => {
       const q = rawQuery.length > 0 ? rawQuery : null
       const scope = buildScopeFilter(auth, request.query.scope)
 
-      // Clave versionada: al hacer bumpVersion("todos") todas las claves antiguas
-      // quedan huerfanas y expiran solas por TTL.
+      // Versioned key: calling bumpVersion("todos") orphans every old key, and
+      // they expire on their own through the TTL.
       let cacheKey: string | null = null
       try {
         const version = await app.cache.version(CACHE_NAMESPACE)
@@ -217,7 +217,7 @@ export const todosRoutes: FastifyPluginAsync = async (app) => {
           q ? encodeURIComponent(q) : '_'
         }:${page}:${pageSize}`
       } catch (err) {
-        app.log.warn({ err }, 'Cache no disponible: se sirve directamente desde la base de datos')
+        app.log.warn({ err }, 'Cache unavailable: serving straight from the database')
       }
 
       if (cacheKey) {
@@ -228,7 +228,7 @@ export const todosRoutes: FastifyPluginAsync = async (app) => {
             return { items: hit.items, page, pageSize, total: hit.total, cached: true }
           }
         } catch (err) {
-          app.log.warn({ err }, 'No se pudo leer la cache de todos')
+          app.log.warn({ err }, 'Could not read the todos cache')
         }
       }
 
@@ -238,7 +238,7 @@ export const todosRoutes: FastifyPluginAsync = async (app) => {
         try {
           await app.cache.set(cacheKey, { items: result.items, total: result.total }, cacheTtlSeconds)
         } catch (err) {
-          app.log.warn({ err }, 'No se pudo escribir la cache de todos')
+          app.log.warn({ err }, 'Could not write the todos cache')
         }
       }
 
@@ -253,8 +253,8 @@ export const todosRoutes: FastifyPluginAsync = async (app) => {
       preHandler: [app.authenticate, app.requirePermissions('todos:write')],
       schema: {
         tags: ['todos'],
-        summary: 'Crea una tarea',
-        description: 'Crea una tarea cuyo propietario es el usuario autenticado.',
+        summary: 'Create a task',
+        description: 'Creates a task owned by the authenticated user.',
         security: [{ bearerAuth: [] }],
         body: CreateTodoBody,
         response: {
@@ -303,8 +303,8 @@ export const todosRoutes: FastifyPluginAsync = async (app) => {
       preHandler: [app.authenticate, app.requirePermissions('todos:read')],
       schema: {
         tags: ['todos'],
-        summary: 'Obtiene una tarea',
-        description: 'Devuelve una tarea concreta si el usuario puede verla.',
+        summary: 'Get a task',
+        description: 'Returns a single task when the user is allowed to see it.',
         security: [{ bearerAuth: [] }],
         params: IdParams,
         response: {
@@ -327,10 +327,10 @@ export const todosRoutes: FastifyPluginAsync = async (app) => {
       preHandler: [app.authenticate, app.requirePermissions('todos:write')],
       schema: {
         tags: ['todos'],
-        summary: 'Actualiza parcialmente una tarea',
+        summary: 'Partially update a task',
         description:
-          'Modifica los campos enviados. Al pasar a "done" se rellena la fecha de finalizacion ' +
-          'y al salir de ese estado se limpia.',
+          'Changes only the fields sent. Moving to "done" fills in the completion date, and ' +
+          'leaving that status clears it again.',
         security: [{ bearerAuth: [] }],
         params: IdParams,
         body: UpdateTodoBody,
@@ -375,8 +375,8 @@ export const todosRoutes: FastifyPluginAsync = async (app) => {
       preHandler: [app.authenticate, app.requirePermissions('todos:delete')],
       schema: {
         tags: ['todos'],
-        summary: 'Elimina una tarea',
-        description: 'Borra la tarea, sus adjuntos en base de datos y los blobs asociados.',
+        summary: 'Delete a task',
+        description: 'Removes the task, its attachment rows and the blobs behind them.',
         security: [{ bearerAuth: [] }],
         params: IdParams,
         response: {
@@ -394,13 +394,13 @@ export const todosRoutes: FastifyPluginAsync = async (app) => {
 
       const result = await repository.deleteTodo(app.db, todo.id)
 
-      // Los blobs se borran despues de la fila: si falla el borrado remoto no
-      // se pierde consistencia, solo queda basura en el almacenamiento.
+      // The blobs are removed after the row: if the remote delete fails there is
+      // no loss of consistency, only leftover garbage in the storage account.
       for (const blobName of result.blobNames) {
         try {
           await app.storage.remove(blobName)
         } catch (err) {
-          app.log.warn({ err, blobName }, 'No se pudo borrar el blob del adjunto')
+          app.log.warn({ err, blobName }, 'Could not delete the attachment blob')
         }
       }
 
@@ -427,10 +427,10 @@ export const todosRoutes: FastifyPluginAsync = async (app) => {
       preHandler: [app.authenticate, app.requirePermissions('todos:write')],
       schema: {
         tags: ['todos'],
-        summary: 'Crea tareas de ejemplo',
+        summary: 'Create sample tasks',
         description:
-          'Genera seis tareas realistas de un ERP para el usuario autenticado. ' +
-          'Es idempotente: si el usuario ya tiene tareas propias devuelve created = 0.',
+          'Generates six realistic ERP tasks for the authenticated user. ' +
+          'It is idempotent: if the user already owns tasks it returns created = 0.',
         security: [{ bearerAuth: [] }],
         response: {
           200: SeedDemoResponse,
@@ -468,10 +468,10 @@ export const todosRoutes: FastifyPluginAsync = async (app) => {
       preHandler: [app.authenticate, app.requirePermissions('todos:write')],
       schema: {
         tags: ['todos'],
-        summary: 'Envia la tarea por correo',
+        summary: 'Send the task by email',
         description:
-          'Compone un correo con los datos de la tarea y lo envia con el proveedor configurado. ' +
-          'Sin clave de Resend el envio se simula (provider "dry-run") y delivered es false.',
+          'Builds an email with the task details and sends it through the configured provider. ' +
+          'Without a Resend key the send is simulated (provider "dry-run") and delivered is false.',
         security: [{ bearerAuth: [] }],
         params: IdParams,
         body: NotifyTodoBody,
@@ -489,7 +489,7 @@ export const todosRoutes: FastifyPluginAsync = async (app) => {
       const current = await repository.getTodoById(app.db, request.params.id)
       const todo = assertCanTouchTodo(auth, current, 'write')
 
-      // Prioridad del destinatario: body > correo del asignado > correo del solicitante.
+      // Recipient precedence: body > assignee email > caller email.
       let recipient = request.body?.to ?? null
       if (!recipient && todo.assigneeId) {
         const assignee = await repository.findUserById(app.db, todo.assigneeId)
@@ -499,7 +499,7 @@ export const todosRoutes: FastifyPluginAsync = async (app) => {
         recipient = auth.email
       }
       if (!recipient) {
-        throw badRequest('No hay destinatario: indica "to" o configura un correo en tu usuario')
+        throw badRequest('No recipient available: send "to" or set an email address on your user')
       }
 
       const actorName = auth.name ?? auth.username

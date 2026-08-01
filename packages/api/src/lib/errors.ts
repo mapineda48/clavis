@@ -1,8 +1,9 @@
 import type { FastifyError, FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 
 /**
- * Error de aplicación con código HTTP y código simbólico.
- * El manejador global lo traduce al sobre `{ error: { code, message, statusCode } }`.
+ * Application error carrying an HTTP status and a symbolic code.
+ * The global handler turns it into the `{ error: { code, message, statusCode } }`
+ * envelope.
  */
 export class AppError extends Error {
   readonly statusCode: number
@@ -19,40 +20,40 @@ export class AppError extends Error {
   }
 }
 
-/** 400 — la petición es inválida o incoherente. */
+/** 400 — the request is invalid or inconsistent. */
 export function badRequest(message: string, code = 'BAD_REQUEST', details?: unknown): AppError {
   return new AppError(400, code, message, details)
 }
 
-/** 401 — falta el token o no es válido. */
+/** 401 — the token is missing or not valid. */
 export function unauthorized(
-  message = 'Se requiere un token de acceso válido.',
+  message = 'A valid access token is required.',
   code = 'UNAUTHENTICATED',
   details?: unknown,
 ): AppError {
   return new AppError(401, code, message, details)
 }
 
-/** 403 — el token es válido pero faltan permisos. */
+/** 403 — the token is valid but the permissions are not enough. */
 export function forbidden(
-  message = 'No tienes permisos suficientes para esta operación.',
+  message = 'You do not have enough permissions for this operation.',
   code = 'FORBIDDEN',
   details?: unknown,
 ): AppError {
   return new AppError(403, code, message, details)
 }
 
-/** 404 — el recurso no existe (o no es visible para el usuario). */
-export function notFound(message = 'Recurso no encontrado.', code = 'NOT_FOUND', details?: unknown): AppError {
+/** 404 — the resource does not exist (or is not visible to the user). */
+export function notFound(message = 'Resource not found.', code = 'NOT_FOUND', details?: unknown): AppError {
   return new AppError(404, code, message, details)
 }
 
-/** 409 — conflicto con el estado actual del recurso. */
+/** 409 — conflict with the current state of the resource. */
 export function conflict(message: string, code = 'CONFLICT', details?: unknown): AppError {
   return new AppError(409, code, message, details)
 }
 
-/** Sobre de error que devuelve la API. */
+/** Error envelope returned by the API. */
 export interface ErrorEnvelope {
   error: {
     code: string
@@ -61,12 +62,12 @@ export interface ErrorEnvelope {
   }
 }
 
-/** Construye el sobre de error de forma homogénea. */
+/** Builds the error envelope in a uniform way. */
 function envelope(statusCode: number, code: string, message: string): ErrorEnvelope {
   return { error: { code, message, statusCode } }
 }
 
-/** Nombre del campo afectado por un error de ajv, si se puede determinar. */
+/** Name of the field an ajv error refers to, when it can be determined. */
 function validationFieldName(issue: { instancePath?: string; params?: unknown }): string {
   if (typeof issue.instancePath === 'string' && issue.instancePath.length > 0) {
     return issue.instancePath.replace(/^\//, '').replace(/\//g, '.')
@@ -78,34 +79,34 @@ function validationFieldName(issue: { instancePath?: string; params?: unknown })
   return ''
 }
 
-/** Convierte los errores de validación de ajv en un mensaje legible. */
+/** Turns ajv validation errors into a readable message. */
 function formatValidationError(error: FastifyError): string {
   const context = error.validationContext ? `${error.validationContext}: ` : ''
   const issues = (error.validation ?? [])
     .map((issue) => {
       const field = validationFieldName(issue)
-      const detail = issue.message ?? 'valor inválido'
+      const detail = issue.message ?? 'invalid value'
       return field ? `${field} ${detail}` : detail
     })
     .join('; ')
 
-  return `Datos de la petición inválidos (${context}${issues || 'formato incorrecto'}).`
+  return `Invalid request data (${context}${issues || 'malformed payload'}).`
 }
 
 /**
- * Instala el manejador de errores global y el de rutas no encontradas.
- * Todas las respuestas de error de la API comparten el mismo sobre.
+ * Installs the global error handler and the not-found handler.
+ * Every error response of the API shares the same envelope.
  */
 export function registerErrorHandler(app: FastifyInstance): void {
   app.setErrorHandler((error: FastifyError, request: FastifyRequest, reply: FastifyReply) => {
-    // 1) Errores de validación de esquema (ajv) -> 400 VALIDATION_ERROR
+    // 1) Schema validation errors (ajv) -> 400 VALIDATION_ERROR
     if (error.validation) {
       const message = formatValidationError(error)
-      request.log.warn({ err: error, url: request.url }, 'Petición inválida')
+      request.log.warn({ err: error, url: request.url }, 'Invalid request')
       return reply.code(400).type('application/json').send(envelope(400, 'VALIDATION_ERROR', message))
     }
 
-    // 2) Errores propios de la aplicación
+    // 2) Errors raised by the application itself
     if (error instanceof AppError) {
       const logPayload = { err: error, code: error.code, url: request.url }
       if (error.statusCode >= 500) request.log.error(logPayload, error.message)
@@ -116,7 +117,7 @@ export function registerErrorHandler(app: FastifyInstance): void {
         .send(envelope(error.statusCode, error.code, error.message))
     }
 
-    // 3) Errores de Fastify o de plugins con código HTTP conocido (4xx)
+    // 3) Fastify or plugin errors that already carry a known 4xx status
     const statusCode = typeof error.statusCode === 'number' ? error.statusCode : 500
     if (statusCode < 500) {
       const code = typeof error.code === 'string' && error.code.length > 0 ? error.code : 'BAD_REQUEST'
@@ -127,18 +128,18 @@ export function registerErrorHandler(app: FastifyInstance): void {
         .send(envelope(statusCode, code, error.message))
     }
 
-    // 4) Cualquier otra cosa: 500 sin filtrar detalles internos al cliente
-    request.log.error({ err: error, url: request.url }, 'Error no controlado')
+    // 4) Anything else: 500 without leaking internal details to the client
+    request.log.error({ err: error, url: request.url }, 'Unhandled error')
     return reply
       .code(500)
       .type('application/json')
-      .send(envelope(500, 'INTERNAL_ERROR', 'Error interno del servidor.'))
+      .send(envelope(500, 'INTERNAL_ERROR', 'Internal server error.'))
   })
 
   app.setNotFoundHandler((request: FastifyRequest, reply: FastifyReply) => {
     return reply
       .code(404)
       .type('application/json')
-      .send(envelope(404, 'ROUTE_NOT_FOUND', `Ruta no encontrada: ${request.method} ${request.url}`))
+      .send(envelope(404, 'ROUTE_NOT_FOUND', `Route not found: ${request.method} ${request.url}`))
   })
 }

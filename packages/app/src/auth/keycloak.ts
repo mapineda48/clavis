@@ -1,10 +1,11 @@
 import Keycloak from 'keycloak-js'
 import type { KeycloakInitOptions } from 'keycloak-js'
 import { config } from '../config'
+import { translateActive } from '../i18n'
 
 /**
- * Instancia unica de Keycloak para toda la aplicacion.
- * Se crea a nivel de modulo para que sobreviva a los remontajes de React.
+ * Single Keycloak instance for the whole application.
+ * It is created at module level so it survives React remounts.
  */
 export const keycloak = new Keycloak({
   url: config.keycloakUrl,
@@ -13,8 +14,8 @@ export const keycloak = new Keycloak({
 })
 
 const INIT_OPTIONS: KeycloakInitOptions = {
-  // `check-sso` no redirige: comprueba la sesion en un iframe oculto y deja al
-  // usuario en la pantalla de login de la SPA si aun no se ha autenticado.
+  // `check-sso` does not redirect: it checks the session in a hidden iframe and
+  // leaves the user on the SPA login screen if they are not authenticated yet.
   onLoad: 'check-sso',
   pkceMethod: 'S256',
   checkLoginIframe: false,
@@ -23,19 +24,19 @@ const INIT_OPTIONS: KeycloakInitOptions = {
 }
 
 /**
- * Promesa memorizada del `init`.
- * React 19 en StrictMode ejecuta los efectos dos veces y `keycloak.init()`
- * lanza un error si se invoca mas de una vez, asi que la primera llamada gana
- * y el resto reutiliza su resultado.
+ * Memoised `init` promise.
+ * React 19 runs effects twice in StrictMode and `keycloak.init()` throws when
+ * called more than once, so the first call wins and everybody else reuses its
+ * result.
  */
 let initPromise: Promise<boolean> | null = null
 
 export function initKeycloak(): Promise<boolean> {
   if (initPromise === null) {
     initPromise = keycloak.init(INIT_OPTIONS).catch((error: unknown) => {
-      // Si Keycloak no responde preferimos arrancar en modo "sin sesion" antes
-      // que romper el arbol de React con una promesa rechazada.
-      console.error('[auth] no se ha podido inicializar Keycloak', error)
+      // If Keycloak is unreachable we would rather start in "no session" mode
+      // than break the React tree with a rejected promise.
+      console.error('[auth] could not initialise Keycloak', error)
       return false
     })
   }
@@ -43,21 +44,21 @@ export function initKeycloak(): Promise<boolean> {
 }
 
 /**
- * Devuelve un access token valido, refrescandolo si le quedan menos de
- * `minValiditySeconds` segundos de vida.
+ * Returns a valid access token, refreshing it when it has less than
+ * `minValiditySeconds` seconds of life left.
  */
 export async function getAccessToken(minValiditySeconds = 30): Promise<string> {
   if (keycloak.authenticated !== true) {
-    throw new Error('No hay una sesion activa en Keycloak.')
+    throw new Error(translateActive('error.noSession'))
   }
   try {
     await keycloak.updateToken(minValiditySeconds)
   } catch {
-    throw new Error('La sesion ha caducado. Vuelve a iniciar sesion.')
+    throw new Error(translateActive('error.sessionExpired'))
   }
   const token = keycloak.token
   if (token === undefined || token === '') {
-    throw new Error('Keycloak no ha devuelto un token de acceso.')
+    throw new Error(translateActive('error.noAccessToken'))
   }
   return token
 }

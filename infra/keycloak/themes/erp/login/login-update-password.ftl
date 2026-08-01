@@ -1,26 +1,27 @@
 <#--
-    Paso 2 del flujo de recuperacion: fijar la contrasena nueva.
+    Step 2 of the recovery flow: set the new password.
 
-    La sirve tanto el enlace del correo de recuperacion como la accion requerida
-    UPDATE_PASSWORD, de ahi la rama isAppInitiatedAction??.
+    It is served both by the link in the recovery email and by the UPDATE_PASSWORD
+    required action, which is what the isAppInitiatedAction?? branch is for.
 
-    Adaptada del login-update-password.ftl del tema `base` de Keycloak 26.4. Se
-    conserva TODO lo funcional del original:
-      - el formulario id="kc-passwd-update-form" con action="${url.loginAction}"
-        y method="post",
-      - los campos name="password-new" y name="password-confirm" con sus id y sus
-        bloques messagesPerField,
-      - los botones de mostrar/ocultar con data-password-toggle, aria-controls,
-        data-icon-show/hide y data-label-show/hide (los mueve passwordVisibility.js),
-      - el import de password-commons.ftl y la llamada a logoutOtherSessions,
-      - la rama isAppInitiatedAction?? con su boton name="cancel-aia".
-    Lo unico que cambia es el marcado: usa las clases del tema.
+    Adapted from the login-update-password.ftl of Keycloak 26.4's `base` theme.
+    EVERYTHING functional in the original is preserved:
+      - the form id="kc-passwd-update-form" with action="${url.loginAction}"
+        and method="post",
+      - the name="password-new" and name="password-confirm" fields with their ids
+        and their messagesPerField blocks,
+      - the show/hide buttons with data-password-toggle, aria-controls,
+        data-icon-show/hide and data-label-show/hide (passwordVisibility.js drives them),
+      - the password-commons.ftl import and the logoutOtherSessions call,
+      - the isAppInitiatedAction?? branch with its name="cancel-aia" button.
+    Only the markup changes: it uses the theme classes.
 
-    Sin tabindex propios a proposito: la casilla de logoutOtherSessions la pinta
-    una macro del tema base que no admite tabindex, y numerar el resto la echaria
-    al final del recorrido. Con todo a 0 el orden es el del documento, que aqui ya
-    es el correcto. Los botones de la chuleta de usuarios (tabindex 9..11) quedan
-    desactivados por erp-login.js: en esta pantalla no hay campo #username.
+    No tabindex values here, on purpose: the logoutOtherSessions checkbox is
+    rendered by a base-theme macro that takes no tabindex, and numbering
+    everything else would push it to the end of the sequence. With everything at
+    0 the order is document order, which is already the right one on this screen.
+    The cheat-sheet buttons (tabindex 9..11) are disabled by erp-login.js: there
+    is no #username field here.
 -->
 <#import "template.ftl" as layout>
 <#import "password-commons.ftl" as passwordCommons>
@@ -39,8 +40,8 @@
                            autofocus autocomplete="new-password"
                            aria-invalid="<#if messagesPerField.existsError('password','password-confirm')>true</#if>"
                     />
-                    <#-- passwordVisibility.js reemplaza la clase COMPLETA del primer hijo
-                         de este boton, por eso cada data-icon-* es autosuficiente. -->
+                    <#-- passwordVisibility.js replaces the ENTIRE class of this button's
+                         first child, hence every data-icon-* is self-contained. -->
                     <button class="${properties.kcFormPasswordVisibilityButtonClass!}" type="button"
                             aria-label="${msg('showPassword')}" aria-controls="password-new"
                             data-password-toggle
@@ -83,14 +84,14 @@
                 </#if>
             </div>
 
-            <#-- Macro del tema base: emite <div class="checkbox"><label>...; el CSS del
-                 tema cubre esa forma ademas de la nuestra (.erp-checkbox). -->
+            <#-- Base-theme macro: it emits <div class="checkbox"><label>...; the theme
+                 CSS covers that shape as well as our own (.erp-checkbox). -->
             <div class="${properties.kcFormGroupClass!}">
                 <@passwordCommons.logoutOtherSessions/>
             </div>
 
-            <#-- El submit va primero para que Enter dentro de los campos guarde la
-                 contrasena y no cancele la accion. -->
+            <#-- The submit button comes first so that pressing Enter inside a field
+                 saves the password instead of cancelling the action. -->
             <div id="kc-form-buttons" class="${properties.kcFormButtonsClass!}">
                 <input name="login"
                        class="${properties.kcButtonClass!} ${properties.kcButtonPrimaryClass!} ${properties.kcButtonBlockClass!} ${properties.kcButtonLargeClass!}"

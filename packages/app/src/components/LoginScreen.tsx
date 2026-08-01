@@ -1,6 +1,8 @@
 import { useAuth } from '../auth/AuthProvider'
 import { config } from '../config'
-import { PERMISSIONS, PERMISSION_LABELS, REALM_ROLE_LABELS } from '../lib/types'
+import { isLocale, LOCALE_LABELS, LOCALES } from '../i18n'
+import { useI18n } from '../i18n/I18nProvider'
+import { PERMISSIONS, PERMISSION_LABEL_KEYS, REALM_ROLE_LABEL_KEYS } from '../lib/types'
 import type { Permission } from '../lib/types'
 
 interface DemoUser {
@@ -10,8 +12,8 @@ interface DemoUser {
 }
 
 /**
- * Usuarios que crea el realm importado. Las contrasenas NO se escriben aqui:
- * viven en las variables DEMO_*_PASSWORD del `.env` de la raiz.
+ * Users created by the imported realm. The passwords are NOT written here: they
+ * live in the DEMO_*_PASSWORD variables of the `.env` at the root.
  */
 const DEMO_USERS: DemoUser[] = [
   { username: 'admin', role: 'erp-admin', permissions: [...PERMISSIONS] },
@@ -23,79 +25,113 @@ const DEMO_USERS: DemoUser[] = [
   { username: 'worker', role: 'erp-user', permissions: ['todos:read', 'todos:write'] },
 ]
 
+/**
+ * Same control as the one in the shell, repeated here on purpose: the Keycloak
+ * login theme offers the language before asking who you are, and this screen is
+ * what the app shows in its place, so it has to offer it too. A native
+ * `<select>` keeps it reachable with the keyboard and labelled for screen
+ * readers with no extra markup.
+ */
+function LanguagePicker() {
+  const { locale, setLocale, t } = useI18n()
+
+  return (
+    <label className="field field--inline">
+      <span className="field__label">{t('common.language')}</span>
+      <select
+        className="input input--sm"
+        value={locale}
+        onChange={(event) => {
+          const value = event.target.value
+          if (isLocale(value)) setLocale(value)
+        }}
+      >
+        {LOCALES.map((code) => (
+          <option key={code} value={code}>
+            {LOCALE_LABELS[code]}
+          </option>
+        ))}
+      </select>
+    </label>
+  )
+}
+
 export function LoginScreen() {
   const { login } = useAuth()
+  const { t } = useI18n()
 
   return (
     <div className="login">
       <section className="login__card">
-        <header className="login__header">
-          <span className="brand__mark" aria-hidden="true">
-            ERP
-          </span>
-          <h1 className="login__title">ERP Demo</h1>
-          <p className="login__lead">
-            Aplicacion de ejemplo para ver, paso a paso, como Keycloak resuelve la autenticacion y
-            como los <strong>client roles</strong> se convierten en permisos dentro del token.
-          </p>
-        </header>
+        {/* Title on the left, language on the right: the picker sits beside the
+            heading instead of between the lead and the sign-in button. */}
+        <div className="panel__head">
+          <header className="login__header">
+            <span className="brand__mark" aria-hidden="true">
+              {t('common.brandMark')}
+            </span>
+            <h1 className="login__title">{t('common.appName')}</h1>
+            <p className="login__lead">{t('auth.loginLead')}</p>
+          </header>
+
+          <div className="panel__tools">
+            <LanguagePicker />
+          </div>
+        </div>
 
         <button type="button" className="btn btn--primary btn--block" onClick={login}>
-          Iniciar sesion con Keycloak
+          {t('auth.loginButton')}
         </button>
 
         <div className="login__hint">
-          <p>
-            Realm <code>{config.keycloakRealm}</code> en <code>{config.keycloakUrl}</code>
-          </p>
-          <p>
-            Las contrasenas de los usuarios de demostracion estan en las variables{' '}
-            <code>DEMO_*_PASSWORD</code> del archivo <code>.env</code> de la raiz del repositorio.
-          </p>
+          <p>{t('auth.realmHint', { realm: config.keycloakRealm, url: config.keycloakUrl })}</p>
+          <p>{t('auth.demoPasswordHint')}</p>
         </div>
 
         <div className="table-wrap">
           <table className="table">
-            <caption className="table__caption">Usuarios de demostracion</caption>
+            <caption className="table__caption">{t('auth.demoUsersCaption')}</caption>
             <thead>
               <tr>
-                <th scope="col">Usuario</th>
-                <th scope="col">Rol de realm</th>
-                <th scope="col">Permisos en la API</th>
+                <th scope="col">{t('auth.demoUserColumn')}</th>
+                <th scope="col">{t('auth.demoRoleColumn')}</th>
+                <th scope="col">{t('auth.demoPermissionsColumn')}</th>
               </tr>
             </thead>
             <tbody>
-              {DEMO_USERS.map((user) => (
-                <tr key={user.username}>
-                  <th scope="row">
-                    <code>{user.username}</code>
-                  </th>
-                  <td>
-                    <span className="chip chip--role">{user.role}</span>
-                    <span className="muted"> {REALM_ROLE_LABELS[user.role] ?? ''}</span>
-                  </td>
-                  <td>
-                    <ul className="chips">
-                      {user.permissions.map((perm) => (
-                        <li key={perm}>
-                          <span className="chip" title={PERMISSION_LABELS[perm]}>
-                            {perm}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  </td>
-                </tr>
-              ))}
+              {DEMO_USERS.map((user) => {
+                const roleLabelKey = REALM_ROLE_LABEL_KEYS[user.role]
+                return (
+                  <tr key={user.username}>
+                    <th scope="row">
+                      <code>{user.username}</code>
+                    </th>
+                    <td>
+                      <span className="chip chip--role">{user.role}</span>
+                      <span className="muted">
+                        {' '}
+                        {roleLabelKey === undefined ? '' : t(roleLabelKey)}
+                      </span>
+                    </td>
+                    <td>
+                      <ul className="chips">
+                        {user.permissions.map((perm) => (
+                          <li key={perm}>
+                            <span className="chip" title={t(PERMISSION_LABEL_KEYS[perm])}>
+                              {perm}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>
 
-        <p className="login__foot">
-          Prueba a entrar con <code>worker</code> y observa como desaparecen las acciones que
-          requieren permisos: la interfaz las oculta y, si aun asi se invocan, la API responde{' '}
-          <code>403</code>.
-        </p>
+        <p className="login__foot">{t('auth.demoFooter')}</p>
       </section>
     </div>
   )

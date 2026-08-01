@@ -1,6 +1,6 @@
 {
-  // Configuracion aparte para los archivos que ejecuta Node (la config de Vite).
-  // Se mantiene fuera de `tsconfig.json` porque usa APIs de Node y no el DOM.
+  // Separate config for the files Node runs (the Vite config).
+  // Kept out of `tsconfig.json` because it targets Node APIs, not the DOM.
   "compilerOptions": {
     "target": "ES2023",
     "lib": ["ES2023"],

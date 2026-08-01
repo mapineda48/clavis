@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import fp from 'fastify-plugin'
-// `pg` es CommonJS: bajo ESM sólo funciona la importación por defecto.
+// `pg` is CommonJS: under ESM only the default import works.
 import pg from 'pg'
 import type { Pool as PgPool } from 'pg'
 import { env } from '../config/env.js'
@@ -8,16 +8,16 @@ import { runMigrations } from '../lib/migrator.js'
 
 const { Pool } = pg
 
-/** Intentos y espera entre reintentos de la primera conexión. */
+/** Attempts and wait between retries of the very first connection. */
 const CONNECT_ATTEMPTS = 10
 const CONNECT_RETRY_MS = 1500
 
 const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
 /**
- * Espera a que PostgreSQL acepte conexiones.
- * El healthcheck de docker compose ya ordena el arranque, pero un reintento
- * acotado evita que un reinicio de la base tumbe la API.
+ * Waits until PostgreSQL accepts connections.
+ * The docker compose healthcheck already orders the startup, but a bounded
+ * retry keeps a database restart from taking the API down.
  */
 async function waitForDatabase(pool: PgPool, app: FastifyInstance): Promise<void> {
   for (let attempt = 1; attempt <= CONNECT_ATTEMPTS; attempt += 1) {
@@ -29,7 +29,7 @@ async function waitForDatabase(pool: PgPool, app: FastifyInstance): Promise<void
       if (attempt === CONNECT_ATTEMPTS) throw error
       app.log.warn(
         { attempt, attempts: CONNECT_ATTEMPTS, err: error },
-        'PostgreSQL todavía no acepta conexiones; reintentando',
+        'PostgreSQL is not accepting connections yet; retrying',
       )
       await delay(CONNECT_RETRY_MS)
     }
@@ -37,8 +37,8 @@ async function waitForDatabase(pool: PgPool, app: FastifyInstance): Promise<void
 }
 
 /**
- * Plugin de base de datos: crea el pool de PostgreSQL, ejecuta las migraciones
- * pendientes durante el arranque y decora `fastify.db`.
+ * Database plugin: creates the PostgreSQL pool, runs the pending migrations
+ * during startup and decorates `fastify.db`.
  */
 export const dbPlugin = fp(
   async (app: FastifyInstance) => {
@@ -48,10 +48,10 @@ export const dbPlugin = fp(
       application_name: 'erp-api',
     })
 
-    // El pool emite errores de los clientes inactivos: se registran para que un
-    // corte de red con PostgreSQL no tumbe el proceso.
+    // The pool emits errors coming from idle clients: they are logged so that a
+    // network glitch with PostgreSQL does not crash the process.
     pool.on('error', (error) => {
-      app.log.error({ err: error }, 'Error inesperado en un cliente del pool de PostgreSQL')
+      app.log.error({ err: error }, 'Unexpected error on a PostgreSQL pool client')
     })
 
     await waitForDatabase(pool, app)
@@ -61,7 +61,7 @@ export const dbPlugin = fp(
       pool,
 
       async query(text, params) {
-        // Sin parámetros se usa el protocolo simple (permite varias sentencias).
+        // Without parameters the simple protocol is used (allows several statements).
         return params === undefined ? pool.query(text) : pool.query(text, params)
       },
 
@@ -85,7 +85,7 @@ export const dbPlugin = fp(
           await pool.query('SELECT 1')
           return true
         } catch (error) {
-          app.log.warn({ err: error }, 'PostgreSQL no responde')
+          app.log.warn({ err: error }, 'PostgreSQL is not responding')
           return false
         }
       },
@@ -95,7 +95,7 @@ export const dbPlugin = fp(
 
     app.addHook('onClose', async () => {
       await pool.end().catch(() => undefined)
-      app.log.info('Pool de PostgreSQL cerrado')
+      app.log.info('PostgreSQL pool closed')
     })
   },
   { name: 'erp-db' },

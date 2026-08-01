@@ -1,23 +1,23 @@
 /* =============================================================================
-   Tema de login del demo ERP — hoja de estilos unica.
+   ERP demo login theme — the one stylesheet.
 
-   Sin fuentes remotas, sin CDNs, sin dependencias: todo se resuelve con la pila
-   de fuentes del sistema y con iconos SVG embebidos como data URI.
+   No remote fonts, no CDNs, no dependencies: everything is solved with the
+   system font stack and SVG icons embedded as data URIs.
 
-   Indice:
-     1. Variables (color, forma, espaciado, iconos)
-     2. Modo oscuro (solo redefine variables de color)
-     3. Reset acotado al tema
-     4. Estructura: layout, panel de marca, panel de formulario
-     5. Chuleta de usuarios de demostracion
-     6. Tarjeta, cabecera y selector de idioma
-     7. Formularios: campos, inputs, mostrar/ocultar contrasena, opciones
-     8. Botones y enlaces
-     9. Avisos (alerts)
-    10. Identidades federadas, info y pie
-    11. Iconos por mascara
-    12. Adaptacion a pantallas estrechas
-    13. Movimiento reducido
+   Contents:
+     1. Variables (colour, shape, spacing, icons)
+     2. Dark mode (redefines colour variables only)
+     3. Reset scoped to the theme
+     4. Structure: layout, brand panel, form panel
+     5. Demo user cheat sheet
+     6. Card, header and language selector
+     7. Forms: fields, inputs, show/hide password, options
+     8. Buttons and links
+     9. Alerts
+    10. Federated identities, info and footer
+    11. Mask-based icons
+    12. Narrow screens
+    13. Reduced motion
    ========================================================================== */
 
 
@@ -26,7 +26,7 @@
    ========================================================================== */
 
 :root {
-  /* --- Tipografia del sistema (sin descargas) --------------------------- */
+  /* --- System typography (nothing downloaded) --------------------------- */
   --erp-font-sans:
     -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
     Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
@@ -34,13 +34,13 @@
     ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
     "Liberation Mono", monospace;
 
-  /* --- Forma ------------------------------------------------------------ */
+  /* --- Shape ------------------------------------------------------------ */
   --erp-radius-sm: 8px;
   --erp-radius-md: 12px;
   --erp-radius-lg: 20px;
   --erp-radius-pill: 999px;
 
-  /* --- Espaciado -------------------------------------------------------- */
+  /* --- Spacing ---------------------------------------------------------- */
   --erp-space-1: 0.375rem;
   --erp-space-2: 0.625rem;
   --erp-space-3: 1rem;
@@ -49,7 +49,7 @@
   --erp-space-6: 3rem;
   --erp-gutter: clamp(1.25rem, 4vw, 3rem);
 
-  /* --- Color: superficies y texto --------------------------------------- */
+  /* --- Colour: surfaces and text ---------------------------------------- */
   --erp-bg: #f2f1f8;
   --erp-bg-2: #e8e6f2;
   --erp-surface: #ffffff;
@@ -59,9 +59,9 @@
   --erp-border: #dcd9ea;
   --erp-border-strong: #bcb7d3;
 
-  /* --- Color: identidad -------------------------------------------------- */
-  /* --erp-primary rellena botones (texto blanco encima);
-     --erp-accent tine texto y enlaces (debe leerse sobre la superficie). */
+  /* --- Colour: identity -------------------------------------------------- */
+  /* --erp-primary fills buttons (white text on top of it);
+     --erp-accent tints text and links (it has to be legible on the surface). */
   --erp-primary: #4c2fb0;
   --erp-primary-hover: #3d2492;
   --erp-primary-soft: #ece7fb;
@@ -70,7 +70,7 @@
   --erp-focus: #6d4ae0;
   --erp-focus-ring: 0 0 0 3px rgba(109, 74, 224, 0.32);
 
-  /* --- Color: panel de marca (degradado y superficies translucidas) ------ */
+  /* --- Colour: brand panel (gradient and translucent surfaces) ----------- */
   --erp-brand-gradient: linear-gradient(155deg, #241155 0%, #3b1f8f 46%, #0f5f66 100%);
   --erp-on-brand: #ffffff;
   --erp-on-brand-muted: rgba(255, 255, 255, 0.84);
@@ -78,7 +78,7 @@
   --erp-brand-surface-strong: rgba(255, 255, 255, 0.2);
   --erp-brand-border: rgba(255, 255, 255, 0.26);
 
-  /* --- Color: estados de aviso ------------------------------------------ */
+  /* --- Colour: alert states --------------------------------------------- */
   --erp-danger: #b3261e;
   --erp-danger-bg: #fdeceb;
   --erp-warning: #8a5200;
@@ -88,13 +88,14 @@
   --erp-info: #17558c;
   --erp-info-bg: #e9f1fd;
 
-  /* --- Color: sombras ---------------------------------------------------- */
+  /* --- Colour: shadows --------------------------------------------------- */
   --erp-shadow-sm: 0 1px 2px rgba(20, 16, 50, 0.08);
   --erp-shadow-md: 0 10px 30px -14px rgba(20, 16, 50, 0.35), 0 2px 6px rgba(20, 16, 50, 0.06);
   --erp-shadow-lg: 0 28px 64px -28px rgba(20, 16, 50, 0.5), 0 6px 16px rgba(20, 16, 50, 0.08);
 
-  /* --- Iconos: SVG embebido para usar como mascara ----------------------- */
-  /* Se pintan con background-color: currentColor, asi que siguen al texto. */
+  /* --- Icons: embedded SVG, used as a mask ------------------------------- */
+  /* They are painted with background-color: currentColor, so they follow the
+     surrounding text colour. */
   --erp-icon-eye: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12Z'/%3E%3Ccircle cx='12' cy='12' r='3'/%3E%3C/svg%3E");
   --erp-icon-eye-off: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10.6 5.7A9.9 9.9 0 0 1 12 5.5c6.4 0 10 6.5 10 6.5a17.7 17.7 0 0 1-3.3 4.2'/%3E%3Cpath d='M6.6 7A17.6 17.6 0 0 0 2 12s3.6 6.5 10 6.5a9.7 9.7 0 0 0 4-.8'/%3E%3Cpath d='M9.9 9.9a3 3 0 0 0 4.2 4.2'/%3E%3Cpath d='m3 3 18 18'/%3E%3C/svg%3E");
   --erp-icon-info: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M12 11v5.4'/%3E%3Cpath d='M12 7.7h.01'/%3E%3C/svg%3E");
@@ -102,15 +103,15 @@
   --erp-icon-warning: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3.2 1.9 20.6h20.2z'/%3E%3Cpath d='M12 9.6v4.6'/%3E%3Cpath d='M12 17.4h.01'/%3E%3C/svg%3E");
   --erp-icon-error: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M12 7.4v5.2'/%3E%3Cpath d='M12 16.4h.01'/%3E%3C/svg%3E");
 
-  /* Respaldo para las alertas PatternFly de paginas heredadas que quedan fuera
-     de un .erp-alert: sin este valor la mascara seria invalida y el icono se
-     veria como un cuadrado solido. */
+  /* Fallback for the PatternFly alerts of inherited pages that end up outside an
+     .erp-alert: without this value the mask would be invalid and the icon would
+     show up as a solid square. */
   --erp-alert-icon: var(--erp-icon-info);
 }
 
 
 /* =============================================================================
-   2. Modo oscuro — redefine UNICAMENTE variables de color
+   2. Dark mode — redefines colour variables ONLY
    ========================================================================== */
 
 @media (prefers-color-scheme: dark) {
@@ -156,7 +157,7 @@
 
 
 /* =============================================================================
-   3. Reset acotado al tema
+   3. Reset scoped to the theme
    ========================================================================== */
 
 .erp-html,
@@ -168,7 +169,7 @@
 
 .erp-html {
   height: 100%;
-  /* Que los controles nativos (scrollbars, autofill, checkbox) sigan al tema. */
+  /* Keeps native controls (scrollbars, autofill, checkboxes) in step with the theme. */
   color-scheme: light dark;
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
@@ -182,7 +183,7 @@
   line-height: 1.55;
   color: var(--erp-text);
   background-color: var(--erp-bg);
-  /* Red de seguridad: ningun ancho debe producir scroll horizontal. */
+  /* Safety net: no width should ever produce horizontal scrolling. */
   overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
 }
@@ -216,7 +217,7 @@
   color: inherit;
 }
 
-/* Palabras muy largas (correos, tokens) nunca ensanchan el layout. */
+/* Very long words (email addresses, tokens) never widen the layout. */
 .erp-html p,
 .erp-html label,
 .erp-html a,
@@ -227,7 +228,7 @@
   overflow-wrap: break-word;
 }
 
-/* Foco visible y consistente en todo lo interactivo. */
+/* Visible, consistent focus on everything interactive. */
 .erp-html :focus-visible {
   outline: 2px solid var(--erp-focus);
   outline-offset: 2px;
@@ -235,19 +236,19 @@
 
 
 /* =============================================================================
-   4. Estructura
+   4. Structure
    ========================================================================== */
 
 .erp-layout {
   display: grid;
-  /* minmax(0, …) evita que el contenido fuerce columnas mas anchas que la rejilla. */
+  /* minmax(0, …) stops the content forcing columns wider than the grid. */
   grid-template-columns: minmax(0, 42%) minmax(0, 1fr);
   min-height: 100vh;
   min-height: 100dvh;
   width: 100%;
 }
 
-/* Banda de degradado que solo se usa en la version apilada (ver seccion 12). */
+/* Gradient band used only by the stacked layout (see section 12). */
 .erp-layout::before {
   content: none;
 }
@@ -257,7 +258,7 @@
   min-width: 0;
 }
 
-/* --- Panel de marca (izquierda) ---------------------------------------- */
+/* --- Brand panel (left) ------------------------------------------------- */
 
 .erp-brand {
   display: flex;
@@ -333,7 +334,7 @@
   display: block;
 }
 
-/* --- Panel del formulario (derecha) ------------------------------------ */
+/* --- Form panel (right) ------------------------------------------------- */
 
 .erp-panel {
   display: flex;
@@ -345,7 +346,7 @@
 
 
 /* =============================================================================
-   5. Chuleta de usuarios de demostracion
+   5. Demo user cheat sheet
    ========================================================================== */
 
 .erp-users {
@@ -402,7 +403,7 @@
   min-width: 0;
 }
 
-/* Chips de permisos: blanco puro sobre superficie translucida => AA holgado. */
+/* Permission chips: pure white on a translucent surface => comfortably AA. */
 .erp-perm {
   display: inline-block;
   padding: 0.1rem 0.45rem;
@@ -459,7 +460,7 @@
 
 
 /* =============================================================================
-   6. Tarjeta, cabecera y selector de idioma
+   6. Card, header and language selector
    ========================================================================== */
 
 .erp-card {
@@ -501,7 +502,7 @@
   display: block;
 }
 
-/* Eco del usuario ya identificado (pantallas con auth.showUsername()). */
+/* Echo of the already identified user (screens with auth.showUsername()). */
 .erp-username-echo {
   display: flex;
   flex-wrap: wrap;
@@ -535,11 +536,11 @@
   text-decoration-thickness: 2px;
 }
 
-/* --- Selector de idioma ------------------------------------------------- */
-/* menu-button-links.js (tema base) abre el menu poniendo style="display:block"
-   en el elemento [role="menu"] y aria-expanded="true" en el boton, y al cerrar
-   quita esa propiedad en linea. Por eso la lista se oculta con display:none:
-   el estilo en linea del script tiene prioridad y la muestra. */
+/* --- Language selector -------------------------------------------------- */
+/* menu-button-links.js (base theme) opens the menu by setting
+   style="display:block" on the [role="menu"] element and aria-expanded="true" on
+   the button, and removes that inline property on close. That is why the list is
+   hidden with display:none: the script's inline style wins and reveals it. */
 
 .erp-locale {
   align-self: flex-end;
@@ -599,7 +600,7 @@
   box-shadow: var(--erp-shadow-md);
 }
 
-/* Respaldo declarativo por si el estilo en linea no llegara a aplicarse. */
+/* Declarative fallback in case the inline style never gets applied. */
 .erp-locale__dropdown > button[aria-expanded="true"] + .erp-locale__list {
   display: block;
 }
@@ -625,7 +626,7 @@
 
 
 /* =============================================================================
-   7. Formularios
+   7. Forms
    ========================================================================== */
 
 .erp-field {
@@ -651,7 +652,7 @@
   border-radius: var(--erp-radius-md);
   background-color: var(--erp-surface);
   color: var(--erp-text);
-  font-size: 1rem; /* 16px: evita el zoom automatico en iOS */
+  font-size: 1rem; /* 16px: stops iOS from zooming in automatically */
   line-height: 1.4;
   transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
 }
@@ -671,8 +672,8 @@
 .erp-input:focus,
 .erp-card__body select:focus,
 .erp-card__body textarea:focus {
-  /* Contorno transparente en lugar de `outline: none`: asi el modo de colores
-     forzados del sistema sigue pintando un foco visible. */
+  /* A transparent outline instead of `outline: none`, so the system forced
+     colours mode still paints a visible focus ring. */
   outline: 2px solid transparent;
   outline-offset: 2px;
   border-color: var(--erp-focus);
@@ -686,7 +687,7 @@
   cursor: not-allowed;
 }
 
-/* Estado de error: lo emite la plantilla con aria-invalid="true". */
+/* Error state: the template signals it with aria-invalid="true". */
 .erp-input[aria-invalid="true"] {
   border-color: var(--erp-danger);
 }
@@ -705,7 +706,7 @@
   color: var(--erp-danger);
 }
 
-/* --- Grupo de entrada con boton de mostrar/ocultar --------------------- */
+/* --- Input group with a show/hide button -------------------------------- */
 
 .erp-input-group {
   position: relative;
@@ -713,7 +714,7 @@
   width: 100%;
 }
 
-/* Hueco reservado para que el boton nunca tape el texto escrito. */
+/* Reserved room so the button never covers the text being typed. */
 .erp-input-group .erp-input {
   padding-inline-end: 3rem;
 }
@@ -742,7 +743,7 @@
   background-color: var(--erp-primary-soft);
 }
 
-/* --- Fila de opciones (recordarme / olvide mi contrasena) -------------- */
+/* --- Options row (remember me / forgot my password) --------------------- */
 
 .erp-options {
   display: flex;
@@ -758,9 +759,9 @@
   min-width: 0;
 }
 
-/* En nuestro login.ftl la clase va SOBRE el <label>; en las paginas heredadas
-   del tema base la estructura es <div class="checkbox"><label>. Se cubren las
-   dos formas para que la fila de "recordarme" se vea igual en ambas. */
+/* In our login.ftl the class sits ON the <label>; on the pages inherited from the
+   base theme the structure is <div class="checkbox"><label>. Both shapes are
+   covered so the "remember me" row looks the same either way. */
 .erp-checkbox,
 .erp-options .checkbox label {
   display: inline-flex;
@@ -785,7 +786,7 @@
 
 
 /* =============================================================================
-   8. Botones y enlaces
+   8. Buttons and links
    ========================================================================== */
 
 .erp-btn {
@@ -853,7 +854,7 @@
   border-radius: var(--erp-radius-md);
 }
 
-/* Los enlaces con aspecto de boton quedan fuera: ya tienen su propio estilo. */
+/* Links that look like buttons are excluded: they already have their own style. */
 .erp-link,
 .erp-card__body a:not(.erp-btn):not(.erp-social__link),
 .erp-options a {
@@ -871,11 +872,11 @@
 
 
 /* =============================================================================
-   9. Avisos
+   9. Alerts
    ========================================================================== */
 
-/* Nuestras plantillas emiten .erp-alert--<tipo>; las plantillas heredadas del
-   tema base emiten .alert-<tipo> (y .pf-m-*). Se cubren ambas variantes. */
+/* Our templates emit .erp-alert--<type>; the templates inherited from the base
+   theme emit .alert-<type> (and .pf-m-*). Both variants are covered. */
 
 .erp-alert {
   --erp-alert-fg: var(--erp-info);
@@ -954,10 +955,10 @@
   color: var(--erp-accent);
 }
 
-/* Avisos de las paginas heredadas que dibujan su propia alerta PatternFly
-   (p. ej. login-recovery-authn-code-config.ftl, que no sobrescribimos): el
-   contenedor del icono llega vacio y lo pintamos por mascara. `--erp-alert-icon`
-   tiene valor por defecto en :root para que nunca quede un bloque solido. */
+/* Alerts of the inherited pages that draw their own PatternFly alert (e.g.
+   login-recovery-authn-code-config.ftl, which we do not override): the icon
+   container arrives empty and we paint it with a mask. `--erp-alert-icon` has a
+   default value in :root so it never ends up as a solid block. */
 .pf-c-alert__icon {
   flex: none;
   width: 1.125rem;
@@ -976,7 +977,7 @@
 
 
 /* =============================================================================
-   10. Identidades federadas, info y pie
+   10. Federated identities, info and footer
    ========================================================================== */
 
 .erp-social {
@@ -1057,12 +1058,12 @@
 
 
 /* =============================================================================
-   11. Iconos por mascara
+   11. Mask-based icons
    ========================================================================== */
 
-/* passwordVisibility.js sustituye el className completo del <i> por
-   "erp-icon erp-icon--eye" o "erp-icon erp-icon--eye-off". Por robustez, cada
-   uno de los tres selectores define por si solo tamano y presentacion. */
+/* passwordVisibility.js replaces the whole className of the <i> with
+   "erp-icon erp-icon--eye" or "erp-icon erp-icon--eye-off". For robustness each
+   of the three selectors defines size and presentation on its own. */
 .erp-icon,
 .erp-icon--eye,
 .erp-icon--eye-off {
@@ -1091,13 +1092,13 @@
 
 
 /* =============================================================================
-   12. Adaptacion a pantallas estrechas (< 900 px)
+   12. Narrow screens (< 900 px)
    ========================================================================== */
 
-/* Una sola columna. El panel de marca se disuelve (display: contents) para que
-   sus piezas se coloquen directamente en la rejilla: cabecera compacta arriba
-   (logo + titulo + frase sobre el degradado) y chuleta de usuarios DEBAJO del
-   formulario. La banda de degradado la pinta .erp-layout::before. */
+/* A single column. The brand panel dissolves (display: contents) so its pieces
+   land directly on the grid: a compact header on top (logo + title + tagline
+   over the gradient) and the user cheat sheet BELOW the form. The gradient band
+   itself is painted by .erp-layout::before. */
 
 @media (max-width: 899.98px) {
   .erp-layout {
@@ -1121,7 +1122,7 @@
     display: contents;
   }
 
-  /* Posicionadas para quedar por encima de la banda de degradado. */
+  /* Positioned so they stack above the gradient band. */
   .erp-brand__logo,
   .erp-brand__title,
   .erp-brand__tagline {
@@ -1155,7 +1156,7 @@
     font-size: 0.875rem;
   }
 
-  /* Los tres puntos de venta sobran en la cabecera compacta. */
+  /* The three selling points are surplus in the compact header. */
   .erp-brand__points {
     display: none;
   }
@@ -1166,8 +1167,8 @@
     padding: clamp(1.25rem, 4vw, 2rem) 1rem;
   }
 
-  /* Fuera del degradado: la chuleta se convierte en su propia tarjeta con el
-     mismo fondo, asi los chips translucidos conservan su contraste. */
+  /* Outside the gradient: the cheat sheet becomes its own card with the same
+     background, so the translucent chips keep their contrast. */
   .erp-users {
     grid-column: 1 / -1;
     grid-row: 4;
@@ -1182,7 +1183,7 @@
   }
 }
 
-/* Moviles muy estrechos (320 px): nada puede desbordar a lo ancho. */
+/* Very narrow phones (320 px): nothing may overflow horizontally. */
 @media (max-width: 420px) {
   .erp-card {
     padding: 1.25rem 1rem;
@@ -1219,7 +1220,7 @@
 
 
 /* =============================================================================
-   13. Movimiento reducido
+   13. Reduced motion
    ========================================================================== */
 
 @media (prefers-reduced-motion: reduce) {

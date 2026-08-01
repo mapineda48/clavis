@@ -1,6 +1,7 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiFetch, apiFetchRaw, apiFetchWithCache } from './client'
 import type { ApiError, CacheStatus } from './client'
+import { translateActive } from '../i18n'
 import {
   isRecord,
   isTodoStatus,
@@ -14,7 +15,7 @@ import {
 import type { Priority, TodoStatus, UnknownRecord } from '../lib/types'
 
 /* ------------------------------------------------------------------ */
-/* Tipos                                                               */
+/* Types                                                               */
 /* ------------------------------------------------------------------ */
 
 export interface Todo {
@@ -66,9 +67,9 @@ export interface TodoListResult {
   page: number
   pageSize: number
   total: number
-  /** Lo que dice el cuerpo de la respuesta. */
+  /** What the response body says. */
   cached: boolean
-  /** Lo que dice la cabecera `X-Cache`. */
+  /** What the `X-Cache` header says. */
   cache: CacheStatus
 }
 
@@ -89,7 +90,7 @@ export type TodoChanges = Partial<{
 }>
 
 /* ------------------------------------------------------------------ */
-/* Normalizacion de las respuestas                                     */
+/* Normalising the responses                                           */
 /* ------------------------------------------------------------------ */
 
 export function normalizeTodo(raw: unknown): Todo {
@@ -97,7 +98,7 @@ export function normalizeTodo(raw: unknown): Todo {
   const status = readString(record, 'status') ?? 'todo'
   return {
     id: readString(record, 'id') ?? '',
-    title: readString(record, 'title') ?? '(sin titulo)',
+    title: readString(record, 'title') ?? translateActive('todo.untitled'),
     description: readString(record, 'description'),
     status: isTodoStatus(status) ? status : 'todo',
     priority: toPriority(readNumber(record, 'priority')),
@@ -117,7 +118,9 @@ export function normalizeAttachment(raw: unknown): Attachment {
   return {
     id: readString(record, 'id') ?? '',
     todoId: readString(record, 'todoId', 'todo_id') ?? '',
-    fileName: readString(record, 'fileName', 'file_name', 'name') ?? 'adjunto',
+    fileName:
+      readString(record, 'fileName', 'file_name', 'name') ??
+      translateActive('attachment.defaultFileName'),
     contentType: readString(record, 'contentType', 'content_type') ?? 'application/octet-stream',
     sizeBytes: readNumber(record, 'sizeBytes', 'size_bytes', 'size') ?? 0,
     createdAt: readString(record, 'createdAt', 'created_at'),
@@ -130,18 +133,18 @@ function normalizeNotifyResult(raw: unknown): NotifyResult {
   const inner = readRecord(outer, 'mail') ?? readRecord(outer, 'result') ?? outer
   return {
     delivered: readBoolean(inner, 'delivered', 'sent'),
-    provider: readString(inner, 'provider') ?? 'desconocido',
+    provider: readString(inner, 'provider') ?? translateActive('common.unknown'),
     to: readString(inner, 'to') ?? readString(outer, 'to'),
     reason: readString(inner, 'reason') ?? readString(outer, 'reason'),
   }
 }
 
 /* ------------------------------------------------------------------ */
-/* Claves de React Query                                               */
+/* React Query keys                                                    */
 /* ------------------------------------------------------------------ */
 
 export const todosKeys = {
-  /** Raiz: invalidarla refresca listados, detalles y adjuntos. */
+  /** Root: invalidating it refreshes lists, details and attachments. */
   all: ['todos'] as const,
   list: (params: TodoListParams) => ['todos', 'list', params] as const,
   detail: (id: string) => ['todos', 'detail', id] as const,
@@ -149,7 +152,7 @@ export const todosKeys = {
 }
 
 /* ------------------------------------------------------------------ */
-/* Peticiones                                                          */
+/* Requests                                                            */
 /* ------------------------------------------------------------------ */
 
 function buildTodoBody(changes: TodoChanges): UnknownRecord {
@@ -184,7 +187,7 @@ async function fetchTodos(params: TodoListParams): Promise<TodoListResult> {
   }
 }
 
-/** Descarga un adjunto usando un blob temporal y revoca la URL despues. */
+/** Downloads an attachment through a temporary blob and revokes the URL after. */
 export async function downloadAttachment(attachment: Attachment): Promise<void> {
   const response = await apiFetchRaw(`/api/attachments/${attachment.id}`)
   const blob = await response.blob()
@@ -198,7 +201,7 @@ export async function downloadAttachment(attachment: Attachment): Promise<void> 
     link.click()
     link.remove()
   } finally {
-    // El navegador necesita la URL viva un instante para iniciar la descarga.
+    // The browser needs the URL alive for a moment to start the download.
     window.setTimeout(() => {
       URL.revokeObjectURL(url)
     }, 5000)
@@ -214,7 +217,7 @@ export function useTodos(params: TodoListParams, enabled: boolean) {
     queryKey: todosKeys.list(params),
     queryFn: () => fetchTodos(params),
     enabled,
-    // Mantiene la pagina anterior mientras llega la nueva: sin parpadeos.
+    // Keeps the previous page on screen while the new one arrives: no flicker.
     placeholderData: keepPreviousData,
   })
 }

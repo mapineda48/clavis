@@ -1,15 +1,16 @@
 <!doctype html>
-<html lang="es">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="light dark" />
-    <meta name="description" content="ERP de demostracion con autenticacion y permisos en Keycloak" />
+    <meta name="description" content="Demo ERP with authentication and permissions handled by Keycloak" />
     <title>ERP Demo · Keycloak</title>
     <!--
-      Configuracion de runtime. En el perfil `full` nginx genera este archivo con
-      window.__ERP_CONFIG__ a partir del entorno del contenedor. En desarrollo no
-      existe (404 inofensivo) y la app cae en las variables VITE_* del .env raiz.
+      Runtime configuration. Under the `full` profile nginx generates this file
+      with window.__ERP_CONFIG__ from the container environment. In development
+      it does not exist (a harmless 404) and the app falls back to the VITE_*
+      variables in the root .env.
     -->
     <script src="/config.js"></script>
   </head>

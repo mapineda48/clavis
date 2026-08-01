@@ -1,11 +1,19 @@
-// Tipos de dominio compartidos y utilidades de lectura defensiva.
+// Shared domain types and defensive readers.
 //
-// La API es un sistema externo: en vez de castear su JSON a `any` leemos cada
-// campo comprobando el tipo en runtime. Ademas aceptamos las variantes camelCase
-// y snake_case para que un cambio de serializacion en la API no rompa la demo.
+// The API is an external system: instead of casting its JSON to `any` we read
+// every field checking the type at runtime. We also accept both the camelCase
+// and the snake_case spelling so a serialisation change on the API side does
+// not break the demo.
+//
+// Labels are not stored here any more: a label depends on the active locale, so
+// this module only maps a domain value to its translation key and lets the
+// caller resolve it through `useI18n()` (or `translateActive()` outside React).
+
+import { getActiveLocale } from '../i18n'
+import type { Locale, TranslationKey } from '../i18n'
 
 /* ------------------------------------------------------------------ */
-/* Permisos (client roles de `erp-api`)                                */
+/* Permissions (client roles of `erp-api`)                             */
 /* ------------------------------------------------------------------ */
 
 export const PERMISSIONS = [
@@ -25,26 +33,26 @@ export function isPermission(value: string): value is Permission {
   return PERMISSION_SET.has(value)
 }
 
-export const PERMISSION_LABELS: Record<Permission, string> = {
-  'todos:read': 'Ver sus tareas',
-  'todos:read:all': 'Ver todas las tareas',
-  'todos:write': 'Crear y editar',
-  'todos:delete': 'Borrar tareas',
-  'users:read': 'Ver usuarios',
-  'admin:manage': 'Administrar',
+export const PERMISSION_LABEL_KEYS: Record<Permission, TranslationKey> = {
+  'todos:read': 'auth.permTodosRead',
+  'todos:read:all': 'auth.permTodosReadAll',
+  'todos:write': 'auth.permTodosWrite',
+  'todos:delete': 'auth.permTodosDelete',
+  'users:read': 'auth.permUsersRead',
+  'admin:manage': 'auth.permAdminManage',
 }
 
 /* ------------------------------------------------------------------ */
-/* Roles de realm                                                      */
+/* Realm roles                                                         */
 /* ------------------------------------------------------------------ */
 
-export const REALM_ROLE_LABELS: Record<string, string> = {
-  'erp-admin': 'Administrador',
-  'erp-manager': 'Responsable',
-  'erp-user': 'Usuario',
+export const REALM_ROLE_LABEL_KEYS: Record<string, TranslationKey> = {
+  'erp-admin': 'auth.roleAdmin',
+  'erp-manager': 'auth.roleManager',
+  'erp-user': 'auth.roleUser',
 }
 
-/** Roles tecnicos de Keycloak que no aportan nada al usuario final. */
+/** Technical Keycloak roles that mean nothing to the end user. */
 const NOISY_REALM_ROLES: ReadonlySet<string> = new Set([
   'offline_access',
   'uma_authorization',
@@ -55,7 +63,7 @@ export function visibleRealmRoles(roles: readonly string[]): string[] {
 }
 
 /* ------------------------------------------------------------------ */
-/* Estado y prioridad de las tareas                                    */
+/* Task status and priority                                            */
 /* ------------------------------------------------------------------ */
 
 export const TODO_STATUSES = ['todo', 'in_progress', 'done'] as const
@@ -67,20 +75,20 @@ export function isTodoStatus(value: string): value is TodoStatus {
   return TODO_STATUS_SET.has(value)
 }
 
-export const STATUS_LABELS: Record<TodoStatus, string> = {
-  todo: 'Pendiente',
-  in_progress: 'En curso',
-  done: 'Completada',
+export const STATUS_LABEL_KEYS: Record<TodoStatus, TranslationKey> = {
+  todo: 'status.todo',
+  in_progress: 'status.in_progress',
+  done: 'status.done',
 }
 
 export const PRIORITIES = [1, 2, 3, 4] as const
 export type Priority = (typeof PRIORITIES)[number]
 
-export const PRIORITY_LABELS: Record<Priority, string> = {
-  1: 'Critica',
-  2: 'Alta',
-  3: 'Normal',
-  4: 'Baja',
+export const PRIORITY_LABEL_KEYS: Record<Priority, TranslationKey> = {
+  1: 'priority.1',
+  2: 'priority.2',
+  3: 'priority.3',
+  4: 'priority.4',
 }
 
 export function toPriority(value: number | null): Priority {
@@ -97,7 +105,7 @@ export function toPriority(value: number | null): Priority {
 }
 
 /* ------------------------------------------------------------------ */
-/* Lectura defensiva de JSON desconocido                               */
+/* Defensive reading of unknown JSON                                   */
 /* ------------------------------------------------------------------ */
 
 export type UnknownRecord = Record<string, unknown>
@@ -106,7 +114,7 @@ export function isRecord(value: unknown): value is UnknownRecord {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-/** Devuelve el primer valor no vacio de entre varias claves candidatas. */
+/** Returns the first non-empty value among several candidate keys. */
 function firstDefined(source: UnknownRecord, keys: readonly string[]): unknown {
   for (const key of keys) {
     const value = source[key]
@@ -130,7 +138,7 @@ export function readString(source: UnknownRecord, ...keys: string[]): string | n
   return null
 }
 
-/** Acepta numeros y cadenas numericas (pg devuelve `bigint` como texto). */
+/** Accepts numbers and numeric strings (pg returns `bigint` as text). */
 export function readNumber(source: UnknownRecord, ...keys: string[]): number | null {
   const value = firstDefined(source, keys)
   if (typeof value === 'number' && Number.isFinite(value)) return value
@@ -155,7 +163,7 @@ export function readStringArray(source: UnknownRecord | null, ...keys: string[])
   return value.filter((item): item is string => typeof item === 'string')
 }
 
-/** Acepta tanto `[...]` como `{ items: [...] }` / `{ data: [...] }`. */
+/** Accepts both `[...]` and `{ items: [...] }` / `{ data: [...] }`. */
 export function readItems(raw: unknown): unknown[] {
   if (Array.isArray(raw)) return raw
   if (isRecord(raw)) {
@@ -168,15 +176,41 @@ export function readItems(raw: unknown): unknown[] {
 }
 
 /* ------------------------------------------------------------------ */
-/* Formateo                                                            */
+/* Formatting                                                          */
 /* ------------------------------------------------------------------ */
 
-const DATE_TIME_FORMAT = new Intl.DateTimeFormat('es-ES', {
-  dateStyle: 'short',
-  timeStyle: 'short',
-})
+/**
+ * BCP 47 tag used for dates. `en-GB` keeps the day/month/year order the demo
+ * already showed, which is also what the Spanish locale produces.
+ */
+const DATE_TAGS: Record<Locale, string> = {
+  en: 'en-GB',
+  es: 'es-ES',
+}
 
-const DATE_FORMAT = new Intl.DateTimeFormat('es-ES', { dateStyle: 'medium' })
+// `Intl.DateTimeFormat` is expensive to build and the board renders one date per
+// card, so keep one formatter per locale alive.
+const dateTimeFormats = new Map<Locale, Intl.DateTimeFormat>()
+const dateFormats = new Map<Locale, Intl.DateTimeFormat>()
+
+function dateTimeFormatFor(locale: Locale): Intl.DateTimeFormat {
+  const cached = dateTimeFormats.get(locale)
+  if (cached !== undefined) return cached
+  const format = new Intl.DateTimeFormat(DATE_TAGS[locale], {
+    dateStyle: 'short',
+    timeStyle: 'short',
+  })
+  dateTimeFormats.set(locale, format)
+  return format
+}
+
+function dateFormatFor(locale: Locale): Intl.DateTimeFormat {
+  const cached = dateFormats.get(locale)
+  if (cached !== undefined) return cached
+  const format = new Intl.DateTimeFormat(DATE_TAGS[locale], { dateStyle: 'medium' })
+  dateFormats.set(locale, format)
+  return format
+}
 
 function toDate(value: string | null): Date | null {
   if (value === null) return null
@@ -184,14 +218,14 @@ function toDate(value: string | null): Date | null {
   return Number.isNaN(date.getTime()) ? null : date
 }
 
-export function formatDateTime(value: string | null): string {
+export function formatDateTime(value: string | null, locale: Locale = getActiveLocale()): string {
   const date = toDate(value)
-  return date === null ? '—' : DATE_TIME_FORMAT.format(date)
+  return date === null ? '—' : dateTimeFormatFor(locale).format(date)
 }
 
-export function formatDate(value: string | null): string {
+export function formatDate(value: string | null, locale: Locale = getActiveLocale()): string {
   const date = toDate(value)
-  return date === null ? '—' : DATE_FORMAT.format(date)
+  return date === null ? '—' : dateFormatFor(locale).format(date)
 }
 
 const BYTE_UNITS = ['B', 'KB', 'MB', 'GB'] as const
@@ -209,7 +243,7 @@ export function formatBytes(bytes: number): string {
   return `${value.toFixed(decimals)} ${unit}`
 }
 
-/** Iniciales para el avatar de la cabecera. */
+/** Initials for the avatar in the header. */
 export function initialsOf(name: string): string {
   const parts = name.trim().split(/\s+/).filter((part) => part !== '')
   const first = parts[0]
@@ -219,7 +253,10 @@ export function initialsOf(name: string): string {
   return letters.toUpperCase()
 }
 
-/** Convierte `total_todos` o `totalTodos` en «Total todos» para tablas genericas. */
+/**
+ * Turns `total_todos` or `totalTodos` into “Total todos”: the fallback label for
+ * the generic tables that render whatever the API decides to send.
+ */
 export function humanizeKey(key: string): string {
   const spaced = key
     .replace(/[_-]+/g, ' ')

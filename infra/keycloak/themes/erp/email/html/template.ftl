@@ -1,39 +1,39 @@
 <#--
-    Maqueta comun de TODOS los correos HTML del demo ERP.
+    Layout shared by EVERY HTML email of the ERP demo.
 
-    Sustituye la macro `emailLayout` del tema `base`, que se limitaba a envolver
-    el contenido en <html><body> sin ningun diseno. Reglas propias del correo
-    electronico, que no son las de la web:
+    It replaces the `emailLayout` macro of the `base` theme, which merely wrapped
+    the content in <html><body> with no design at all. Email has its own rules,
+    and they are not the web ones:
 
-      - Todo el CSS va en el atributo `style`. Gmail, Outlook y Yahoo descartan
-        las hojas de estilo y (en el caso de Gmail para moviles) tambien los
-        bloques <style>, asi que aqui no hay ni <style> ni atributos `class`.
-      - La maquetacion se hace con <table role="presentation"> anidadas: es lo
-        unico que interpretan igual todos los clientes, incluido Outlook de
-        escritorio, que renderiza con el motor de Word. `role="presentation"`
-        evita que los lectores de pantalla las anuncien como tablas de datos.
-      - Sin imagenes ni fuentes remotas: el logotipo es texto sobre un color de
-        fondo, de modo que se ve igual aunque el cliente bloquee la descarga de
-        imagenes (que es lo que hacen casi todos por defecto).
-      - Ancho maximo de 600 px centrado: el estandar que cabe sin scroll
-        horizontal en el panel de lectura de cualquier cliente.
-      - Los colores son los mismos que los del tema de login (violeta profundo
-        de marca sobre fondo claro), pero escritos como literales hexadecimales:
-        las variables CSS no existen en el correo.
+      - All the CSS lives in the `style` attribute. Gmail, Outlook and Yahoo drop
+        stylesheets and (in the case of Gmail on mobile) <style> blocks as well,
+        so there is neither a <style> element nor a `class` attribute here.
+      - Layout is done with nested <table role="presentation">: that is the only
+        thing every client interprets the same way, including desktop Outlook,
+        which renders with the Word engine. `role="presentation"` keeps screen
+        readers from announcing them as data tables.
+      - No remote images or fonts: the logo is text on a background colour, so it
+        looks the same even when the client blocks image downloads (which is what
+        almost all of them do by default).
+      - A centred 600 px maximum width: the standard that fits without horizontal
+        scrolling in any client's reading pane.
+      - The colours are the same as the login theme (deep brand violet on a light
+        background), but written as hex literals: CSS variables do not exist in
+        email.
 
-    Contrato hacia las plantillas hijas:
+    Contract for the child templates:
 
-      - El cuerpo del mensaje se inyecta en <#nested>, dentro de la tarjeta
-        blanca. La hija solo tiene que aportar sus parrafos.
-      - Antes de invocar la macro, la hija puede definir el texto de vista previa
-        que el cliente muestra junto al asunto en la bandeja de entrada:
+      - The body of the message is injected at <#nested>, inside the white card.
+        The child only has to supply its paragraphs.
+      - Before calling the macro, a child may define the preview text the client
+        shows next to the subject in the inbox:
             <#global erpPreheader = msg("...")>
-        Si no lo define, simplemente no se emite.
+        If it does not, nothing is emitted.
 -->
 <#--
-    Pila de fuentes del sistema, sin comillas a proposito: los nombres de familia
-    con espacios son identificadores validos en CSS sin entrecomillar, y asi el
-    valor no depende de como escape las comillas el cliente de correo.
+    System font stack, deliberately unquoted: family names containing spaces are
+    valid CSS identifiers without quotes, so the value does not depend on how the
+    mail client escapes quotation marks.
 -->
 <#assign erpFont = "-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif">
 
@@ -42,38 +42,38 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <#-- Este diseno esta pensado en claro; evitamos que el cliente lo invierta. -->
+    <#-- This design is built for light mode; stop the client from inverting it. -->
     <meta name="color-scheme" content="light" />
     <meta name="supported-color-schemes" content="light" />
     <title>${msg("erpEmailBrandName")}</title>
 </head>
 <body style="margin:0; padding:0; width:100%; background-color:#f2f1f8; color:#2b2843; font-family:${erpFont}; -webkit-font-smoothing:antialiased;">
 
-<#-- Texto de vista previa: se muestra junto al asunto en la bandeja, pero no
-     se ve al abrir el mensaje. `mso-hide:all` lo oculta tambien en Outlook. -->
+<#-- Preview text: shown next to the subject in the inbox, but invisible once the
+     message is open. `mso-hide:all` hides it in Outlook too. -->
 <#if erpPreheader?? && erpPreheader?has_content>
     <div style="display:none; max-height:0; max-width:0; overflow:hidden; mso-hide:all; font-size:1px; line-height:1px; color:#f2f1f8;">${erpPreheader}</div>
 </#if>
 
-<#-- Lienzo a todo el ancho: pinta el fondo de la pagina. Gmail descarta el
-     estilo del <body>, por eso el color de fondo se repite aqui. -->
+<#-- Full-width canvas: it paints the page background. Gmail discards the <body>
+     style, which is why the background colour is repeated here. -->
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%; border-collapse:collapse; background-color:#f2f1f8;">
     <tr>
         <td align="center" valign="top" style="padding:32px 16px 40px 16px;">
 
-            <#-- Columna centrada de 600 px. El atributo width es para Outlook;
-                 max-width hace que en el movil se reduzca sin desbordar. -->
+            <#-- Centred 600 px column. The width attribute is for Outlook;
+                 max-width is what lets it shrink on mobile without overflowing. -->
             <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:100%; max-width:600px; border-collapse:collapse;">
 
                 <#-- ----------------------------------------------------------
-                     Cabecera de marca.
+                     Brand header.
                      ---------------------------------------------------------- -->
                 <tr>
                     <td style="background-color:#241155; border-radius:18px 18px 0 0; padding:26px 32px;">
                         <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">
                             <tr>
-                                <#-- Logotipo puramente tipografico: un cuadrado
-                                     blanco con las siglas en violeta. -->
+                                <#-- Purely typographic logo: a white square with
+                                     the initials in violet. -->
                                 <td align="center" valign="middle" width="46" height="46" style="width:46px; height:46px; background-color:#ffffff; border-radius:13px; font-family:${erpFont}; font-size:14px; font-weight:bold; letter-spacing:0.08em; line-height:46px; mso-line-height-rule:exactly; color:#4c2fb0;">${msg("erpEmailBrandBadge")}</td>
                                 <td valign="middle" style="padding-left:14px;">
                                     <div style="font-family:${erpFont}; font-size:19px; font-weight:bold; line-height:24px; color:#ffffff;">${msg("erpEmailBrandName")}</div>
@@ -84,13 +84,13 @@
                     </td>
                 </tr>
 
-                <#-- Filete de acento entre la cabecera y el cuerpo. -->
+                <#-- Accent rule between the header and the body. -->
                 <tr>
                     <td height="4" style="height:4px; line-height:4px; font-size:0; background-color:#6d4ae0;">&nbsp;</td>
                 </tr>
 
                 <#-- ----------------------------------------------------------
-                     Cuerpo: lo aporta la plantilla hija.
+                     Body: supplied by the child template.
                      ---------------------------------------------------------- -->
                 <tr>
                     <td style="background-color:#ffffff; border-radius:0 0 18px 18px; padding:32px; font-family:${erpFont}; font-size:15px; line-height:24px; color:#2b2843;">
@@ -99,7 +99,7 @@
                 </tr>
 
                 <#-- ----------------------------------------------------------
-                     Pie discreto, fuera de la tarjeta.
+                     Quiet footer, outside the card.
                      ---------------------------------------------------------- -->
                 <tr>
                     <td align="center" style="padding:20px 24px 0 24px; text-align:center;">

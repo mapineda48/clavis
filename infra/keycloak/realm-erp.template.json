@@ -29,8 +29,8 @@
     "password": "__KEYCLOAK_SMTP_PASSWORD__"
   },
   "internationalizationEnabled": true,
-  "supportedLocales": ["es", "en"],
-  "defaultLocale": "es",
+  "supportedLocales": ["en", "es"],
+  "defaultLocale": "en",
   "defaultSignatureAlgorithm": "RS256",
   "accessTokenLifespan": 900,
   "ssoSessionIdleTimeout": 1800,
@@ -39,7 +39,7 @@
   "actionTokenGeneratedByUserLifespan": 1800,
   "defaultRole": {
     "name": "default-roles-__KEYCLOAK_REALM__",
-    "description": "Rol por defecto del realm: cuenta propia, offline access y permisos basicos de ERP",
+    "description": "Realm default role: own account, offline access and the basic ERP permissions",
     "composite": true,
     "clientRole": false
   },
@@ -47,7 +47,7 @@
     "realm": [
       {
         "name": "default-roles-__KEYCLOAK_REALM__",
-        "description": "Rol por defecto del realm: cuenta propia, offline access y permisos basicos de ERP",
+        "description": "Realm default role: own account, offline access and the basic ERP permissions",
         "composite": true,
         "clientRole": false,
         "composites": {
@@ -78,7 +78,7 @@
       },
       {
         "name": "erp-user",
-        "description": "Usuario basico: consulta y crea sus propias tareas",
+        "description": "Basic user: reads and creates their own tasks",
         "composite": true,
         "clientRole": false,
         "composites": {
@@ -92,7 +92,7 @@
       },
       {
         "name": "erp-manager",
-        "description": "Responsable de equipo: ve todas las tareas, las elimina y consulta usuarios",
+        "description": "Team lead: sees every task, deletes them and lists users",
         "composite": true,
         "clientRole": false,
         "composites": {
@@ -110,7 +110,7 @@
       },
       {
         "name": "erp-admin",
-        "description": "Administracion completa: todo lo del responsable mas gestion y auditoria",
+        "description": "Full administration: everything a team lead can do, plus management and auditing",
         "composite": true,
         "clientRole": false,
         "composites": {
@@ -129,37 +129,37 @@
       "__KEYCLOAK_API_CLIENT_ID__": [
         {
           "name": "todos:read",
-          "description": "Leer las tareas propias o asignadas",
+          "description": "Read own or assigned tasks",
           "composite": false,
           "clientRole": true
         },
         {
           "name": "todos:read:all",
-          "description": "Leer las tareas de todos los usuarios",
+          "description": "Read the tasks of every user",
           "composite": false,
           "clientRole": true
         },
         {
           "name": "todos:write",
-          "description": "Crear y modificar tareas",
+          "description": "Create and update tasks",
           "composite": false,
           "clientRole": true
         },
         {
           "name": "todos:delete",
-          "description": "Eliminar tareas y adjuntos",
+          "description": "Delete tasks and attachments",
           "composite": false,
           "clientRole": true
         },
         {
           "name": "users:read",
-          "description": "Consultar el listado de usuarios",
+          "description": "List the users",
           "composite": false,
           "clientRole": true
         },
         {
           "name": "admin:manage",
-          "description": "Acceder a estadisticas, auditoria y funciones de administracion",
+          "description": "Access statistics, auditing and administration features",
           "composite": false,
           "clientRole": true
         }
@@ -170,7 +170,7 @@
     {
       "clientId": "__KEYCLOAK_APP_CLIENT_ID__",
       "name": "ERP Demo SPA",
-      "description": "Cliente publico del frontend (React + Vite) con PKCE S256",
+      "description": "Public frontend client (React + Vite) with PKCE S256",
       "enabled": true,
       "protocol": "openid-connect",
       "publicClient": true,
@@ -219,7 +219,7 @@
     {
       "clientId": "__KEYCLOAK_API_CLIENT_ID__",
       "name": "ERP Demo API",
-      "description": "Cliente confidencial que representa a la API y contiene los permisos como client roles",
+      "description": "Confidential client that represents the API and holds the permissions as client roles",
       "enabled": true,
       "protocol": "openid-connect",
       "publicClient": false,
@@ -244,7 +244,7 @@
     {
       "username": "__DEMO_ADMIN_USERNAME__",
       "email": "__DEMO_ADMIN_EMAIL__",
-      "firstName": "Administrador",
+      "firstName": "Administrator",
       "lastName": "Demo",
       "enabled": true,
       "emailVerified": true,
@@ -264,7 +264,7 @@
     {
       "username": "__DEMO_MANAGER_USERNAME__",
       "email": "__DEMO_MANAGER_EMAIL__",
-      "firstName": "Gerente",
+      "firstName": "Manager",
       "lastName": "Demo",
       "enabled": true,
       "emailVerified": true,
@@ -284,7 +284,7 @@
     {
       "username": "__DEMO_USER_USERNAME__",
       "email": "__DEMO_USER_EMAIL__",
-      "firstName": "Operario",
+      "firstName": "Worker",
       "lastName": "Demo",
       "enabled": true,
       "emailVerified": true,

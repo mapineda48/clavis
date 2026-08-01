@@ -1,125 +1,126 @@
 /* =============================================================================
-   Tema de login del demo ERP — comportamiento de la chuleta de usuarios.
+   ERP demo login theme — behaviour of the demo user cheat sheet.
 
-   Unica responsabilidad: los botones `[data-erp-username]` de la lista de
-   usuarios de demostracion rellenan el campo de usuario y pasan el foco al de
-   contrasena. Nada mas.
+   Single responsibility: the `[data-erp-username]` buttons in the demo user list
+   fill in the username field and move the focus to the password field. Nothing
+   else.
 
-   Deliberadamente NO hace:
-     - tocar, rellenar ni recordar contrasenas (ni las de demo),
-     - guardar nada en localStorage / sessionStorage / cookies,
-     - hacer peticiones de red,
-     - depender de ningun modulo externo.
+   Deliberately does NOT:
+     - touch, fill in or remember passwords (not even the demo ones),
+     - store anything in localStorage / sessionStorage / cookies,
+     - make network requests,
+     - depend on any external module.
 
-   Se carga desde `theme.properties` (propiedad `scripts`) y el <script> vive en
-   el <head>, asi que puede ejecutarse antes de que exista el DOM: todo el
-   trabajo se aplaza a DOMContentLoaded. Se escribe como IIFE sin import/export
-   para funcionar igual como modulo ES que como script clasico.
+   It is loaded from `theme.properties` (the `scripts` property) and the <script>
+   lives in the <head>, so it can run before the DOM exists: all the work is
+   deferred to DOMContentLoaded. Written as an IIFE with no import/export so it
+   behaves the same as an ES module and as a classic script.
    ========================================================================== */
 
 (function () {
   "use strict";
 
-  var SELECTOR_BOTONES = "[data-erp-username]";
-  var ID_USUARIO = "username";
-  var ID_CONTRASENA = "password";
+  var BUTTON_SELECTOR = "[data-erp-username]";
+  var USERNAME_FIELD_ID = "username";
+  var PASSWORD_FIELD_ID = "password";
 
   /**
-   * Marca un boton como inutilizable sin romper nada.
-   * Se usa en las pantallas donde Keycloak ya fijo el usuario y, por tanto,
-   * no existe el campo que habria que rellenar.
+   * Marks a button as unusable without breaking anything.
+   * Used on the screens where Keycloak already fixed the username and, as a
+   * result, the field we would fill in does not exist.
    */
-  function desactivarBoton(boton) {
+  function disableButton(button) {
     try {
-      if ("disabled" in boton) {
-        boton.disabled = true;
+      if ("disabled" in button) {
+        button.disabled = true;
       }
-      boton.setAttribute("aria-disabled", "true");
-      // Para elementos que no son <button> (p. ej. un <a>): fuera del tabulador.
-      if (!("disabled" in boton)) {
-        boton.setAttribute("tabindex", "-1");
+      button.setAttribute("aria-disabled", "true");
+      // For elements that are not a <button> (an <a>, say): out of the tab order.
+      if (!("disabled" in button)) {
+        button.setAttribute("tabindex", "-1");
       }
     } catch (error) {
-      // Un fallo aqui es cosmetico: jamas debe impedir iniciar sesion.
+      // A failure here is cosmetic: it must never block signing in.
     }
   }
 
   /**
-   * Rellena el campo de usuario y deja el foco listo para escribir la clave.
+   * Fills in the username field and leaves the focus ready to type the password.
    */
-  function usarUsuario(campoUsuario, campoContrasena, nombre) {
-    campoUsuario.value = nombre;
+  function fillUsername(usernameField, passwordField, username) {
+    usernameField.value = username;
 
-    // Avisamos a cualquier validacion (nativa o de Keycloak) del cambio.
-    // Se construye con `new Event` y, si el navegador no lo permitiera, se
-    // recurre al API antiguo: el relleno debe funcionar en cualquier caso.
-    var evento;
+    // Let any validation (native or Keycloak's) know about the change. The event
+    // is built with `new Event` and, should the browser not allow that, we fall
+    // back to the old API: filling in the field has to work either way.
+    var event;
     try {
-      evento = new Event("input", { bubbles: true, cancelable: false });
+      event = new Event("input", { bubbles: true, cancelable: false });
     } catch (error) {
-      evento = document.createEvent("Event");
-      evento.initEvent("input", true, false);
+      event = document.createEvent("Event");
+      event.initEvent("input", true, false);
     }
-    campoUsuario.dispatchEvent(evento);
+    usernameField.dispatchEvent(event);
 
-    // El foco va a la contrasena; si esa pantalla no la pide, al propio usuario.
-    var destino = campoContrasena || campoUsuario;
-    if (typeof destino.focus === "function") {
-      destino.focus();
+    // Focus goes to the password; if that screen does not ask for one, it stays
+    // on the username field itself.
+    var target = passwordField || usernameField;
+    if (typeof target.focus === "function") {
+      target.focus();
     }
-    // Situa el cursor al final del texto ya escrito, si lo hubiera.
-    if (destino === campoUsuario && typeof destino.setSelectionRange === "function") {
+    // Put the caret after the text already there, if any.
+    if (target === usernameField && typeof target.setSelectionRange === "function") {
       try {
-        destino.setSelectionRange(nombre.length, nombre.length);
+        target.setSelectionRange(username.length, username.length);
       } catch (error) {
-        // Algunos tipos de input no admiten seleccion: es irrelevante.
+        // Some input types do not support selection: it does not matter here.
       }
     }
   }
 
   /**
-   * Engancha todos los botones de la chuleta. Idempotente y tolerante a que
-   * falte cualquier pieza del DOM.
+   * Wires up every cheat sheet button. Idempotent and tolerant of any missing
+   * piece of the DOM.
    */
-  function inicializar() {
-    var botones = document.querySelectorAll(SELECTOR_BOTONES);
-    if (!botones || botones.length === 0) {
+  function init() {
+    var buttons = document.querySelectorAll(BUTTON_SELECTOR);
+    if (!buttons || buttons.length === 0) {
       return;
     }
 
-    var campoUsuario = document.getElementById(ID_USUARIO);
-    var campoContrasena = document.getElementById(ID_CONTRASENA);
+    var usernameField = document.getElementById(USERNAME_FIELD_ID);
+    var passwordField = document.getElementById(PASSWORD_FIELD_ID);
 
-    // Sin campo de usuario (pantallas con el usuario ya fijado) los botones no
-    // tienen nada que rellenar: se desactivan en lugar de fallar al pulsarlos.
-    if (!campoUsuario) {
-      for (var i = 0; i < botones.length; i++) {
-        desactivarBoton(botones[i]);
+    // With no username field (screens where the username is already fixed) the
+    // buttons have nothing to fill in: disable them instead of failing on click.
+    if (!usernameField) {
+      for (var i = 0; i < buttons.length; i++) {
+        disableButton(buttons[i]);
       }
       return;
     }
 
-    for (var j = 0; j < botones.length; j++) {
-      (function (boton) {
-        var nombre = boton.getAttribute("data-erp-username");
-        if (!nombre) {
-          desactivarBoton(boton);
+    for (var j = 0; j < buttons.length; j++) {
+      (function (button) {
+        var username = button.getAttribute("data-erp-username");
+        if (!username) {
+          disableButton(button);
           return;
         }
 
-        boton.addEventListener("click", function (evento) {
-          // Por si la plantilla olvidara el type="button" dentro del <form>.
-          evento.preventDefault();
-          usarUsuario(campoUsuario, campoContrasena, nombre);
+        button.addEventListener("click", function (event) {
+          // In case the template ever forgets type="button" inside the <form>.
+          event.preventDefault();
+          fillUsername(usernameField, passwordField, username);
         });
-      })(botones[j]);
+      })(buttons[j]);
     }
   }
 
-  // El script puede llegar antes o despues de que el DOM este montado.
+  // The script may arrive before or after the DOM is in place.
   if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", inicializar, { once: true });
+    document.addEventListener("DOMContentLoaded", init, { once: true });
   } else {
-    inicializar();
+    init();
   }
 })();

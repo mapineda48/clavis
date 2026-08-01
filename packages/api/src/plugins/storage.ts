@@ -5,10 +5,10 @@ import { env } from '../config/env.js'
 import { notFound } from '../lib/errors.js'
 
 /**
- * Plugin de almacenamiento de adjuntos sobre Azure Blob Storage
- * (Azurite en desarrollo). El contenedor se crea en el arranque de forma
- * idempotente; si el servicio aún no está listo se reintenta en la primera
- * operación real.
+ * Attachment storage plugin backed by Azure Blob Storage (Azurite in
+ * development). The container is created idempotently during startup; if the
+ * service is not ready yet, the creation is retried on the first real
+ * operation.
  */
 export const storagePlugin = fp(
   async (app: FastifyInstance) => {
@@ -17,7 +17,7 @@ export const storagePlugin = fp(
 
     let containerReady = false
 
-    /** Garantiza que el contenedor existe (idempotente y memorizado). */
+    /** Makes sure the container exists (idempotent and memoized). */
     const ensureContainer = async (): Promise<void> => {
       if (containerReady) return
       await container.createIfNotExists()
@@ -26,13 +26,13 @@ export const storagePlugin = fp(
 
     try {
       await ensureContainer()
-      app.log.info({ container: env.AZURE_STORAGE_CONTAINER }, 'Contenedor de adjuntos disponible')
+      app.log.info({ container: env.AZURE_STORAGE_CONTAINER }, 'Attachment container available')
     } catch (error) {
-      // No se aborta el arranque: /health/ready lo reportará y se reintentará
-      // en la primera subida o descarga.
+      // Startup is not aborted: /health/ready will report it and the container
+      // is retried on the first upload or download.
       app.log.warn(
         { err: error, container: env.AZURE_STORAGE_CONTAINER },
-        'No se pudo preparar el contenedor de adjuntos; se reintentará bajo demanda',
+        'Could not prepare the attachment container; it will be retried on demand',
       )
     }
 
@@ -51,7 +51,7 @@ export const storagePlugin = fp(
         const blob = container.getBlockBlobClient(blobName)
         const response = await blob.download()
         if (!response.readableStreamBody) {
-          throw notFound(`El adjunto "${blobName}" no tiene contenido descargable.`, 'ATTACHMENT_EMPTY')
+          throw notFound(`Attachment "${blobName}" has no downloadable content.`, 'ATTACHMENT_EMPTY')
         }
         return {
           stream: response.readableStreamBody,
@@ -68,16 +68,16 @@ export const storagePlugin = fp(
 
       async ping() {
         try {
-          // `ensureContainer` es idempotente: además de comprobar que Azurite
-          // responde, recrea el contenedor si el arranque no pudo hacerlo (o si
-          // se vació el volumen con la API en marcha). Así la sonda no reporta
-          // "error" por algo que el propio servicio sabe resolver.
+          // `ensureContainer` is idempotent: besides checking that Azurite
+          // answers, it recreates the container if startup could not (or if the
+          // volume was wiped while the API was running). That way the probe does
+          // not report "error" for something the service can fix by itself.
           await ensureContainer()
           await container.getProperties()
           return true
         } catch (error) {
           containerReady = false
-          app.log.warn({ err: error }, 'El almacenamiento de blobs no responde')
+          app.log.warn({ err: error }, 'Blob storage is not responding')
           return false
         }
       },

@@ -1,22 +1,22 @@
-# Stack de infraestructura del ERP de demostracion.
+# Infrastructure stack for the demo ERP.
 #
-# Todas las variables se leen del .env de la raiz del monorepo mediante la
-# interpolacion de docker compose. Cada referencia lleva un valor por defecto
-# para que el stack arranque incluso con un .env minimo o ausente.
+# Every variable is read from the .env at the monorepo root through docker
+# compose interpolation. Each reference carries a default so the stack still
+# boots with a minimal .env, or with none at all.
 #
-# Las variables derivadas (DATABASE_URL, VALKEY_URL, KEYCLOAK_ISSUER,
-# KEYCLOAK_INTERNAL_ISSUER, KEYCLOAK_AUDIENCE y CORS_ORIGINS) NO viven en el
-# .env: se componen aqui, tal y como exige el contrato.
+# The derived variables (DATABASE_URL, VALKEY_URL, KEYCLOAK_ISSUER,
+# KEYCLOAK_INTERNAL_ISSUER, KEYCLOAK_AUDIENCE and CORS_ORIGINS) do NOT live in
+# the .env: they are composed here, exactly as the contract requires.
 #
-# Perfiles:
-#   (por defecto)  postgres, keycloak-realm, keycloak, valkey, azurite, api
-#   full           ademas el SPA servido por nginx en el puerto 8081
+# Profiles:
+#   (default)  postgres, keycloak-realm, keycloak, valkey, azurite, api
+#   full       adds the SPA served by nginx on port 8081
 
 name: ${COMPOSE_PROJECT_NAME:-erp-demo}
 
 services:
   # ---------------------------------------------------------------------------
-  # PostgreSQL: base de datos del ERP y (via script de init) la de Keycloak.
+  # PostgreSQL: the ERP database and — via the init script — Keycloak's.
   # ---------------------------------------------------------------------------
   postgres:
     image: postgres:17.6-alpine
@@ -26,7 +26,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-erp}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-erp_dev_password}
       POSTGRES_DB: ${POSTGRES_DB:-erp}
-      # Consumidas por infra/postgres/00-init-databases.sh
+      # Consumed by infra/postgres/00-init-databases.sh
       KEYCLOAK_DB_NAME: ${KEYCLOAK_DB_NAME:-keycloak}
       KEYCLOAK_DB_USER: ${KEYCLOAK_DB_USER:-keycloak}
       KEYCLOAK_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:-keycloak_dev_password}
@@ -34,8 +34,8 @@ services:
       - "5432:5432"
     volumes:
       - pg-data:/var/lib/postgresql/data
-      # Los scripts de /docker-entrypoint-initdb.d solo corren la primera vez,
-      # cuando el volumen pg-data esta vacio.
+      # Scripts under /docker-entrypoint-initdb.d only run the first time,
+      # while the pg-data volume is still empty.
       - ./infra/postgres:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test:
@@ -49,8 +49,9 @@ services:
       - erp-net
 
   # ---------------------------------------------------------------------------
-  # Renderizador del realm (one-shot). Sustituye los marcadores __VAR__ de
-  # realm-erp.template.json y deja realm-erp.json en el volumen keycloak-import.
+  # Realm renderer (one-shot). Replaces the __VAR__ markers in
+  # realm-erp.template.json and drops realm-erp.json into the keycloak-import
+  # volume.
   # ---------------------------------------------------------------------------
   keycloak-realm:
     image: node:22.23.1-alpine
@@ -60,24 +61,24 @@ services:
     command: ["node", "/work/render-realm.mjs"]
     environment:
       OUTPUT_DIR: /import
-      # --- identidad del realm
+      # --- realm identity
       KEYCLOAK_REALM: ${KEYCLOAK_REALM:-erp}
       KEYCLOAK_APP_CLIENT_ID: ${KEYCLOAK_APP_CLIENT_ID:-erp-app}
       KEYCLOAK_API_CLIENT_ID: ${KEYCLOAK_API_CLIENT_ID:-erp-api}
       KEYCLOAK_API_CLIENT_SECRET: ${KEYCLOAK_API_CLIENT_SECRET:-erp_api_dev_secret}
       KEYCLOAK_PUBLIC_URL: ${KEYCLOAK_PUBLIC_URL:-http://localhost:8080}
-      # --- tema de la pantalla de login
-      # Sustituye el marcador __KEYCLOAK_LOGIN_THEME__ de la plantilla del realm.
-      # `erp` es el tema propio de ./infra/keycloak/themes/erp; `keycloak` vuelve
-      # al tema que trae el servidor.
+      # --- login screen theme
+      # Fills the __KEYCLOAK_LOGIN_THEME__ marker in the realm template.
+      # `erp` is the custom theme in ./infra/keycloak/themes/erp; `keycloak`
+      # falls back to the one shipped with the server.
       KEYCLOAK_LOGIN_THEME: ${KEYCLOAK_LOGIN_THEME:-erp}
-      # --- tema de los correos que envia Keycloak (recuperar contrasena, etc.)
+      # --- theme for the emails Keycloak sends (password reset, etc.)
       KEYCLOAK_EMAIL_THEME: ${KEYCLOAK_EMAIL_THEME:-erp}
-      # --- SMTP del realm: lo usa KEYCLOAK, no la API.
-      # La API envia por la API HTTP de Resend; Keycloak solo sabe hablar SMTP,
-      # asi que se apunta al relay SMTP de Resend con la MISMA clave.
-      # Todos los valores llevan defecto: el render falla si un marcador queda
-      # vacio, y eso impediria arrancar el stack a quien no use correo.
+      # --- realm SMTP: used by KEYCLOAK, not by the API.
+      # The API sends through the Resend HTTP API; Keycloak only speaks SMTP,
+      # so it points at the Resend SMTP relay with the SAME key.
+      # Every value has a default: rendering fails if a marker is left empty,
+      # and that would stop the stack for anyone who does not care about email.
       KEYCLOAK_SMTP_HOST: ${KEYCLOAK_SMTP_HOST:-smtp.resend.com}
       KEYCLOAK_SMTP_PORT: ${KEYCLOAK_SMTP_PORT:-587}
       KEYCLOAK_SMTP_FROM: ${KEYCLOAK_SMTP_FROM:-onboarding@resend.dev}
@@ -86,12 +87,12 @@ services:
       KEYCLOAK_SMTP_STARTTLS: ${KEYCLOAK_SMTP_STARTTLS:-true}
       KEYCLOAK_SMTP_AUTH: ${KEYCLOAK_SMTP_AUTH:-true}
       KEYCLOAK_SMTP_USER: ${KEYCLOAK_SMTP_USER:-resend}
-      # Se reutiliza RESEND_API_KEY para no tener dos secretos que mantener.
-      KEYCLOAK_SMTP_PASSWORD: ${RESEND_API_KEY:-sin-configurar}
-      # --- URLs del SPA (redirect URIs y web origins)
+      # RESEND_API_KEY is reused so there is only one secret to maintain.
+      KEYCLOAK_SMTP_PASSWORD: ${RESEND_API_KEY:-not-configured}
+      # --- SPA URLs (redirect URIs and web origins)
       APP_DEV_URL: ${APP_DEV_URL:-http://localhost:5173}
       APP_PROD_URL: ${APP_PROD_URL:-http://localhost:8081}
-      # --- usuarios demo
+      # --- demo users
       DEMO_ADMIN_USERNAME: ${DEMO_ADMIN_USERNAME:-admin}
       DEMO_ADMIN_EMAIL: ${DEMO_ADMIN_EMAIL:-admin@erp.local}
       DEMO_ADMIN_PASSWORD: ${DEMO_ADMIN_PASSWORD:-Admin123!}
@@ -108,7 +109,7 @@ services:
       - erp-net
 
   # ---------------------------------------------------------------------------
-  # Keycloak 26 en modo desarrollo, con import automatico del realm.
+  # Keycloak 26 in development mode, importing the realm on boot.
   # ---------------------------------------------------------------------------
   keycloak:
     image: quay.io/keycloak/keycloak:26.4.0
@@ -129,7 +130,7 @@ services:
       KC_BOOTSTRAP_ADMIN_USERNAME: ${KC_BOOTSTRAP_ADMIN_USERNAME:-admin}
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KC_BOOTSTRAP_ADMIN_PASSWORD:-admin_dev_password}
       KC_HTTP_ENABLED: "true"
-      # URL publica: debe coincidir con el issuer que valida la API.
+      # Public URL: must match the issuer the API validates against.
       KC_HOSTNAME: ${KEYCLOAK_PUBLIC_URL:-http://localhost:8080}
       KC_HOSTNAME_STRICT: "false"
       KC_HEALTH_ENABLED: "true"
@@ -137,17 +138,17 @@ services:
       - "8080:8080"
     volumes:
       - keycloak-import:/opt/keycloak/data/import
-      # Tema de login propio (`erp`), en solo lectura.
-      # Montar encima de /opt/keycloak/themes es seguro: en la imagen oficial ese
-      # directorio solo contiene un README. Los temas integrados (base, keycloak,
-      # keycloak.v2) NO estan ahi, viajan dentro de los JAR del servidor, asi que
-      # este montaje no tapa nada y `parent=base` se sigue resolviendo.
-      # Con `start-dev` los temas no se cachean: editar un .ftl o el CSS y
-      # recargar el navegador basta (ver README y docs/operacion.md).
+      # Custom login theme (`erp`), mounted read-only.
+      # Mounting over /opt/keycloak/themes is safe: in the official image that
+      # directory only holds a README. The built-in themes (base, keycloak,
+      # keycloak.v2) are NOT there — they ship inside the server JARs — so this
+      # mount hides nothing and `parent=base` still resolves.
+      # With `start-dev` themes are not cached: edit a .ftl or the CSS, reload
+      # the browser and you are done (see README and docs/operations.md).
       - ./infra/keycloak/themes:/opt/keycloak/themes:ro
     healthcheck:
-      # La imagen no trae curl ni wget: hablamos HTTP a pelo con /dev/tcp de bash
-      # contra el puerto de management (9000) y buscamos el estado UP.
+      # The image ships neither curl nor wget: we speak raw HTTP through bash's
+      # /dev/tcp against the management port (9000) and look for the UP status.
       test:
         - CMD
         - bash
@@ -161,7 +162,7 @@ services:
       - erp-net
 
   # ---------------------------------------------------------------------------
-  # Valkey: cache de listados de todos.
+  # Valkey: cache for the todo listings.
   # ---------------------------------------------------------------------------
   valkey:
     image: valkey/valkey:8.1.3-alpine
@@ -182,7 +183,7 @@ services:
       - erp-net
 
   # ---------------------------------------------------------------------------
-  # Azurite: emulador de Azure Storage para los adjuntos.
+  # Azurite: Azure Storage emulator backing the attachments.
   # ---------------------------------------------------------------------------
   azurite:
     image: mcr.microsoft.com/azure-storage/azurite:3.35.0
@@ -198,10 +199,10 @@ services:
       - 0.0.0.0
       - --location
       - /data
-      # El SDK @azure/storage-blob 12.33 negocia una version de API mas reciente
-      # que la que conoce Azurite 3.35 y el emulador la rechaza con
-      # InvalidHeaderValue. Esta bandera desactiva esa comprobacion; es el
-      # workaround oficial para el emulador y no afecta a Azure real.
+      # The @azure/storage-blob 12.33 SDK negotiates a newer API version than
+      # Azurite 3.35 knows about, and the emulator rejects it with
+      # InvalidHeaderValue. This flag turns that check off; it is the official
+      # workaround for the emulator and has no effect on real Azure.
       - --skipApiVersionCheck
     ports:
       - "10000:10000"
@@ -210,8 +211,8 @@ services:
     volumes:
       - azurite-data:/data
     healthcheck:
-      # Azurite responde 400/403 a una peticion anonima: con que conteste algo
-      # por debajo de 500 ya sabemos que el endpoint blob esta escuchando.
+      # Azurite answers 400/403 to an anonymous request: anything below 500 is
+      # enough to know the blob endpoint is listening.
       test:
         - CMD
         - node
@@ -225,7 +226,7 @@ services:
       - erp-net
 
   # ---------------------------------------------------------------------------
-  # API Fastify. El contexto de build es la RAIZ del repo (monorepo pnpm).
+  # Fastify API. The build context is the ROOT of the repo (pnpm monorepo).
   # ---------------------------------------------------------------------------
   api:
     build:
@@ -245,23 +246,23 @@ services:
         condition: service_healthy
     environment:
       NODE_ENV: production
-      # Dentro del contenedor el puerto es siempre 3000; API_PORT solo cambia el
-      # puerto publicado en el host.
+      # Inside the container the port is always 3000; API_PORT only changes the
+      # port published on the host.
       API_PORT: "3000"
       LOG_LEVEL: ${LOG_LEVEL:-info}
       CACHE_TTL_SECONDS: ${CACHE_TTL_SECONDS:-60}
       MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-10485760}
-      # --- variables derivadas (seccion 6 del contrato)
+      # --- derived variables (contract, section 6)
       DATABASE_URL: "postgres://${POSTGRES_USER:-erp}:${POSTGRES_PASSWORD:-erp_dev_password}@postgres:5432/${POSTGRES_DB:-erp}"
       VALKEY_URL: "redis://valkey:6379"
       KEYCLOAK_ISSUER: "${KEYCLOAK_PUBLIC_URL:-http://localhost:8080}/realms/${KEYCLOAK_REALM:-erp}"
       KEYCLOAK_INTERNAL_ISSUER: "http://keycloak:8080/realms/${KEYCLOAK_REALM:-erp}"
       KEYCLOAK_AUDIENCE: ${KEYCLOAK_API_CLIENT_ID:-erp-api}
       CORS_ORIGINS: "${APP_DEV_URL:-http://localhost:5173},${APP_PROD_URL:-http://localhost:8081}"
-      # --- almacenamiento
+      # --- storage
       AZURE_STORAGE_CONNECTION_STRING: "${AZURE_STORAGE_CONNECTION_STRING:-DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;QueueEndpoint=http://azurite:10001/devstoreaccount1;TableEndpoint=http://azurite:10002/devstoreaccount1;}"
       AZURE_STORAGE_CONTAINER: ${AZURE_STORAGE_CONTAINER:-erp-attachments}
-      # --- correo
+      # --- email
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       MAIL_FROM: "${MAIL_FROM:-ERP Demo <onboarding@resend.dev>}"
       MAIL_REPLY_TO: ${MAIL_REPLY_TO:-}
@@ -282,9 +283,9 @@ services:
       - erp-net
 
   # ---------------------------------------------------------------------------
-  # SPA servido por nginx. Solo con el perfil `full`.
-  # La configuracion llega en runtime: 40-erp-runtime-config.sh convierte estas
-  # variables ERP_* en window.__ERP_CONFIG__ dentro de /config.js.
+  # SPA served by nginx. Only under the `full` profile.
+  # Configuration arrives at runtime: 40-erp-runtime-config.sh turns these ERP_*
+  # variables into window.__ERP_CONFIG__ inside /config.js.
   # ---------------------------------------------------------------------------
   app:
     profiles: ["full"]

@@ -17,12 +17,12 @@ import { mailerPlugin } from './plugins/mailer.js'
 import { storagePlugin } from './plugins/storage.js'
 
 /**
- * Construye la instancia de Fastify con todos los plugins y rutas.
+ * Builds the Fastify instance with every plugin and route.
  *
- * Orden importante: primero la infraestructura (CORS, multipart, OpenAPI,
- * manejador de errores), después los plugins que decoran la instancia
- * (`db`, `cache`, `storage`, `mailer`, `auth`) y por último las rutas, que ya
- * pueden usar esos decoradores.
+ * Order matters: infrastructure first (CORS, multipart, OpenAPI, error
+ * handler), then the plugins that decorate the instance (`db`, `cache`,
+ * `storage`, `mailer`, `auth`), and finally the routes, which can already rely
+ * on those decorators.
  */
 export async function buildServer(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -43,7 +43,7 @@ export async function buildServer(): Promise<FastifyInstance> {
     bodyLimit: env.MAX_UPLOAD_BYTES,
   })
 
-  // --- CORS: sólo los orígenes del frontend; X-Cache debe ser legible por el navegador.
+  // --- CORS: frontend origins only; X-Cache must be readable by the browser.
   await app.register(cors, {
     origin: env.CORS_ORIGINS,
     credentials: true,
@@ -52,7 +52,7 @@ export async function buildServer(): Promise<FastifyInstance> {
     exposedHeaders: ['X-Cache'],
   })
 
-  // --- Subida de adjuntos
+  // --- Attachment uploads
   await app.register(multipart, {
     limits: {
       fileSize: env.MAX_UPLOAD_BYTES,
@@ -60,24 +60,24 @@ export async function buildServer(): Promise<FastifyInstance> {
     },
   })
 
-  // --- Documentación OpenAPI
+  // --- OpenAPI documentation
   await app.register(swagger, {
     openapi: {
       openapi: '3.1.0',
       info: {
-        title: 'API del ERP demo',
+        title: 'Demo ERP API',
         description:
-          'API de tareas con autenticación y permisos de Keycloak, caché en Valkey, ' +
-          'adjuntos en Azure Blob Storage y notificaciones por correo.',
+          'Task API with Keycloak authentication and permissions, Valkey cache, ' +
+          'attachments on Azure Blob Storage and email notifications.',
         version: '1.0.0',
       },
-      servers: [{ url: `http://localhost:${env.PORT}`, description: 'Entorno local' }],
+      servers: [{ url: `http://localhost:${env.PORT}`, description: 'Local environment' }],
       tags: [
-        { name: 'salud', description: 'Estado del servicio y de sus dependencias' },
-        { name: 'perfil', description: 'Datos del usuario autenticado' },
-        { name: 'todos', description: 'Gestión de tareas' },
-        { name: 'adjuntos', description: 'Ficheros asociados a las tareas' },
-        { name: 'administracion', description: 'Estadísticas, usuarios y auditoría' },
+        { name: 'health', description: 'Status of the service and its dependencies' },
+        { name: 'profile', description: 'Data about the authenticated user' },
+        { name: 'todos', description: 'Task management' },
+        { name: 'attachments', description: 'Files attached to tasks' },
+        { name: 'administration', description: 'Statistics, users and audit trail' },
       ],
       components: {
         securitySchemes: {
@@ -85,7 +85,7 @@ export async function buildServer(): Promise<FastifyInstance> {
             type: 'http',
             scheme: 'bearer',
             bearerFormat: 'JWT',
-            description: 'Access token emitido por Keycloak para la audiencia erp-api.',
+            description: 'Access token issued by Keycloak for the erp-api audience.',
           },
         },
       },
@@ -101,17 +101,17 @@ export async function buildServer(): Promise<FastifyInstance> {
     },
   })
 
-  // --- Sobre de error homogéneo para toda la API
+  // --- Uniform error envelope for the whole API
   registerErrorHandler(app)
 
-  // --- Infraestructura (todos envueltos en fastify-plugin: decoran el scope raíz)
+  // --- Infrastructure (all wrapped in fastify-plugin: they decorate the root scope)
   await app.register(dbPlugin)
   await app.register(cachePlugin)
   await app.register(storagePlugin)
   await app.register(mailerPlugin)
   await app.register(authPlugin)
 
-  // --- Rutas
+  // --- Routes
   await app.register(healthRoutes)
   await app.register(meRoutes, { prefix: '/api' })
   await app.register(todosRoutes, { prefix: '/api' })

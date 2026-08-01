@@ -1,30 +1,31 @@
 {
-  // Opciones de compilacion compartidas por todos los paquetes del workspace.
-  // Cada paquete extiende este archivo y define lo suyo: "module"/"moduleResolution"
-  // (la API usa NodeNext, la app usa bundler), "rootDir", "outDir", "jsx", "include", etc.
-  // Aqui NO se declaran "include" ni "files" a proposito: este tsconfig no compila nada.
+  // Compiler options shared by every package in the workspace.
+  // Each package extends this file and adds its own: "module"/"moduleResolution"
+  // (the API uses NodeNext, the app uses bundler), "rootDir", "outDir", "jsx",
+  // "include", etc. Neither "include" nor "files" is declared here on purpose:
+  // this tsconfig compiles nothing.
   "compilerOptions": {
-    // Node 22 y los navegadores modernos soportan ES2023 sin transpilar de mas.
+    // Node 22 and modern browsers support ES2023, so there is no need to transpile further.
     "target": "ES2023",
     "useDefineForClassFields": true,
 
-    // --- rigor de tipos
+    // --- type strictness
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "noImplicitOverride": true,
     "noFallthroughCasesInSwitch": true,
-    // Se deja en false a proposito: con true, `{ foo?: string }` deja de aceptar
-    // `{ foo: undefined }` y genera friccion constante al construir objetos de opciones.
+    // Left at false on purpose: with true, `{ foo?: string }` stops accepting
+    // `{ foo: undefined }` and building option objects becomes constant friction.
     "exactOptionalPropertyTypes": false,
 
-    // --- interoperabilidad y ergonomia
+    // --- interoperability and ergonomics
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
     "resolveJsonModule": true,
 
-    // --- salida
+    // --- output
     "sourceMap": true,
     "newLine": "lf"
   }

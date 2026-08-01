@@ -1,18 +1,18 @@
-// Configuracion de la SPA resuelta en este orden:
-//   1. window.__ERP_CONFIG__  (lo inyecta nginx en el perfil `full`)
-//   2. import.meta.env.VITE_* (lo inyecta Vite desde el .env de la raiz)
-//   3. valores por defecto de desarrollo
+// SPA configuration, resolved in this order:
+//   1. window.__ERP_CONFIG__  (injected by nginx in the `full` profile)
+//   2. import.meta.env.VITE_* (injected by Vite from the .env at the root)
+//   3. development defaults
 
 export interface ErpConfig {
-  /** URL publica de Keycloak, la que ve el navegador. */
+  /** Public Keycloak URL, the one the browser sees. */
   keycloakUrl: string
-  /** Realm donde viven usuarios, roles y clientes. */
+  /** Realm that owns the users, roles and clients. */
   keycloakRealm: string
-  /** Cliente publico de la SPA. */
+  /** Public client of the SPA. */
   keycloakClientId: string
-  /** Cliente de la API: de el se leen los permisos en `resource_access`. */
+  /** API client: its roles are the permissions read from `resource_access`. */
   apiClientId: string
-  /** URL base de la API REST. */
+  /** Base URL of the REST API. */
   apiUrl: string
 }
 
@@ -31,8 +31,8 @@ const DEFAULTS: ErpConfig = {
 }
 
 /**
- * Busca un valor en la configuracion de runtime. Se aceptan varios alias de
- * clave para no depender de como escriba el script de nginx el objeto global.
+ * Looks a value up in the runtime configuration. Several key aliases are
+ * accepted so we do not depend on how the nginx script spells the global object.
  */
 function fromRuntime(...keys: readonly string[]): string | undefined {
   const source = window.__ERP_CONFIG__
@@ -50,7 +50,7 @@ function fromEnv(value: string | undefined): string | undefined {
   return trimmed === '' ? undefined : trimmed
 }
 
-/** Quita la barra final para poder concatenar rutas sin duplicar separadores. */
+/** Drops the trailing slash so paths can be concatenated without doubling it. */
 function stripTrailingSlash(value: string): string {
   return value.endsWith('/') ? value.replace(/\/+$/, '') : value
 }

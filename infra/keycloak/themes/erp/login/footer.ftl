@@ -1,11 +1,11 @@
 <#--
-    Pie de la tarjeta de login.
+    Footer of the login card.
 
-    En el tema `base` esta macro esta vacia; template.ftl la invoca siempre como
-    <@loginFooter.content/>. Aqui la usamos para dejar claro que esto es un entorno
-    de demostracion y que la sesion la gobierna Keycloak.
+    In the `base` theme this macro is empty; template.ftl always calls it as
+    <@loginFooter.content/>. We use it to make clear that this is a demo
+    environment and that Keycloak, not the app, owns the session.
 
-    Nunca se muestran credenciales: solo se indica donde estan documentadas.
+    Credentials are never shown: we only point at where they are documented.
 -->
 <#macro content>
     <footer class="erp-footer">

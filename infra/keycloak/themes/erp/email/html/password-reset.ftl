@@ -1,35 +1,34 @@
 <#--
-    Correo de recuperacion de contrasena (version HTML).
+    Password recovery email (HTML version).
 
-    Datos que Keycloak deja en el modelo para esta plantilla:
-      - link                              enlace de un solo uso hacia el formulario
-      - linkExpiration                    caducidad en minutos (numero)
-      - linkExpirationFormatter(minutos)  esa misma caducidad ya redactada
-                                          ("30 minutos", "1 hora"...)
-      - realmName                         nombre visible del realm
-      - user                              perfil del destinatario
+    What Keycloak puts in the model for this template:
+      - link                              single-use link to the form
+      - linkExpiration                    expiration in minutes (a number)
+      - linkExpirationFormatter(minutes)  that same expiration already worded
+                                          ("30 minutes", "1 hour"...)
+      - realmName                         display name of the realm
+      - user                              profile of the recipient
 
-    El tema `base` se limitaba a volcar `passwordResetBodyHtml` como un parrafo
-    suelto. Aqui componemos el mensaje pieza a pieza dentro de `emailLayout`, y
-    todos los textos salen de claves propias con prefijo `erp` (definidas en
-    email/messages/messages_es.properties y messages_en.properties): en la
-    plantilla no hay ni una cadena incrustada.
+    The `base` theme just dumped `passwordResetBodyHtml` as a lone paragraph.
+    Here the message is composed piece by piece inside `emailLayout`, and every
+    string comes from an `erp`-prefixed key of our own (declared in
+    email/messages/messages_en.properties and messages_es.properties): there is
+    not a single hard-coded string in the template.
 -->
 <#import "template.ftl" as layout>
 
-<#-- Misma pila de fuentes que la maqueta: en el correo hay que repetir la
-     familia en cada elemento de texto, porque varios clientes no la heredan. -->
+<#-- Same font stack as the layout: in email the family has to be repeated on
+     every text element, because several clients do not inherit it. -->
 <#assign erpFont = "-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif">
 
-<#-- Saludo personalizado si sabemos como se llama el destinatario. Los
-     parentesis con `!` cubren tanto que el atributo venga vacio como que el
-     modelo no traiga `user`. -->
+<#-- Personalised greeting when we know the recipient's name. The parentheses
+     with `!` cover both an empty attribute and a model without `user`. -->
 <#assign erpRecipientName = (user.firstName)!"">
 <#if !erpRecipientName?has_content>
     <#assign erpRecipientName = (user.username)!"">
 </#if>
 
-<#-- Texto de vista previa en la bandeja de entrada (ver template.ftl). -->
+<#-- Preview text shown in the inbox (see template.ftl). -->
 <#global erpPreheader = msg("erpResetPreheader")>
 
 <@layout.emailLayout>
@@ -41,9 +40,9 @@
 
     <p style="margin:0 0 24px 0; font-family:${erpFont}; font-size:15px; line-height:24px; color:#2b2843;">${msg("erpResetCta")}</p>
 
-    <#-- Boton a prueba de clientes: el color de fondo va en el <td> (con el
-         atributo bgcolor para Outlook) y tambien en el <a>, que es quien recibe
-         el clic y ocupa toda la celda gracias a display:inline-block. -->
+    <#-- Client-proof button: the background colour goes on the <td> (with the
+         bgcolor attribute for Outlook) and on the <a> as well, which is what
+         takes the click and fills the cell thanks to display:inline-block. -->
     <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:separate; margin:0 0 24px 0;">
         <tr>
             <td align="center" bgcolor="#4c2fb0" style="background-color:#4c2fb0; border-radius:12px;">
@@ -52,7 +51,7 @@
         </tr>
     </table>
 
-    <#-- Aviso de caducidad destacado. -->
+    <#-- Highlighted expiration notice. -->
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%; border-collapse:collapse; margin:0 0 20px 0;">
         <tr>
             <td style="background-color:#f3efff; border-left:4px solid #6d4ae0; border-radius:10px; padding:12px 16px; font-family:${erpFont}; font-size:14px; line-height:22px; color:#3a3757;">${msg("erpResetExpiry", linkExpirationFormatter(linkExpiration))}</td>
@@ -61,10 +60,10 @@
 
     <p style="margin:0; font-family:${erpFont}; font-size:14px; line-height:22px; color:#56546e;">${msg("erpResetIgnore")}</p>
 
-    <#-- Separador: un <div> de 1 px es mas fiable que <hr> en Outlook. -->
+    <#-- Separator: a 1 px <div> is more reliable than <hr> in Outlook. -->
     <div style="height:1px; line-height:1px; font-size:0; background-color:#e4e0f2; margin:24px 0;">&nbsp;</div>
 
-    <#-- Respaldo para los clientes que no dejan pulsar el boton. -->
+    <#-- Fallback for clients that will not let the button be clicked. -->
     <p style="margin:0 0 8px 0; font-family:${erpFont}; font-size:13px; line-height:20px; color:#56546e;">${msg("erpResetFallback")}</p>
     <p style="margin:0; font-family:${erpFont}; font-size:13px; line-height:20px; word-break:break-all; overflow-wrap:anywhere;"><a href="${link}" target="_blank" style="color:#4c2fb0; text-decoration:underline;">${link}</a></p>
 </@layout.emailLayout>

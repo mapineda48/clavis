@@ -1,11 +1,11 @@
-// Rutas de administracion: estadisticas globales, usuarios provisionados y auditoria.
+// Administration routes: global statistics, provisioned users and audit trail.
 import type { FastifyPluginAsync } from 'fastify'
-// Carga la ampliacion de tipos de @fastify/swagger (tags, summary, security en `schema`).
+// Pulls in the @fastify/swagger type augmentation (tags, summary, security inside `schema`).
 import type {} from '@fastify/swagger'
 import { ErrorResponse } from '../todos/schemas.js'
 import { countByStatus } from '../todos/repository.js'
 
-/** Namespace de version de cache de las listas de todos. */
+/** Cache version namespace of the todo listings. */
 const CACHE_NAMESPACE = 'todos'
 
 interface ListQueryInput {
@@ -51,7 +51,7 @@ type AuditRow = {
 const StatsResponse = {
   type: 'object',
   properties: {
-    generatedAt: { type: 'string', description: 'Instante ISO 8601 del calculo' },
+    generatedAt: { type: 'string', description: 'ISO 8601 instant the figures were computed at' },
     todos: {
       type: 'object',
       properties: {
@@ -77,7 +77,7 @@ const StatsResponse = {
     },
     statsView: {
       type: 'array',
-      description: 'Filas tal cual las expone la vista erp.v_todo_stats',
+      description: 'Rows exactly as the erp.v_todo_stats view exposes them',
       items: { type: 'object', additionalProperties: true },
     },
     users: {
@@ -118,7 +118,7 @@ const AdminUsersResponse = {
           email: { type: ['string', 'null'] },
           displayName: { type: ['string', 'null'] },
           createdAt: { type: 'string' },
-          lastSeenAt: { type: ['string', 'null'], description: 'Ultimo acceso a la API' },
+          lastSeenAt: { type: ['string', 'null'], description: 'Last time the user reached the API' },
           todoCount: { type: 'integer' },
         },
         required: ['id', 'username', 'email', 'displayName', 'createdAt', 'lastSeenAt', 'todoCount'],
@@ -163,24 +163,24 @@ const LimitQuery = (defaultLimit: number, maxLimit: number) => ({
       minimum: 1,
       maximum: maxLimit,
       default: defaultLimit,
-      description: `Numero maximo de registros (1..${maxLimit})`,
+      description: `Maximum number of records (1..${maxLimit})`,
     },
   },
 })
 
-/** Convierte un timestamptz de pg a ISO 8601. */
+/** Converts a pg timestamptz to ISO 8601. */
 function toIso(value: Date | string): string {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString()
 }
 
-/** Igual que `toIso` pero admite nulos. */
+/** Same as `toIso` but tolerates nulls. */
 function toIsoOrNull(value: Date | string | null): string | null {
   return value === null ? null : toIso(value)
 }
 
 /**
- * Normaliza una fila generica: los bigint de pg llegan como texto y las fechas
- * como Date, y aqui se convierten a numero e ISO 8601 respectivamente.
+ * Normalizes a generic row: pg bigints arrive as text and dates as Date, and
+ * here they become numbers and ISO 8601 strings respectively.
  */
 function normalizeRow(row: Record<string, unknown>): Record<string, unknown> {
   const normalized: Record<string, unknown> = {}
@@ -202,11 +202,11 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
     {
       preHandler: [app.authenticate, app.requirePermissions('admin:manage')],
       schema: {
-        tags: ['administracion'],
-        summary: 'Estadisticas globales del ERP',
+        tags: ['administration'],
+        summary: 'Global ERP statistics',
         description:
-          'Conteos de tareas por estado y prioridad (incluida la vista erp.v_todo_stats), ' +
-          'totales de usuarios y adjuntos, y estado de la cache.',
+          'Task counts per status and priority (including the erp.v_todo_stats view), ' +
+          'user and attachment totals, and the state of the cache.',
         security: [{ bearerAuth: [] }],
         response: {
           200: StatsResponse,
@@ -232,13 +232,13 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
         ),
       ])
 
-      // La vista es informativa: si aun no existe no se tumba el panel de administracion.
+      // The view is informative: if it does not exist yet the admin panel still works.
       let statsView: Array<Record<string, unknown>> = []
       try {
         const view = await app.db.query<Record<string, unknown>>('SELECT * FROM erp.v_todo_stats')
         statsView = view.rows.map(normalizeRow)
       } catch (err) {
-        app.log.warn({ err }, 'No se pudo consultar la vista erp.v_todo_stats')
+        app.log.warn({ err }, 'Could not query the erp.v_todo_stats view')
       }
 
       const byPriority: Record<string, number> = { '1': 0, '2': 0, '3': 0, '4': 0 }
@@ -252,7 +252,7 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
         cacheAvailable = await app.cache.ping()
         todosVersion = await app.cache.version(CACHE_NAMESPACE)
       } catch (err) {
-        app.log.warn({ err }, 'No se pudo consultar el estado de la cache')
+        app.log.warn({ err }, 'Could not read the cache status')
       }
 
       const userStats = users.rows[0]
@@ -284,11 +284,11 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
     {
       preHandler: [app.authenticate, app.requirePermissions('users:read')],
       schema: {
-        tags: ['administracion'],
-        summary: 'Usuarios provisionados en el ERP',
+        tags: ['administration'],
+        summary: 'Users provisioned in the ERP',
         description:
-          'Lista los usuarios creados por la provision JIT al validar el token, con su ultimo ' +
-          'acceso y el numero de tareas de las que son propietarios.',
+          'Lists the users created by the JIT provisioning that runs when a token is validated, ' +
+          'with their last access and the number of tasks they own.',
         security: [{ bearerAuth: [] }],
         querystring: LimitQuery(100, 500),
         response: {
@@ -333,9 +333,9 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
     {
       preHandler: [app.authenticate, app.requirePermissions('admin:manage')],
       schema: {
-        tags: ['administracion'],
-        summary: 'Registro de auditoria',
-        description: 'Devuelve los ultimos movimientos registrados en erp.audit_log, de mas a menos reciente.',
+        tags: ['administration'],
+        summary: 'Audit trail',
+        description: 'Returns the latest entries recorded in erp.audit_log, newest first.',
         security: [{ bearerAuth: [] }],
         querystring: LimitQuery(50, 200),
         response: {

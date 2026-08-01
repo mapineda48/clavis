@@ -1,49 +1,49 @@
-// Reglas de visibilidad de los todos.
-// Traduce el AuthContext y el alcance pedido a un fragmento SQL parametrizado,
-// y centraliza las comprobaciones de acceso sobre una fila concreta.
+// Visibility rules for todos.
+// Turns the AuthContext and the requested scope into a parameterized SQL
+// fragment, and centralizes the access checks against a single row.
 import { canSeeAllTodos, type AuthContext } from '../../lib/permissions.js'
 import { forbidden, notFound } from '../../lib/errors.js'
 
-/** Alcances admitidos por el listado de todos. */
+/** Scopes accepted by the todo listing. */
 export type TodoScope = 'mine' | 'all'
 
-/** Valores validos de `scope` (util para esquemas y validaciones). */
+/** Valid `scope` values (handy for schemas and validations). */
 export const TODO_SCOPES: readonly TodoScope[] = ['mine', 'all']
 
-/** Accion que se quiere ejecutar sobre un todo concreto. */
+/** Action the caller wants to perform on a given todo. */
 export type TodoAction = 'read' | 'write' | 'delete'
 
-/** Fragmento SQL de filtrado ya parametrizado. */
+/** Parameterized SQL filtering fragment. */
 export interface ScopeFilter {
-  /** Condicion lista para insertar en un `WHERE` (usa $n). */
+  /** Condition ready to drop into a `WHERE` (uses $n). */
   clause: string
-  /** Parametros del fragmento, en el mismo orden que los $n. */
+  /** Parameters of the fragment, in the same order as the $n placeholders. */
   params: unknown[]
-  /** Alcance realmente aplicado tras evaluar los permisos. */
+  /** Scope actually applied after evaluating the permissions. */
   effectiveScope: TodoScope
-  /** Primer indice de parametro libre para seguir componiendo la consulta. */
+  /** First free parameter index, so the caller can keep building the query. */
   nextIndex: number
 }
 
-/** Opciones de composicion del fragmento SQL. */
+/** Options to build the SQL fragment. */
 export interface BuildScopeOptions {
-  /** Alias de la tabla `erp.todos` en la consulta (por defecto `t`). */
+  /** Alias of the `erp.todos` table in the query (`t` by default). */
   alias?: string
-  /** Indice del primer parametro ($n) que puede usar el fragmento. */
+  /** Index of the first parameter ($n) the fragment may use. */
   startIndex?: number
 }
 
-/** Datos minimos de propiedad de un todo necesarios para decidir el acceso. */
+/** Minimal ownership data of a todo needed to decide access. */
 export interface TodoOwnership {
   ownerId: string
   assigneeId: string | null
 }
 
 /**
- * Construye el filtro de visibilidad del listado.
+ * Builds the visibility filter of the listing.
  *
- * - `scope=mine` (por defecto): solo todos donde el usuario es propietario o asignado.
- * - `scope=all`: requiere el permiso `todos:read:all`; sin el se responde 403.
+ * - `scope=mine` (default): only todos where the user is the owner or the assignee.
+ * - `scope=all`: requires the `todos:read:all` permission; without it the answer is 403.
  */
 export function buildScopeFilter(
   auth: AuthContext,
@@ -55,12 +55,12 @@ export function buildScopeFilter(
 
   if (requestedScope === 'all') {
     if (!canSeeAllTodos(auth)) {
-      throw forbidden('Necesitas el permiso todos:read:all para consultar el alcance "all"')
+      throw forbidden('You need the todos:read:all permission to use the "all" scope')
     }
     return { clause: 'TRUE', params: [], effectiveScope: 'all', nextIndex: startIndex }
   }
 
-  // Alcance "mine": propietario o asignado. El mismo $n se reutiliza dos veces.
+  // Scope "mine": owner or assignee. The same $n is reused twice.
   return {
     clause: `(${alias}.owner_id = $${startIndex} OR ${alias}.assignee_id = $${startIndex})`,
     params: [auth.sub],
@@ -70,12 +70,12 @@ export function buildScopeFilter(
 }
 
 /**
- * Comprueba que el usuario puede operar sobre un todo concreto.
+ * Checks that the user is allowed to operate on a given todo.
  *
- * Devuelve 404 (y no 403) cuando el todo existe pero el usuario no deberia ni
- * saber de su existencia: asi no se filtra informacion por el codigo de estado.
- * Solo se responde 403 cuando el usuario si ve el todo pero la accion concreta
- * no le corresponde (borrar un todo del que solo es asignado).
+ * Answers 404 (and not 403) when the todo exists but the user should not even
+ * know about it: that way no information leaks through the status code.
+ * A 403 is only returned when the user can indeed see the todo but the specific
+ * action is not theirs to take (deleting a todo they are merely assigned to).
  */
 export function assertCanTouchTodo<T extends TodoOwnership>(
   auth: AuthContext,
@@ -83,7 +83,7 @@ export function assertCanTouchTodo<T extends TodoOwnership>(
   action: TodoAction = 'read',
 ): T {
   if (!todo) {
-    throw notFound('El todo indicado no existe')
+    throw notFound('The requested todo does not exist')
   }
 
   const seesAll = canSeeAllTodos(auth)
@@ -91,12 +91,12 @@ export function assertCanTouchTodo<T extends TodoOwnership>(
   const isAssignee = todo.assigneeId !== null && todo.assigneeId === auth.sub
 
   if (!seesAll && !isOwner && !isAssignee) {
-    // Existe, pero es invisible para este usuario: 404 deliberado.
-    throw notFound('El todo indicado no existe')
+    // It exists, but it is invisible to this user: 404 on purpose.
+    throw notFound('The requested todo does not exist')
   }
 
   if (action === 'delete' && !seesAll && !isOwner) {
-    throw forbidden('Solo el propietario puede eliminar este todo')
+    throw forbidden('Only the owner can delete this todo')
   }
 
   return todo

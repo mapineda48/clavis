@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Verifica el tema de login propio.
+# Verifies the custom login theme.
 #
 #   ./scripts/verify-login-theme.sh
 #
-# No comprueba solo que la página "se vea": completa el flujo OIDC entero
-# (autorización con PKCE → formulario → código → canje por token), que es lo que
-# de verdad se rompe al sustituir las plantillas Freemarker.
+# It does not just check that the page "looks right": it walks the whole OIDC
+# flow (PKCE authorization → form → code → token exchange), which is what
+# actually breaks when the Freemarker templates are replaced.
 # =============================================================================
 set -uo pipefail
 # shellcheck source=scripts/_common.sh
@@ -23,73 +23,73 @@ trap 'rm -f "$JAR" "$HTML"' EXIT
 pkce_pair
 AUTH=$(auth_url "verify")
 
-echo "=== 0. PKCE es obligatorio ==="
+echo "=== 0. PKCE is mandatory ==="
 NOPKCE=$(curl -s -o /dev/null -w '%{redirect_url}' \
   "$KC/realms/$REALM/protocol/openid-connect/auth?client_id=$CLIENT&redirect_uri=$(python3 -c 'import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1],safe=""))' "$REDIRECT_URI")&response_type=code&scope=openid&state=x")
 case "$NOPKCE" in
-  *code_challenge*) ok "sin code_challenge Keycloak rechaza la petición" ;;
-  *) bad "el cliente acepta autorización sin PKCE" ;;
+  *code_challenge*) ok "without a code_challenge Keycloak rejects the request" ;;
+  *) bad "the client accepts authorization without PKCE" ;;
 esac
 
 echo
-echo "=== 1. La página de login responde ==="
+echo "=== 1. The login page responds ==="
 CODE=$(curl -s -c "$JAR" -o "$HTML" -w '%{http_code}' "$AUTH")
 chk "$CODE" 200 "GET /auth"
 
 echo
-echo "=== 2. Es el tema propio, no el de Keycloak ==="
-grep -q 'erp-layout' "$HTML" && ok "layout propio (.erp-layout) presente" || bad "no aparece .erp-layout"
-grep -q 'erp-brand' "$HTML" && ok "panel de marca (.erp-brand) presente" || bad "no aparece .erp-brand"
-grep -q 'erp-login.css' "$HTML" && ok "hoja de estilos propia enlazada" || bad "no se enlaza erp-login.css"
-grep -q 'data-erp-username' "$HTML" && ok "chuleta de usuarios demo presente" || bad "no hay botones data-erp-username"
-grep -qi 'patternfly' "$HTML" && bad "arrastra CSS de PatternFly" || ok "sin restos del tema por defecto"
+echo "=== 2. It is the custom theme, not Keycloak's ==="
+grep -q 'erp-layout' "$HTML" && ok "custom layout (.erp-layout) present" || bad ".erp-layout is missing"
+grep -q 'erp-brand' "$HTML" && ok "brand panel (.erp-brand) present" || bad ".erp-brand is missing"
+grep -q 'erp-login.css' "$HTML" && ok "custom stylesheet linked" || bad "erp-login.css is not linked"
+grep -q 'data-erp-username' "$HTML" && ok "demo user cheat sheet present" || bad "no data-erp-username buttons"
+grep -qi 'patternfly' "$HTML" && bad "still pulling in PatternFly CSS" || ok "no leftovers from the default theme"
 
 echo
-echo "=== 3. Ningún error de Freemarker ==="
+echo "=== 3. No Freemarker errors ==="
 if grep -qi 'FreeMarker template error\|Internal Server Error\|We are sorry' "$HTML"; then
-  bad "la plantilla lanzó un error de renderizado"
+  bad "the template threw a rendering error"
   grep -io 'freemarker[^<]\{0,200\}' "$HTML" | head -3
 else
-  ok "la plantilla renderiza sin errores"
+  ok "the template renders without errors"
 fi
 if grep -o '??[a-zA-Z][a-zA-Z0-9_.-]*??' "$HTML" | sort -u | grep -q .; then
-  bad "hay claves de mensaje sin resolver:"
+  bad "there are unresolved message keys:"
   grep -o '??[a-zA-Z][a-zA-Z0-9_.-]*??' "$HTML" | sort -u | head -5
 else
-  ok "todas las claves de mensaje resuelven"
+  ok "every message key resolves"
 fi
 
 echo
-echo "=== 4. Recursos estáticos ==="
+echo "=== 4. Static resources ==="
 for r in "erp-login.css" "erp-login.js"; do
   U=$(grep -o "[^\"']*${r}[^\"']*" "$HTML" | head -1)
   if [ -n "$U" ]; then
-    chk "$(curl -s -o /dev/null -w '%{http_code}' "$KC$U")" 200 "$r sirve"
+    chk "$(curl -s -o /dev/null -w '%{http_code}' "$KC$U")" 200 "$r is served"
   else
-    bad "$r no aparece enlazado en el HTML"
+    bad "$r is not linked in the HTML"
   fi
 done
 BASEJS=$(grep -o "[^\"']*/js/authChecker.js" "$HTML" | head -1)
 if [ -n "$BASEJS" ]; then
-  chk "$(curl -s -o /dev/null -w '%{http_code}' "$KC$BASEJS")" 200 "authChecker.js heredado de base sirve"
+  chk "$(curl -s -o /dev/null -w '%{http_code}' "$KC$BASEJS")" 200 "authChecker.js inherited from base is served"
 else
-  bad "no se enlaza authChecker.js (se pierde la detección de sesión en otra pestaña)"
+  bad "authChecker.js is not linked (session detection in another tab is lost)"
 fi
 
 echo
-echo "=== 5. El formulario AUTENTICA de verdad (flujo OIDC completo) ==="
+echo "=== 5. The form really AUTHENTICATES (full OIDC flow) ==="
 ACTION=$(form_action "$HTML" "kc-form-login")
 if [ -z "$ACTION" ]; then
-  bad "no se encontró el formulario #kc-form-login"
+  bad "the #kc-form-login form was not found"
 else
-  ok "formulario #kc-form-login encontrado"
+  ok "#kc-form-login form found"
   LOC=$(curl -s -b "$JAR" -c "$JAR" -o /dev/null -w '%{redirect_url}' \
     -d "username=$(envval DEMO_USER_USERNAME)" \
     --data-urlencode "password=$(envval DEMO_USER_PASSWORD)" \
     -X POST "$ACTION")
   case "$LOC" in
     *code=*)
-      ok "login correcto: Keycloak redirige con authorization code"
+      ok "login succeeded: Keycloak redirects with an authorization code"
       AUTHCODE=$(python3 -c "
 import sys, urllib.parse as u
 print(u.parse_qs(u.urlparse(sys.argv[1]).query).get('code', [''])[0])" "$LOC")
@@ -98,48 +98,48 @@ print(u.parse_qs(u.urlparse(sys.argv[1]).query).get('code', [''])[0])" "$LOC")
         -d "code=$AUTHCODE" -d "redirect_uri=$REDIRECT_URI" -d "code_verifier=$PKCE_VERIFIER" |
         python3 -c "import sys,json;d=json.load(sys.stdin);print(d.get('access_token','') or ('ERR:'+str(d.get('error_description') or d.get('error'))))")
       case "$TOK" in
-        ERR:* | "") bad "el canje del código por token falló: ${TOK:0:140}" ;;
+        ERR:* | "") bad "exchanging the code for a token failed: ${TOK:0:140}" ;;
         *)
-          ok "el código se canjea por un access token válido (PKCE completo)"
+          ok "the code is exchanged for a valid access token (full PKCE)"
           python3 -c "
 import sys, json, base64
 p = sys.argv[1].split('.')[1]; p += '=' * (-len(p) % 4)
 c = json.loads(base64.urlsafe_b64decode(p))
-print('     usuario:', c.get('preferred_username'), '| aud:', c.get('aud'))
-print('     permisos:', sorted(c.get('resource_access', {}).get('erp-api', {}).get('roles', [])))" "$TOK"
+print('     user:', c.get('preferred_username'), '| aud:', c.get('aud'))
+print('     permissions:', sorted(c.get('resource_access', {}).get('erp-api', {}).get('roles', [])))" "$TOK"
           ;;
       esac
       ;;
-    "") bad "el POST no redirigió (credenciales rechazadas o formulario roto)" ;;
-    *) bad "redirección inesperada: ${LOC:0:140}" ;;
+    "") bad "the POST did not redirect (credentials rejected or broken form)" ;;
+    *) bad "unexpected redirect: ${LOC:0:140}" ;;
   esac
 fi
 
 echo
-echo "=== 6. Credenciales inválidas → error dentro del tema ==="
-# Keycloak suprime la alerta global cuando el fallo es de usuario/contraseña
-# (displayMessage=!messagesPerField.existsError) y lo muestra junto al campo.
+echo "=== 6. Invalid credentials → error inside the theme ==="
+# Keycloak suppresses the global alert when the failure is username/password
+# (displayMessage=!messagesPerField.existsError) and shows it next to the field.
 ERRHTML=$(mktemp "${TMPDIR:-/tmp}/erp-err-XXXXXX.html")
 JAR2=$(mktemp "${TMPDIR:-/tmp}/erp-cookies2-XXXXXX")
 H2=$(mktemp "${TMPDIR:-/tmp}/erp-login2-XXXXXX.html")
 curl -s -c "$JAR2" -o "$H2" "$AUTH"
 ACTION2=$(form_action "$H2" "kc-form-login")
 if [ -n "$ACTION2" ]; then
-  curl -s -b "$JAR2" -c "$JAR2" -o "$ERRHTML" -d "username=worker" -d "password=incorrecta" -X POST "$ACTION2"
-  grep -q 'erp-layout' "$ERRHTML" && ok "el error se muestra dentro del tema propio" || bad "la página de error no usa el tema"
-  grep -q 'erp-field-error' "$ERRHTML" && ok "error a nivel de campo (.erp-field-error)" || bad "no se ve el error de campo"
-  grep -q 'aria-invalid="true"' "$ERRHTML" && ok "el campo se marca aria-invalid" || bad "falta aria-invalid en el campo"
-  grep -qi 'contrase' "$ERRHTML" && ok "el mensaje sale traducido al español" || bad "el mensaje no está traducido"
+  curl -s -b "$JAR2" -c "$JAR2" -o "$ERRHTML" -d "username=worker" -d "password=wrong-password" -X POST "$ACTION2"
+  grep -q 'erp-layout' "$ERRHTML" && ok "the error is shown inside the custom theme" || bad "the error page does not use the theme"
+  grep -q 'erp-field-error' "$ERRHTML" && ok "field-level error (.erp-field-error)" || bad "the field error is missing"
+  grep -q 'aria-invalid="true"' "$ERRHTML" && ok "the field is marked aria-invalid" || bad "aria-invalid is missing on the field"
+  grep -qi 'username or password' "$ERRHTML" && ok "the message comes from the theme catalogue" || bad "the message is not the translated one"
 else
-  bad "no se pudo repetir el formulario para la prueba de error"
+  bad "could not fetch the form again for the error test"
 fi
 rm -f "$ERRHTML" "$JAR2" "$H2"
 
 echo
-echo "=== 7. Traducción: la página responde en inglés con ui_locales=en ==="
+echo "=== 7. Localisation: the page answers in English with ui_locales=en ==="
 H3=$(mktemp "${TMPDIR:-/tmp}/erp-en-XXXXXX.html")
 curl -s -o "$H3" "${AUTH}&ui_locales=en"
-grep -q 'erp-layout' "$H3" && ok "la versión en inglés también usa el tema" || bad "la versión en inglés falla"
+grep -q 'erp-layout' "$H3" && ok "the English version also uses the theme" || bad "the English version fails"
 rm -f "$H3"
 
-summary "TEMA"
+summary "LOGIN THEME"

@@ -1,27 +1,27 @@
-// Registro de auditoria de las escrituras de dominio.
-// Nunca debe tumbar la peticion: si falla el INSERT se registra un aviso y se sigue.
+// Audit trail of the domain writes.
+// It must never bring the request down: if the INSERT fails a warning is logged and we move on.
 import type { FastifyBaseLogger, FastifyInstance } from 'fastify'
 
-/** Acceso a base de datos decorado en la instancia Fastify. */
+/** Database access decorated on the Fastify instance. */
 type Database = FastifyInstance['db']
 
-/** Entrada que se persiste en `erp.audit_log`. */
+/** Entry persisted into `erp.audit_log`. */
 export interface AuditEntry {
-  /** `sub` del usuario que ejecuta la accion (null en procesos internos). */
+  /** `sub` of the user performing the action (null for internal processes). */
   actorId: string | null
-  /** Accion en formato `entidad.verbo`, p. ej. `todo.created`. */
+  /** Action in `entity.verb` form, e.g. `todo.created`. */
   action: string
-  /** Entidad afectada, p. ej. `todo` o `attachment`. */
+  /** Affected entity, e.g. `todo` or `attachment`. */
   entity: string
-  /** Identificador de la entidad afectada. */
+  /** Identifier of the affected entity. */
   entityId?: string | null
-  /** Datos adicionales serializables a JSON. */
+  /** Extra data, serializable to JSON. */
   payload?: Record<string, unknown>
 }
 
 /**
- * Inserta una fila de auditoria. Los errores se capturan y se registran:
- * la auditoria es informativa y jamas debe romper la respuesta al cliente.
+ * Inserts an audit row. Errors are caught and logged: the audit trail is
+ * informative and must never break the response sent to the client.
  */
 export async function recordAudit(
   db: Database,
@@ -41,6 +41,6 @@ export async function recordAudit(
       ],
     )
   } catch (err) {
-    logger?.warn({ err, action: entry.action, entity: entry.entity }, 'No se pudo registrar la auditoria')
+    logger?.warn({ err, action: entry.action, entity: entry.entity }, 'Could not record the audit entry')
   }
 }

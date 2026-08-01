@@ -2,25 +2,28 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import type { ReactNode } from 'react'
 import { config } from '../config'
 import { getAccessToken, initKeycloak, keycloak } from './keycloak'
+import { translateActive } from '../i18n'
+import type { Locale } from '../i18n'
+import { useI18n } from '../i18n/I18nProvider'
 import { isPermission, isRecord, readRecord, readString, readStringArray } from '../lib/types'
 import type { Permission } from '../lib/types'
 
 /* ------------------------------------------------------------------ */
-/* Lectura del access token                                            */
+/* Reading the access token                                            */
 /* ------------------------------------------------------------------ */
 
-/** Reclamaciones del access token que necesita la SPA. */
+/** The access token claims the SPA cares about. */
 interface ParsedAccessToken {
   sub: string | null
   username: string | null
   email: string | null
   name: string | null
   realmRoles: string[]
-  /** Roles de cliente indexados por `clientId` (el `resource_access` del token). */
+  /** Client roles indexed by `clientId` (the `resource_access` of the token). */
   clientRoles: Record<string, string[]>
 }
 
-/** Convierte el `tokenParsed` de keycloak-js en una estructura tipada. */
+/** Turns the `tokenParsed` of keycloak-js into a typed structure. */
 function parseAccessToken(raw: unknown): ParsedAccessToken {
   const claims = isRecord(raw) ? raw : {}
   const resourceAccess = readRecord(claims, 'resource_access')
@@ -42,11 +45,11 @@ function parseAccessToken(raw: unknown): ParsedAccessToken {
 }
 
 /* ------------------------------------------------------------------ */
-/* Contexto                                                            */
+/* Context                                                             */
 /* ------------------------------------------------------------------ */
 
 export interface UserProfile {
-  /** `sub` del token: es tambien el id en `erp.users`. */
+  /** The `sub` of the token, which is also the id in `erp.users`. */
   id: string
   username: string
   email: string | null
@@ -61,13 +64,13 @@ interface SessionState {
 }
 
 export interface AuthContextValue extends SessionState {
-  /** `false` mientras keycloak-js resuelve la comprobacion silenciosa de sesion. */
+  /** `false` while keycloak-js resolves the silent session check. */
   ready: boolean
-  /** Comprueba uno o varios permisos (AND logico). */
+  /** Checks one or several permissions (logical AND). */
   has: (perm: Permission | Permission[]) => boolean
   login: () => void
   logout: () => void
-  /** Devuelve un JWT vigente, refrescandolo si esta a punto de caducar. */
+  /** Returns a live JWT, refreshing it when it is about to expire. */
   token: () => Promise<string>
 }
 
@@ -78,12 +81,13 @@ const ANONYMOUS: SessionState = {
   permissions: [],
 }
 
-/** Lee el estado de sesion directamente de la instancia de Keycloak. */
+/** Reads the session state straight from the Keycloak instance. */
 function readSession(): SessionState {
   if (keycloak.authenticated !== true) return ANONYMOUS
   const claims = parseAccessToken(keycloak.tokenParsed)
-  const username = claims.username ?? 'desconocido'
-  // Los permisos son los client roles del cliente de la API (`erp-api`).
+  // This runs outside React, so the label comes from the active locale.
+  const username = claims.username ?? translateActive('common.unknown')
+  // The permissions are the client roles of the API client (`erp-api`).
   const permissions = (claims.clientRoles[config.apiClientId] ?? []).filter(isPermission)
   return {
     authenticated: true,
@@ -98,9 +102,24 @@ function readSession(): SessionState {
   }
 }
 
+/**
+ * Return URL that carries the chosen language back into the SPA.
+ *
+ * `localStorage` already remembers it, but it can be unavailable (private
+ * browsing) and the sign-out endpoint has no `ui_locales` equivalent, so the
+ * `?lang=` parameter is what guarantees the app comes back speaking the same
+ * language the user left with.
+ */
+function returnUrlFor(locale: Locale): string {
+  const url = new URL(window.location.origin)
+  url.searchParams.set('lang', locale)
+  return url.toString()
+}
+
 const AuthContext = createContext<AuthContextValue | null>(null)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const { locale } = useI18n()
   const [ready, setReady] = useState(false)
   const [session, setSession] = useState<SessionState>(ANONYMOUS)
 
@@ -110,8 +129,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (active) setSession(readSession())
     }
 
-    // Keycloak avisa justo antes de que caduque el token: lo refrescamos y
-    // volvemos a leer las reclamaciones (los roles pueden haber cambiado).
+    // Keycloak warns just before the token expires: we refresh it and read the
+    // claims again (the roles may have changed in the meantime).
     keycloak.onTokenExpired = () => {
       void keycloak
         .updateToken(30)
@@ -126,8 +145,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (active) setSession(ANONYMOUS)
     }
 
-    // `initKeycloak` esta memorizada: en StrictMode el segundo efecto reutiliza
-    // la misma promesa en lugar de volver a llamar a `init()`.
+    // `initKeycloak` is memoised: in StrictMode the second effect reuses the
+    // same promise instead of calling `init()` again.
     void initKeycloak().then(() => {
       sync()
       if (active) setReady(true)
@@ -149,12 +168,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   )
 
   const login = useCallback(() => {
-    void keycloak.login({ redirectUri: window.location.origin })
-  }, [])
+    // keycloak-js maps `locale` to the OIDC `ui_locales` parameter, so the
+    // Keycloak login page opens in the language the SPA is showing.
+    void keycloak.login({ redirectUri: returnUrlFor(locale), locale })
+  }, [locale])
 
   const logout = useCallback(() => {
-    void keycloak.logout({ redirectUri: window.location.origin })
-  }, [])
+    void keycloak.logout({ redirectUri: returnUrlFor(locale) })
+  }, [locale])
 
   const token = useCallback((): Promise<string> => getAccessToken(30), [])
 
@@ -169,7 +190,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 export function useAuth(): AuthContextValue {
   const value = useContext(AuthContext)
   if (value === null) {
-    throw new Error('useAuth() debe usarse dentro de <AuthProvider>.')
+    throw new Error('useAuth() must be used inside <AuthProvider>.')
   }
   return value
 }

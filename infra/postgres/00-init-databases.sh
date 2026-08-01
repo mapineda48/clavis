@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
 #
-# Crea el rol y la base de datos de Keycloak dentro del mismo servidor
-# PostgreSQL que usa el ERP.
+# Creates Keycloak's role and database inside the same PostgreSQL server the ERP
+# uses.
 #
-# La imagen oficial de postgres ejecuta este archivo con bash desde
-# /docker-entrypoint-initdb.d, y solo la primera vez que se inicializa el
-# volumen de datos. Si el archivo tiene permiso de ejecucion se lanza como
-# proceso; si no lo tiene, el entrypoint lo hace con `source`. En ambos casos
-# el interprete es bash, que es lo que necesitamos.
+# The official postgres image runs this file with bash from
+# /docker-entrypoint-initdb.d, and only the first time the data volume is
+# initialised. If the file is executable it is spawned as a process; if it is
+# not, the entrypoint `source`s it instead. Either way the interpreter is bash,
+# which is what we need.
 #
-# Para dejarlo ejecutable en tu copia de trabajo:
+# To make it executable in your working copy:
 #   chmod +x infra/postgres/00-init-databases.sh
 #
-# El script es idempotente: se puede volver a lanzar sin efectos secundarios.
+# The script is idempotent: re-running it has no side effects.
 
 set -euo pipefail
 
@@ -20,18 +20,18 @@ KEYCLOAK_DB_NAME="${KEYCLOAK_DB_NAME:-keycloak}"
 KEYCLOAK_DB_USER="${KEYCLOAK_DB_USER:-keycloak}"
 KEYCLOAK_DB_PASSWORD="${KEYCLOAK_DB_PASSWORD:-keycloak_dev_password}"
 
-echo "[init-databases] preparando base '${KEYCLOAK_DB_NAME}' y rol '${KEYCLOAK_DB_USER}'"
+echo "[init-databases] preparing database '${KEYCLOAK_DB_NAME}' and role '${KEYCLOAK_DB_USER}'"
 
-# Paso 1: rol y base de datos.
+# Step 1: role and database.
 #
-# Ni CREATE ROLE ni CREATE DATABASE admiten IF NOT EXISTS, y CREATE DATABASE
-# tampoco puede ejecutarse dentro de un bloque DO (necesita autocommit). La
-# solucion portable es generar la sentencia con format() y ejecutarla con \gexec,
-# que corre cada sentencia por separado y solo si la consulta devuelve filas.
+# Neither CREATE ROLE nor CREATE DATABASE accepts IF NOT EXISTS, and CREATE
+# DATABASE cannot run inside a DO block either (it needs autocommit). The
+# portable way out is to build the statement with format() and run it through
+# \gexec, which executes each statement separately and only when the query
+# returns rows.
 #
-# Los valores se pasan como variables de psql: :'var' los inserta ya escapados
-# como literal SQL (duplicando comillas simples) y :"var" como identificador
-# entre comillas dobles.
+# Values are passed as psql variables: :'var' inlines them already escaped as an
+# SQL literal (doubling single quotes) and :"var" as a double-quoted identifier.
 psql --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
   --no-psqlrc --quiet \
   --set ON_ERROR_STOP=1 \
@@ -39,25 +39,25 @@ psql --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
   --set kc_password="$KEYCLOAK_DB_PASSWORD" \
   --set kc_db="$KEYCLOAK_DB_NAME" <<'EOSQL'
 
--- Rol de Keycloak (solo si no existe).
+-- Keycloak role (only if it does not exist yet).
 SELECT format('CREATE ROLE %I WITH LOGIN PASSWORD %L', :'kc_user', :'kc_password')
 WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'kc_user')
 \gexec
 
--- Base de datos de Keycloak (solo si no existe), propiedad del rol anterior.
+-- Keycloak database (only if it does not exist yet), owned by the role above.
 SELECT format('CREATE DATABASE %I OWNER %I', :'kc_db', :'kc_user')
 WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = :'kc_db')
 \gexec
 
--- GRANT es idempotente, se ejecuta siempre.
+-- GRANT is idempotent, so it always runs.
 SELECT format('GRANT ALL PRIVILEGES ON DATABASE %I TO %I', :'kc_db', :'kc_user')
 \gexec
 
 EOSQL
 
-# Paso 2: privilegios dentro de la base de Keycloak.
-# Desde PostgreSQL 15 el esquema public ya no concede CREATE a PUBLIC, asi que
-# hay que darselo explicitamente al rol para que Keycloak pueda crear su schema.
+# Step 2: privileges inside the Keycloak database.
+# Since PostgreSQL 15 the public schema no longer grants CREATE to PUBLIC, so the
+# role needs it explicitly for Keycloak to create its schema.
 psql --username "$POSTGRES_USER" --dbname "$KEYCLOAK_DB_NAME" \
   --no-psqlrc --quiet \
   --set ON_ERROR_STOP=1 \
@@ -68,4 +68,4 @@ ALTER SCHEMA public OWNER TO :"kc_user";
 
 EOSQL
 
-echo "[init-databases] listo"
+echo "[init-databases] done"

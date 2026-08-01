@@ -1,9 +1,9 @@
 <#--
-    Pantalla informativa generica (correo enviado, accion completada, etc.).
+    Generic informational screen (email sent, action completed, and so on).
 
-    Adaptada del info.ftl de `base`: se conservan la cabecera condicional
-    (messageHeader), la lista de requiredActions y la cascada de enlaces
-    pageRedirectUri -> actionUri -> client.baseUrl. Solo cambia el marcado.
+    Adapted from the info.ftl of `base`: the conditional header (messageHeader),
+    the requiredActions list and the pageRedirectUri -> actionUri ->
+    client.baseUrl link cascade are all preserved. Only the markup changes.
 -->
 <#import "template.ftl" as layout>
 <@layout.registrationLayout displayMessage=false; section>

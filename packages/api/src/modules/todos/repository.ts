@@ -1,16 +1,16 @@
-// Acceso a datos del modulo de todos.
-// Funciones puras contra `fastify.db`: reciben el objeto db como primer argumento,
-// usan SQL siempre parametrizado y devuelven DTOs en camelCase con fechas ISO 8601.
+// Data access for the todos module.
+// Pure functions on top of `fastify.db`: they take the db object as their first
+// argument, always use parameterized SQL and return camelCase DTOs with ISO 8601 dates.
 import type { FastifyInstance } from 'fastify'
 import type { ScopeFilter } from '../shared/scope.js'
 
-/** Acceso a base de datos decorado en la instancia Fastify. */
+/** Database access decorated on the Fastify instance. */
 type Database = FastifyInstance['db']
 
-/** Estados admitidos por `erp.todos.status`. */
+/** Statuses accepted by `erp.todos.status`. */
 export type TodoStatus = 'todo' | 'in_progress' | 'done'
 
-/** Representacion publica de un todo. */
+/** Public representation of a todo. */
 export interface TodoDto {
   id: string
   title: string
@@ -26,7 +26,7 @@ export interface TodoDto {
   attachmentsCount: number
 }
 
-/** Datos minimos de un usuario del ERP. */
+/** Minimal data of an ERP user. */
 export interface UserDto {
   id: string
   username: string
@@ -35,7 +35,7 @@ export interface UserDto {
   lastSeenAt: string | null
 }
 
-/** Datos de creacion de un todo. */
+/** Input data to create a todo. */
 export interface CreateTodoInput {
   title: string
   description?: string | null
@@ -46,7 +46,7 @@ export interface CreateTodoInput {
   assigneeId?: string | null
 }
 
-/** Datos de actualizacion parcial de un todo. */
+/** Input data to partially update a todo. */
 export interface UpdateTodoInput {
   title?: string
   description?: string | null
@@ -56,7 +56,7 @@ export interface UpdateTodoInput {
   assigneeId?: string | null
 }
 
-/** Opciones del listado paginado. */
+/** Options of the paginated listing. */
 export interface ListTodosOptions {
   scope: ScopeFilter
   status?: TodoStatus | null
@@ -65,13 +65,13 @@ export interface ListTodosOptions {
   pageSize: number
 }
 
-/** Resultado del listado paginado. */
+/** Result of the paginated listing. */
 export interface ListTodosResult {
   items: TodoDto[]
   total: number
 }
 
-// --- Tipos de fila (alias de tipo, no interfaces: pg exige indice implicito) ---
+// --- Row types (type aliases, not interfaces: pg requires an implicit index signature) ---
 
 type TodoRow = {
   id: string
@@ -97,9 +97,9 @@ type UserRow = {
 }
 
 /**
- * Columnas publicas de un todo. Requiere que la tabla (o la CTE) este aliada
- * como `t`. `due_date` se formatea en SQL para no depender del huso horario
- * del cliente al convertir el tipo `date`.
+ * Public columns of a todo. Requires the table (or the CTE) to be aliased as
+ * `t`. `due_date` is formatted in SQL so that converting the `date` type does
+ * not depend on the client time zone.
  */
 const TODO_COLUMNS = `
   t.id,
@@ -116,26 +116,26 @@ const TODO_COLUMNS = `
   (SELECT count(*)::int FROM erp.todo_attachments a WHERE a.todo_id = t.id) AS attachments_count
 `
 
-/** Orden estable: pendientes primero, luego prioridad, vencimiento y antiguedad. */
+/** Stable ordering: open tasks first, then priority, due date and age. */
 const TODO_ORDER = `ORDER BY (t.status = 'done'), t.priority ASC, t.due_date ASC NULLS LAST, t.created_at DESC`
 
-/** Convierte un timestamptz de pg (Date o texto) a ISO 8601. */
+/** Converts a pg timestamptz (Date or text) to ISO 8601. */
 function toIso(value: Date | string | null | undefined): string | null {
   if (value === null || value === undefined) return null
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString()
 }
 
-/** Igual que `toIso` pero para columnas NOT NULL. */
+/** Same as `toIso` but for NOT NULL columns. */
 function requireIso(value: Date | string): string {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString()
 }
 
-/** Escapa los comodines de LIKE/ILIKE para que la busqueda sea literal. */
+/** Escapes LIKE/ILIKE wildcards so the search stays literal. */
 function escapeLike(value: string): string {
   return value.replace(/[\\%_]/g, (match) => `\\${match}`)
 }
 
-/** Mapea una fila de `erp.todos` al DTO publico. */
+/** Maps a row of `erp.todos` to the public DTO. */
 function mapTodo(row: TodoRow): TodoDto {
   return {
     id: row.id,
@@ -153,7 +153,7 @@ function mapTodo(row: TodoRow): TodoDto {
   }
 }
 
-/** Mapea una fila de `erp.users` al DTO publico. */
+/** Maps a row of `erp.users` to the public DTO. */
 function mapUser(row: UserRow): UserDto {
   return {
     id: row.id,
@@ -164,7 +164,7 @@ function mapUser(row: UserRow): UserDto {
   }
 }
 
-/** Lista paginada de todos aplicando el filtro de visibilidad y los filtros de la query. */
+/** Paginated list of todos applying the visibility filter and the query filters. */
 export async function listTodos(db: Database, options: ListTodosOptions): Promise<ListTodosResult> {
   const conditions: string[] = [options.scope.clause]
   const params: unknown[] = [...options.scope.params]
@@ -203,7 +203,7 @@ export async function listTodos(db: Database, options: ListTodosOptions): Promis
   return { items: rows.rows.map(mapTodo), total }
 }
 
-/** Devuelve un todo por su id, o null si no existe. */
+/** Returns a todo by its id, or null when it does not exist. */
 export async function getTodoById(db: Database, id: string): Promise<TodoDto | null> {
   const result = await db.query<TodoRow>(
     `SELECT ${TODO_COLUMNS} FROM erp.todos t WHERE t.id = $1`,
@@ -213,7 +213,7 @@ export async function getTodoById(db: Database, id: string): Promise<TodoDto | n
   return row ? mapTodo(row) : null
 }
 
-/** Crea un todo y devuelve el DTO resultante. */
+/** Creates a todo and returns the resulting DTO. */
 export async function createTodo(db: Database, input: CreateTodoInput): Promise<TodoDto> {
   const status: TodoStatus = input.status ?? 'todo'
   const result = await db.query<TodoRow>(
@@ -237,8 +237,8 @@ export async function createTodo(db: Database, input: CreateTodoInput): Promise<
 }
 
 /**
- * Actualiza parcialmente un todo. Devuelve null si no existe.
- * `completed_at` se sincroniza con el estado; `updated_at` lo mantiene el trigger.
+ * Partially updates a todo. Returns null when it does not exist.
+ * `completed_at` is kept in sync with the status; `updated_at` is the trigger's job.
  */
 export async function updateTodo(
   db: Database,
@@ -303,8 +303,8 @@ export async function updateTodo(
 }
 
 /**
- * Borra un todo. Devuelve los blobs de sus adjuntos para que el llamante los
- * elimine del almacenamiento (la fila se borra en cascada).
+ * Deletes a todo. Returns the blobs of its attachments so the caller can remove
+ * them from storage (the rows themselves are deleted by cascade).
  */
 export async function deleteTodo(
   db: Database,
@@ -323,7 +323,7 @@ export async function deleteTodo(
   })
 }
 
-/** Catalogo de tareas de ejemplo de un ERP real. `days` es el desfase de vencimiento. */
+/** Catalogue of sample tasks from a real ERP. `days` is the due-date offset. */
 const DEMO_TODOS: ReadonlyArray<{
   title: string
   description: string
@@ -332,43 +332,43 @@ const DEMO_TODOS: ReadonlyArray<{
   days: number
 }> = [
   {
-    title: 'Conciliar facturas de proveedores',
-    description: 'Cuadrar las facturas recibidas con los albaranes y los pagos del mes en curso.',
+    title: 'Reconcile supplier invoices',
+    description: 'Match the invoices received against delivery notes and the payments of the current month.',
     status: 'in_progress',
     priority: 1,
     days: 3,
   },
   {
-    title: 'Revisar inventario del almacen central',
-    description: 'Recuento ciclico de las referencias de mayor rotacion y ajuste de existencias.',
+    title: 'Run stock count at the central warehouse',
+    description: 'Cycle count of the fastest-moving SKUs and adjustment of the on-hand quantities.',
     status: 'todo',
     priority: 2,
     days: 7,
   },
   {
-    title: 'Aprobar ordenes de compra pendientes',
-    description: 'Validar las ordenes por encima de 5.000 EUR que esperan la firma de compras.',
+    title: 'Approve pending purchase orders',
+    description: 'Validate the orders above EUR 5,000 that are waiting for the purchasing sign-off.',
     status: 'todo',
     priority: 1,
     days: 1,
   },
   {
-    title: 'Cerrar el periodo contable',
-    description: 'Asientos de cierre, amortizaciones y conciliacion bancaria del periodo.',
+    title: 'Close the accounting period',
+    description: 'Closing entries, depreciation and bank reconciliation for the period.',
     status: 'todo',
     priority: 2,
     days: 12,
   },
   {
-    title: 'Auditar proveedores criticos',
-    description: 'Revisar certificaciones, plazos de entrega e incidencias de los proveedores clave.',
+    title: 'Audit critical suppliers',
+    description: 'Review certifications, lead times and incidents of the key suppliers.',
     status: 'done',
     priority: 3,
     days: -4,
   },
   {
-    title: 'Actualizar el catalogo de articulos',
-    description: 'Nuevas altas, bajas de referencias descatalogadas y revision de tarifas.',
+    title: 'Update the product catalogue',
+    description: 'New items, removal of discontinued references and a price list review.',
     status: 'in_progress',
     priority: 4,
     days: 21,
@@ -376,8 +376,8 @@ const DEMO_TODOS: ReadonlyArray<{
 ]
 
 /**
- * Crea las tareas de ejemplo del usuario. Es idempotente: si ya tiene todos
- * propios devuelve `created: 0` sin insertar nada.
+ * Creates the sample tasks of a user. It is idempotent: if the user already owns
+ * todos it returns `created: 0` without inserting anything.
  */
 export async function seedDemoTodos(
   db: Database,
@@ -421,7 +421,7 @@ export async function seedDemoTodos(
   return { created: items.length, items }
 }
 
-/** Conteo de todos por estado; con `scope` limita el conteo a lo visible. */
+/** Todo counts per status; passing `scope` limits the count to what is visible. */
 export async function countByStatus(
   db: Database,
   scope?: ScopeFilter,
@@ -441,7 +441,7 @@ export async function countByStatus(
   return counts
 }
 
-/** Busca un usuario del ERP por su id (`sub` de Keycloak). */
+/** Looks up an ERP user by its id (Keycloak `sub`). */
 export async function findUserById(db: Database, id: string): Promise<UserDto | null> {
   const result = await db.query<UserRow>(
     'SELECT id, username, email, display_name, last_seen_at FROM erp.users WHERE id = $1',

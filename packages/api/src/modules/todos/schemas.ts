@@ -1,60 +1,60 @@
-// Esquemas JSON Schema nativos de Fastify para el modulo de todos.
-// Se usan tanto para validar la entrada (ajv) como para serializar la salida
-// (fast-json-stringify): si un campo no esta declarado en `response`, se descarta.
+// Native Fastify JSON Schemas for the todos module.
+// They are used both to validate the input (ajv) and to serialize the output
+// (fast-json-stringify): a field that is not declared under `response` is dropped.
 
-/** Patron de UUID v4/v5 (evita depender de formatos externos de ajv). */
+/** UUID v4/v5 pattern (avoids depending on external ajv formats). */
 export const UUID_PATTERN = '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
 
-/** Patron de fecha simple `YYYY-MM-DD`. */
+/** Plain `YYYY-MM-DD` date pattern. */
 export const DATE_PATTERN = '^\\d{4}-\\d{2}-\\d{2}$'
 
-/** Patron de correo suficientemente estricto para una demo. */
+/** Email pattern, strict enough for a demo. */
 export const EMAIL_PATTERN = '^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$'
 
-/** Estados admitidos por `erp.todos.status`. */
+/** Statuses accepted by `erp.todos.status`. */
 export const TODO_STATUSES = ['todo', 'in_progress', 'done']
 
-/** Sobre de error global de la API: `{ error: { code, message, statusCode } }`. */
+/** Global API error envelope: `{ error: { code, message, statusCode } }`. */
 export const ErrorResponse = {
   type: 'object',
   properties: {
     error: {
       type: 'object',
       properties: {
-        code: { type: 'string', description: 'Codigo estable del error' },
-        message: { type: 'string', description: 'Mensaje legible' },
-        statusCode: { type: 'integer', description: 'Codigo HTTP' },
+        code: { type: 'string', description: 'Stable error code' },
+        message: { type: 'string', description: 'Human-readable message' },
+        statusCode: { type: 'integer', description: 'HTTP status code' },
       },
     },
   },
 }
 
-/** Parametro de ruta `:id` con formato UUID. */
+/** Route parameter `:id` in UUID format. */
 export const IdParams = {
   type: 'object',
   required: ['id'],
   properties: {
-    id: { type: 'string', pattern: UUID_PATTERN, description: 'Identificador UUID' },
+    id: { type: 'string', pattern: UUID_PATTERN, description: 'UUID identifier' },
   },
 }
 
-/** Representacion publica de un todo (DTO en camelCase). */
+/** Public representation of a todo (camelCase DTO). */
 export const TodoSchema = {
   type: 'object',
-  description: 'Tarea del ERP',
+  description: 'ERP task',
   properties: {
     id: { type: 'string' },
     title: { type: 'string' },
     description: { type: ['string', 'null'] },
     status: { type: 'string', enum: TODO_STATUSES },
     priority: { type: 'integer', minimum: 1, maximum: 4 },
-    dueDate: { type: ['string', 'null'], description: 'Fecha limite en formato YYYY-MM-DD' },
+    dueDate: { type: ['string', 'null'], description: 'Due date in YYYY-MM-DD format' },
     ownerId: { type: 'string' },
     assigneeId: { type: ['string', 'null'] },
-    createdAt: { type: 'string', description: 'Instante ISO 8601' },
-    updatedAt: { type: 'string', description: 'Instante ISO 8601' },
-    completedAt: { type: ['string', 'null'], description: 'Instante ISO 8601' },
-    attachmentsCount: { type: 'integer', description: 'Numero de adjuntos' },
+    createdAt: { type: 'string', description: 'ISO 8601 instant' },
+    updatedAt: { type: 'string', description: 'ISO 8601 instant' },
+    completedAt: { type: ['string', 'null'], description: 'ISO 8601 instant' },
+    attachmentsCount: { type: 'integer', description: 'Number of attachments' },
   },
   required: [
     'id',
@@ -72,7 +72,7 @@ export const TodoSchema = {
   ],
 }
 
-/** Query del listado `GET /api/todos`. */
+/** Query string of the `GET /api/todos` listing. */
 export const ListTodosQuery = {
   type: 'object',
   additionalProperties: false,
@@ -80,31 +80,31 @@ export const ListTodosQuery = {
     status: {
       type: 'string',
       enum: TODO_STATUSES,
-      description: 'Filtra por estado',
+      description: 'Filter by status',
     },
     q: {
       type: 'string',
       maxLength: 120,
-      description: 'Busqueda por titulo o descripcion',
+      description: 'Search in title or description',
     },
     scope: {
       type: 'string',
       enum: ['mine', 'all'],
       default: 'mine',
-      description: 'Alcance: "mine" (propios o asignados) o "all" (requiere todos:read:all)',
+      description: 'Scope: "mine" (owned or assigned) or "all" (requires todos:read:all)',
     },
-    page: { type: 'integer', minimum: 1, default: 1, description: 'Pagina, empezando en 1' },
+    page: { type: 'integer', minimum: 1, default: 1, description: 'Page number, starting at 1' },
     pageSize: {
       type: 'integer',
       minimum: 1,
       maximum: 100,
       default: 20,
-      description: 'Elementos por pagina (1..100)',
+      description: 'Items per page (1..100)',
     },
   },
 }
 
-/** Respuesta paginada del listado de todos. */
+/** Paginated response of the todo listing. */
 export const TodoListResponse = {
   type: 'object',
   properties: {
@@ -112,18 +112,18 @@ export const TodoListResponse = {
     page: { type: 'integer' },
     pageSize: { type: 'integer' },
     total: { type: 'integer' },
-    cached: { type: 'boolean', description: 'true si la respuesta vino de Valkey' },
+    cached: { type: 'boolean', description: 'true if the response came from Valkey' },
   },
   required: ['items', 'page', 'pageSize', 'total', 'cached'],
 }
 
-/** Cuerpo de creacion `POST /api/todos`. */
+/** Body of `POST /api/todos`. */
 export const CreateTodoBody = {
   type: 'object',
   additionalProperties: false,
   required: ['title'],
   properties: {
-    title: { type: 'string', minLength: 1, maxLength: 200, description: 'Titulo de la tarea' },
+    title: { type: 'string', minLength: 1, maxLength: 200, description: 'Task title' },
     description: { type: ['string', 'null'], maxLength: 4000 },
     status: { type: 'string', enum: TODO_STATUSES, default: 'todo' },
     priority: {
@@ -131,14 +131,14 @@ export const CreateTodoBody = {
       minimum: 1,
       maximum: 4,
       default: 3,
-      description: '1 = maxima prioridad, 4 = minima',
+      description: '1 = highest priority, 4 = lowest',
     },
-    dueDate: { type: ['string', 'null'], pattern: DATE_PATTERN, description: 'Fecha limite YYYY-MM-DD' },
-    assigneeId: { type: ['string', 'null'], pattern: UUID_PATTERN, description: 'Usuario asignado' },
+    dueDate: { type: ['string', 'null'], pattern: DATE_PATTERN, description: 'Due date YYYY-MM-DD' },
+    assigneeId: { type: ['string', 'null'], pattern: UUID_PATTERN, description: 'Assigned user' },
   },
 }
 
-/** Cuerpo de actualizacion parcial `PATCH /api/todos/:id`. */
+/** Body of the partial update `PATCH /api/todos/:id`. */
 export const UpdateTodoBody = {
   type: 'object',
   additionalProperties: false,
@@ -153,17 +153,17 @@ export const UpdateTodoBody = {
   },
 }
 
-/** Respuesta de `POST /api/todos/seed-demo`. */
+/** Response of `POST /api/todos/seed-demo`. */
 export const SeedDemoResponse = {
   type: 'object',
   properties: {
-    created: { type: 'integer', description: 'Todos creados (0 si ya existian)' },
+    created: { type: 'integer', description: 'Todos created (0 if they already existed)' },
     items: { type: 'array', items: TodoSchema },
   },
   required: ['created', 'items'],
 }
 
-/** Cuerpo de `POST /api/todos/:id/notify`. */
+/** Body of `POST /api/todos/:id/notify`. */
 export const NotifyTodoBody = {
   type: 'object',
   additionalProperties: false,
@@ -171,33 +171,33 @@ export const NotifyTodoBody = {
     to: {
       type: 'string',
       pattern: EMAIL_PATTERN,
-      description: 'Destinatario; si se omite se usa el asignado o el solicitante',
+      description: 'Recipient; if omitted, the assignee or the caller is used',
     },
   },
 }
 
-/** Respuesta de la notificacion por correo. */
+/** Response of the email notification. */
 export const NotifyTodoResponse = {
   type: 'object',
   properties: {
     todoId: { type: 'string' },
     to: { type: 'string' },
     subject: { type: 'string' },
-    delivered: { type: 'boolean', description: 'true si el proveedor acepto el envio' },
+    delivered: { type: 'boolean', description: 'true if the provider accepted the message' },
     provider: { type: 'string', enum: ['resend', 'dry-run'] },
-    id: { type: ['string', 'null'], description: 'Identificador del mensaje en el proveedor' },
-    reason: { type: 'string', description: 'Motivo cuando no se entrego o se simulo' },
+    id: { type: ['string', 'null'], description: 'Message identifier at the provider' },
+    reason: { type: 'string', description: 'Why the message was not delivered or was simulated' },
   },
   required: ['todoId', 'to', 'subject', 'delivered', 'provider', 'id'],
 }
 
-/** Respuesta del borrado de un todo. */
+/** Response of the todo deletion. */
 export const DeleteTodoResponse = {
   type: 'object',
   properties: {
     id: { type: 'string' },
     deleted: { type: 'boolean' },
-    removedAttachments: { type: 'integer', description: 'Adjuntos eliminados en cascada' },
+    removedAttachments: { type: 'integer', description: 'Attachments removed by cascade' },
   },
   required: ['id', 'deleted', 'removedAttachments'],
 }

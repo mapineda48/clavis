@@ -1,9 +1,9 @@
 <#--
-    Pantalla de "la pagina ha caducado".
+    "The page has expired" screen.
 
-    Adaptada del login-page-expired.ftl de `base`. Se conservan los dos enlaces
-    con sus id originales (loginRestartLink -> url.loginRestartFlowUrl y
-    loginContinueLink -> url.loginAction); solo cambia el marcado.
+    Adapted from the login-page-expired.ftl of `base`. Both links keep their
+    original ids (loginRestartLink -> url.loginRestartFlowUrl and
+    loginContinueLink -> url.loginAction); only the markup changes.
 -->
 <#import "template.ftl" as layout>
 <#global erpSubtitle = msg("erpPageExpiredSubtitle")>

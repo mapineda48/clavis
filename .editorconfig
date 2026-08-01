@@ -1,4 +1,4 @@
-# Estilo de codigo comun para cualquier editor. https://editorconfig.org
+# Shared code style for any editor. https://editorconfig.org
 root = true
 
 [*]
@@ -9,11 +9,11 @@ indent_size = 2
 insert_final_newline = true
 trim_trailing_whitespace = true
 
-# Markdown: dos espacios al final significan salto de linea, no se recortan.
+# Markdown: two trailing spaces mean a line break, so they must not be trimmed.
 [*.md]
 trim_trailing_whitespace = false
 
-# Make exige tabulaciones reales al inicio de cada receta.
+# Make requires real tabs at the start of every recipe line.
 [Makefile]
 indent_style = tab
 

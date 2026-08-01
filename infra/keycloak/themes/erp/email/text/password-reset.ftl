@@ -1,13 +1,13 @@
 <#ftl output_format="plainText">
 <#--
-    Correo de recuperacion de contrasena (version en texto plano).
+    Password recovery email (plain text version).
 
-    Es la alternativa que ve quien tiene el cliente en modo texto y la que muchos
-    filtros antispam comparan con la version HTML: dice exactamente lo mismo, con
-    las mismas claves de mensaje, pero sin maqueta.
+    This is the alternative seen by anyone reading in text mode, and the one many
+    spam filters compare against the HTML version: it says exactly the same
+    thing, through the same message keys, only without the layout.
 
-    `output_format="plainText"` desactiva el escapado HTML de FreeMarker, asi que
-    el enlace se imprime tal cual y no se convierte ningun `&` en `&amp;`.
+    `output_format="plainText"` turns off FreeMarker's HTML escaping, so the link
+    is printed verbatim and no `&` is turned into `&amp;`.
 -->
 <#assign erpRecipientName = (user.firstName)!"">
 <#if !erpRecipientName?has_content>

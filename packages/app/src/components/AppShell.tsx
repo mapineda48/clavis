@@ -3,19 +3,56 @@ import { useAuth } from '../auth/AuthProvider'
 import { Can } from '../auth/Can'
 import { AdminPanel } from './AdminPanel'
 import { TodoBoard } from './TodoBoard'
-import { initialsOf, PERMISSION_LABELS, REALM_ROLE_LABELS, visibleRealmRoles } from '../lib/types'
+import { isLocale, LOCALE_LABELS, LOCALES } from '../i18n'
+import { useI18n } from '../i18n/I18nProvider'
+import {
+  initialsOf,
+  PERMISSION_LABEL_KEYS,
+  REALM_ROLE_LABEL_KEYS,
+  visibleRealmRoles,
+} from '../lib/types'
 
 type TabId = 'board' | 'admin'
 
+/**
+ * Language picker. A native `<select>` is deliberate: it is reachable with the
+ * keyboard, announces itself to screen readers and already gets the focus ring
+ * of `.input` for free, with no extra markup or state to maintain.
+ */
+function LanguagePicker() {
+  const { locale, setLocale, t } = useI18n()
+
+  return (
+    <label className="field field--inline">
+      <span className="field__label">{t('common.language')}</span>
+      <select
+        className="input input--sm"
+        value={locale}
+        onChange={(event) => {
+          const value = event.target.value
+          if (isLocale(value)) setLocale(value)
+        }}
+      >
+        {LOCALES.map((code) => (
+          <option key={code} value={code}>
+            {LOCALE_LABELS[code]}
+          </option>
+        ))}
+      </select>
+    </label>
+  )
+}
+
 export function AppShell() {
   const { profile, realmRoles, permissions, logout, has } = useAuth()
+  const { t } = useI18n()
   const [tab, setTab] = useState<TabId>('board')
 
   const canAdmin = has('admin:manage')
-  // Si el usuario pierde el permiso (refresco de token) volvemos al tablero.
+  // If the user loses the permission (token refresh) we fall back to the board.
   const activeTab: TabId = tab === 'admin' && !canAdmin ? 'board' : tab
 
-  const displayName = profile?.displayName ?? 'Usuario'
+  const displayName = profile?.displayName ?? t('auth.defaultDisplayName')
   const roles = visibleRealmRoles(realmRoles)
 
   return (
@@ -24,11 +61,11 @@ export function AppShell() {
         <div className="shell__bar">
           <div className="brand">
             <span className="brand__mark" aria-hidden="true">
-              ERP
+              {t('common.brandMark')}
             </span>
             <span className="brand__text">
-              <span className="brand__name">ERP Demo</span>
-              <span className="brand__sub">Keycloak · permisos en el token</span>
+              <span className="brand__name">{t('common.appName')}</span>
+              <span className="brand__sub">{t('common.brandTagline')}</span>
             </span>
           </div>
 
@@ -40,22 +77,29 @@ export function AppShell() {
               <span className="user-meta__name">{displayName}</span>
               <span className="user-meta__mail">{profile?.email ?? profile?.username ?? ''}</span>
             </span>
-            <ul className="chips" aria-label="Roles de realm">
-              {roles.map((role) => (
-                <li key={role}>
-                  <span className="chip chip--role" title={REALM_ROLE_LABELS[role] ?? role}>
-                    {role}
-                  </span>
-                </li>
-              ))}
+            <ul className="chips" aria-label={t('nav.realmRolesLabel')}>
+              {roles.map((role) => {
+                const labelKey = REALM_ROLE_LABEL_KEYS[role]
+                return (
+                  <li key={role}>
+                    <span
+                      className="chip chip--role"
+                      title={labelKey === undefined ? role : t(labelKey)}
+                    >
+                      {role}
+                    </span>
+                  </li>
+                )
+              })}
             </ul>
+            <LanguagePicker />
             <button type="button" className="btn btn--ghost" onClick={logout}>
-              Cerrar sesion
+              {t('auth.signOut')}
             </button>
           </div>
         </div>
 
-        <nav className="tabs" aria-label="Secciones">
+        <nav className="tabs" aria-label={t('nav.sectionsLabel')}>
           <button
             type="button"
             className={`tab${activeTab === 'board' ? ' tab--active' : ''}`}
@@ -64,7 +108,7 @@ export function AppShell() {
               setTab('board')
             }}
           >
-            Tablero
+            {t('nav.board')}
           </button>
           <Can perm="admin:manage">
             <button
@@ -75,7 +119,7 @@ export function AppShell() {
                 setTab('admin')
               }}
             >
-              Administracion
+              {t('nav.admin')}
             </button>
           </Can>
         </nav>
@@ -84,16 +128,16 @@ export function AppShell() {
       <main className="shell__main">{activeTab === 'admin' ? <AdminPanel /> : <TodoBoard />}</main>
 
       <footer className="shell__footer">
-        <span className="muted">Permisos del access token:</span>
+        <span className="muted">{t('auth.tokenPermissions')}</span>
         <ul className="chips">
           {permissions.length === 0 ? (
             <li>
-              <span className="chip chip--warn">sin permisos</span>
+              <span className="chip chip--warn">{t('auth.tokenPermissionsEmpty')}</span>
             </li>
           ) : (
             permissions.map((perm) => (
               <li key={perm}>
-                <span className="chip" title={PERMISSION_LABELS[perm]}>
+                <span className="chip" title={t(PERMISSION_LABEL_KEYS[perm])}>
                   {perm}
                 </span>
               </li>

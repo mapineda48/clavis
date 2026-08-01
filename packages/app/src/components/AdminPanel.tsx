@@ -2,16 +2,19 @@ import { useAuth } from '../auth/AuthProvider'
 import { useAdminAudit, useAdminStats, useAdminUsers } from '../api/admin'
 import type { AdminStats, CountEntry } from '../api/admin'
 import { describeApiError } from '../api/client'
+import { useI18n } from '../i18n/I18nProvider'
 import { formatDateTime } from '../lib/types'
 
 const AUDIT_LIMIT = 25
 
 function CountTable({ title, entries }: { title: string; entries: CountEntry[] }) {
+  const { t } = useI18n()
+
   if (entries.length === 0) {
     return (
       <div className="stat-block">
         <h3 className="stat-block__title">{title}</h3>
-        <p className="muted">Sin datos.</p>
+        <p className="muted">{t('admin.noData')}</p>
       </div>
     )
   }
@@ -38,6 +41,8 @@ function CountTable({ title, entries }: { title: string; entries: CountEntry[] }
 }
 
 function StatsSection({ stats }: { stats: AdminStats }) {
+  const { t } = useI18n()
+
   return (
     <>
       <div className="stat-grid">
@@ -49,8 +54,8 @@ function StatsSection({ stats }: { stats: AdminStats }) {
         ))}
       </div>
       <div className="stat-columns">
-        <CountTable title="Por estado" entries={stats.byStatus} />
-        <CountTable title="Por prioridad" entries={stats.byPriority} />
+        <CountTable title={t('admin.byStatus')} entries={stats.byStatus} />
+        <CountTable title={t('admin.byPriority')} entries={stats.byPriority} />
       </div>
     </>
   )
@@ -58,6 +63,7 @@ function StatsSection({ stats }: { stats: AdminStats }) {
 
 export function AdminPanel() {
   const { has } = useAuth()
+  const { locale, t } = useI18n()
   const canManage = has('admin:manage')
   const canReadUsers = has('users:read')
 
@@ -65,45 +71,39 @@ export function AdminPanel() {
   const usersQuery = useAdminUsers(canReadUsers)
   const auditQuery = useAdminAudit(AUDIT_LIMIT, canManage)
 
+  const emptyValue = t('common.emptyValue')
+
   return (
     <div className="admin">
       <section className="panel">
         <div className="panel__head">
-          <h2 className="panel__title">Estadisticas</h2>
-          <span className="muted">requiere admin:manage</span>
+          <h2 className="panel__title">{t('admin.statsTitle')}</h2>
+          <span className="muted">{t('admin.requiresAdminManage')}</span>
         </div>
-        {!canManage && (
-          <p className="notice notice--warn">
-            Tu token no incluye <code>admin:manage</code>.
-          </p>
-        )}
-        {statsQuery.isPending && canManage && <p className="muted">Cargando estadisticas…</p>}
+        {!canManage && <p className="notice notice--warn">{t('admin.missingAdminManage')}</p>}
+        {statsQuery.isPending && canManage && <p className="muted">{t('admin.statsLoading')}</p>}
         {statsQuery.isError && <p className="notice notice--error">{describeApiError(statsQuery.error)}</p>}
         {statsQuery.data !== undefined && <StatsSection stats={statsQuery.data} />}
       </section>
 
       <section className="panel">
         <div className="panel__head">
-          <h2 className="panel__title">Usuarios</h2>
-          <span className="muted">requiere users:read</span>
+          <h2 className="panel__title">{t('admin.usersTitle')}</h2>
+          <span className="muted">{t('admin.requiresUsersRead')}</span>
         </div>
-        {!canReadUsers && (
-          <p className="notice notice--warn">
-            Tu token no incluye <code>users:read</code>.
-          </p>
-        )}
-        {usersQuery.isPending && canReadUsers && <p className="muted">Cargando usuarios…</p>}
+        {!canReadUsers && <p className="notice notice--warn">{t('admin.missingUsersRead')}</p>}
+        {usersQuery.isPending && canReadUsers && <p className="muted">{t('admin.usersLoading')}</p>}
         {usersQuery.isError && <p className="notice notice--error">{describeApiError(usersQuery.error)}</p>}
         {usersQuery.data !== undefined && usersQuery.data.length > 0 && (
           <div className="table-wrap">
             <table className="table">
               <thead>
                 <tr>
-                  <th scope="col">Usuario</th>
-                  <th scope="col">Nombre</th>
-                  <th scope="col">Correo</th>
-                  <th scope="col">Alta</th>
-                  <th scope="col">Ultimo acceso</th>
+                  <th scope="col">{t('admin.userColumnUsername')}</th>
+                  <th scope="col">{t('admin.userColumnName')}</th>
+                  <th scope="col">{t('admin.userColumnEmail')}</th>
+                  <th scope="col">{t('admin.userColumnCreated')}</th>
+                  <th scope="col">{t('admin.userColumnLastSeen')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -112,10 +112,10 @@ export function AdminPanel() {
                     <th scope="row">
                       <code>{user.username}</code>
                     </th>
-                    <td>{user.displayName ?? '—'}</td>
-                    <td>{user.email ?? '—'}</td>
-                    <td>{formatDateTime(user.createdAt)}</td>
-                    <td>{formatDateTime(user.lastSeenAt)}</td>
+                    <td>{user.displayName ?? emptyValue}</td>
+                    <td>{user.email ?? emptyValue}</td>
+                    <td>{formatDateTime(user.createdAt, locale)}</td>
+                    <td>{formatDateTime(user.lastSeenAt, locale)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -123,33 +123,33 @@ export function AdminPanel() {
           </div>
         )}
         {usersQuery.data !== undefined && usersQuery.data.length === 0 && (
-          <p className="muted">Todavia no hay usuarios aprovisionados.</p>
+          <p className="muted">{t('admin.usersEmpty')}</p>
         )}
       </section>
 
       <section className="panel">
         <div className="panel__head">
-          <h2 className="panel__title">Auditoria</h2>
-          <span className="muted">ultimos {AUDIT_LIMIT} eventos · requiere admin:manage</span>
+          <h2 className="panel__title">{t('admin.auditTitle')}</h2>
+          <span className="muted">{t('admin.auditSubtitle', { limit: AUDIT_LIMIT })}</span>
         </div>
-        {auditQuery.isPending && canManage && <p className="muted">Cargando auditoria…</p>}
+        {auditQuery.isPending && canManage && <p className="muted">{t('admin.auditLoading')}</p>}
         {auditQuery.isError && <p className="notice notice--error">{describeApiError(auditQuery.error)}</p>}
         {auditQuery.data !== undefined && auditQuery.data.length > 0 && (
           <div className="table-wrap">
             <table className="table table--compact">
               <thead>
                 <tr>
-                  <th scope="col">Fecha</th>
-                  <th scope="col">Accion</th>
-                  <th scope="col">Entidad</th>
-                  <th scope="col">Actor</th>
-                  <th scope="col">Detalle</th>
+                  <th scope="col">{t('admin.auditColumnDate')}</th>
+                  <th scope="col">{t('admin.auditColumnAction')}</th>
+                  <th scope="col">{t('admin.auditColumnEntity')}</th>
+                  <th scope="col">{t('admin.auditColumnActor')}</th>
+                  <th scope="col">{t('admin.auditColumnDetail')}</th>
                 </tr>
               </thead>
               <tbody>
                 {auditQuery.data.map((entry) => (
                   <tr key={entry.id}>
-                    <td>{formatDateTime(entry.createdAt)}</td>
+                    <td>{formatDateTime(entry.createdAt, locale)}</td>
                     <td>
                       <span className="chip">{entry.action}</span>
                     </td>
@@ -159,9 +159,9 @@ export function AdminPanel() {
                         <span className="muted"> {entry.entityId.slice(0, 8)}…</span>
                       )}
                     </td>
-                    <td>{entry.actorUsername ?? entry.actorId ?? '—'}</td>
+                    <td>{entry.actorUsername ?? entry.actorId ?? emptyValue}</td>
                     <td>
-                      <code className="payload">{summarizePayload(entry.payload)}</code>
+                      <code className="payload">{summarizePayload(entry.payload, emptyValue)}</code>
                     </td>
                   </tr>
                 ))}
@@ -170,21 +170,21 @@ export function AdminPanel() {
           </div>
         )}
         {auditQuery.data !== undefined && auditQuery.data.length === 0 && (
-          <p className="muted">Sin eventos registrados.</p>
+          <p className="muted">{t('admin.auditEmpty')}</p>
         )}
       </section>
     </div>
   )
 }
 
-/** Resume el `payload` jsonb para que quepa en una celda. */
-function summarizePayload(payload: unknown): string {
-  if (payload === null || payload === undefined) return '—'
+/** Summarises the jsonb `payload` so it fits in a table cell. */
+function summarizePayload(payload: unknown, empty: string): string {
+  if (payload === null || payload === undefined) return empty
   let text: string
   try {
     text = typeof payload === 'string' ? payload : JSON.stringify(payload)
   } catch {
-    return '—'
+    return empty
   }
   if (text.length <= 90) return text
   return `${text.slice(0, 90)}…`

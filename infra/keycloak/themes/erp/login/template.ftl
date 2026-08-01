@@ -1,22 +1,21 @@
 <#--
-    Layout de todas las pantallas de login del demo ERP.
+    Layout shared by every login screen of the ERP demo.
 
-    Parte del template.ftl del tema `base` de Keycloak 26.4 y conserva su contrato
-    al pie de la letra:
-      - la firma de la macro (bodyClass, displayInfo, displayMessage, displayRequiredFields),
-      - las cinco secciones anidadas y su orden:
+    Derived from the template.ftl of Keycloak 26.4's `base` theme, whose contract
+    it keeps to the letter:
+      - the macro signature (bodyClass, displayInfo, displayMessage, displayRequiredFields),
+      - the five nested sections and their order:
         "header", "show-username", "form", "socialProviders", "info",
-      - todos los <script> del <head> (importmap de rfc4648, menu-button-links,
-        authChecker/startSessionPolling, el manejador de data-once-link y el bloque
-        condicional de authenticationSession) y el <link rel="icon">.
+      - every <script> in the <head> (the rfc4648 importmap, menu-button-links,
+        authChecker/startSessionPolling, the data-once-link handler and the
+        conditional authenticationSession block) and the <link rel="icon">.
 
-    Lo unico que cambia es el HTML: pantalla partida con panel de marca a la
-    izquierda (identidad + chuleta de usuarios demo) y tarjeta de formulario a la
-    derecha.
+    Only the HTML is different: a split screen with the brand panel on the left
+    (identity + demo user cheat sheet) and the form card on the right.
 
-    Las plantillas hijas pueden declarar un subtitulo para la tarjeta con:
+    Child templates may declare a subtitle for the card with:
         <#global erpSubtitle = msg("...")>
-    antes de invocar la macro. Si no lo hacen, no se pinta nada.
+    before calling the macro. If they do not, nothing is rendered there.
 -->
 <#import "footer.ftl" as loginFooter>
 <#macro registrationLayout bodyClass="" displayInfo=false displayMessage=true displayRequiredFields=false>
@@ -45,7 +44,7 @@
             <link href="${url.resourcesPath}/${style}" rel="stylesheet" />
         </#list>
     </#if>
-    <#-- Nuestros scripts son modulos ES: ambito propio y ejecucion diferida. -->
+    <#-- Our own scripts are ES modules: private scope and deferred execution. -->
     <#if properties.scripts?has_content>
         <#list properties.scripts?split(' ') as script>
             <script src="${url.resourcesPath}/${script}" type="module"></script>
@@ -109,7 +108,7 @@
 <div class="erp-layout">
 
     <#-- ------------------------------------------------------------------- -->
-    <#-- Panel de marca: identidad del demo y chuleta de usuarios de prueba.  -->
+    <#-- Brand panel: demo identity and cheat sheet of the test users.       -->
     <#-- ------------------------------------------------------------------- -->
     <aside class="erp-brand">
         <div class="erp-brand__inner">
@@ -198,14 +197,14 @@
                             aria-label="${msg('erpUseAria','worker')}">${msg("erpUse")}</button>
                 </div>
 
-                <#-- Nunca escribimos contrasenas en el tema: solo se dice donde estan. -->
+                <#-- Passwords are never written into the theme: we only say where they live. -->
                 <p class="erp-users__note">${msg("erpDemoUsersNote")}</p>
             </section>
         </div>
     </aside>
 
     <#-- ------------------------------------------------------------------- -->
-    <#-- Panel del formulario.                                               -->
+    <#-- Form panel.                                                         -->
     <#-- ------------------------------------------------------------------- -->
     <main class="erp-panel">
         <div class="${properties.kcFormCardClass!}">
@@ -241,8 +240,9 @@
                         <p class="erp-card__subtitle">${erpSubtitle}</p>
                     </#if>
                 <#else>
-                    <#-- Keycloak ya sabe quien intenta entrar: mostramos el usuario y
-                         el enlace para reiniciar el flujo con otra cuenta. -->
+                    <#-- Keycloak already knows who is trying to sign in: show the
+                         username and the link that restarts the flow with another
+                         account. -->
                     <h1 id="kc-page-title" class="erp-card__title"><#nested "header"></h1>
                     <#if displayRequiredFields>
                         <p class="erp-card__subtitle"><span class="required">*</span> ${msg("requiredFields")}</p>
@@ -259,8 +259,8 @@
             <div class="${properties.kcContentWrapperClass!}" id="kc-content">
                 <div id="kc-content-wrapper">
 
-                    <#-- Las acciones iniciadas por la aplicacion no deben ver el aviso -->
-                    <#-- de "tienes que completar la accion" durante el login.          -->
+                    <#-- Application-initiated actions must not show the "you still  -->
+                    <#-- have to complete this action" warning during login.         -->
                     <#if displayMessage && message?has_content && (message.type != 'warning' || !isAppInitiatedAction??)>
                         <div class="${properties.kcAlertClass!} erp-alert--${message.type} alert-${message.type}" role="alert">
                             <span class="erp-alert__icon" aria-hidden="true">

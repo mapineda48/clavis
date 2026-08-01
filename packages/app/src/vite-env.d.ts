@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 
-// Variables de compilacion que expone Vite. Todas son opcionales porque en el
-// perfil `full` la configuracion real llega en runtime via window.__ERP_CONFIG__.
+// Build-time variables exposed by Vite. All of them are optional: in the `full`
+// profile the real configuration arrives at runtime via window.__ERP_CONFIG__.
 interface ImportMetaEnv {
   readonly VITE_KEYCLOAK_URL?: string
   readonly VITE_KEYCLOAK_REALM?: string

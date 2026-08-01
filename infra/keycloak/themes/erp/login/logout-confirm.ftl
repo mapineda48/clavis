@@ -1,10 +1,10 @@
 <#--
-    Confirmacion de cierre de sesion.
+    Sign-out confirmation.
 
-    Adaptada del logout-confirm.ftl de `base`. Se conservan intactos el formulario
-    (action="${url.logoutConfirmAction}", method="POST"), el campo oculto
-    session_code y el boton name="confirmLogout" id="kc-logout": de ellos depende
-    que el logout funcione. Solo cambia el marcado.
+    Adapted from the logout-confirm.ftl of `base`. The form
+    (action="${url.logoutConfirmAction}", method="POST"), the hidden session_code
+    field and the name="confirmLogout" id="kc-logout" button are untouched:
+    logging out depends on them. Only the markup changes.
 -->
 <#import "template.ftl" as layout>
 <#global erpSubtitle = msg("erpLogoutSubtitle")>

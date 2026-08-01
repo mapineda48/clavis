@@ -1,9 +1,9 @@
 <#--
-    Pantalla de error generico del flujo de login.
+    Generic error screen of the login flow.
 
-    Adaptada del error.ftl de `base`: se conserva la logica original (el mensaje
-    saneado y el enlace de vuelta a la aplicacion cuando no hay skipLink y el
-    cliente declara baseUrl). Solo cambia el marcado.
+    Adapted from the error.ftl of `base`: the original logic is preserved (the
+    sanitised message and the link back to the application when there is no
+    skipLink and the client declares a baseUrl). Only the markup changes.
 -->
 <#import "template.ftl" as layout>
 <#global erpSubtitle = msg("erpErrorSubtitle")>

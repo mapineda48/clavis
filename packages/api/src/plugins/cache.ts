@@ -1,24 +1,24 @@
 import type { FastifyInstance } from 'fastify'
 import fp from 'fastify-plugin'
-// ioredis es CommonJS: bajo ESM + NodeNext el export por defecto no es
-// construible, hay que usar el export nombrado.
+// ioredis is CommonJS: under ESM + NodeNext the default export is not
+// constructible, so the named export is the one to use.
 import { Redis } from 'ioredis'
 import { env } from '../config/env.js'
 
-/** Prefijo de las claves que guardan la versión de cada namespace. */
+/** Prefix of the keys that hold the version of each namespace. */
 const VERSION_PREFIX = 'erp:ver:'
 
 /**
- * Plugin de caché sobre Valkey (protocolo Redis).
+ * Cache plugin backed by Valkey (Redis protocol).
  *
- * La invalidación es por *versión de namespace*: las claves de lista incluyen
- * el número de versión, así que un `bumpVersion` deja obsoletas todas las
- * entradas derivadas sin necesidad de borrarlas.
+ * Invalidation works by *namespace version*: list keys embed the version
+ * number, so a `bumpVersion` makes every derived entry stale without having to
+ * delete anything.
  *
- * La caché es un acelerador, nunca un punto único de fallo: si Valkey no
- * responde, las operaciones se degradan (se comportan como fallo de caché) en
- * lugar de propagar el error a la petición. `ping()` sigue reflejando el estado
- * real para `/health/ready`.
+ * The cache is an accelerator, never a single point of failure: if Valkey does
+ * not answer, operations degrade (they behave like a cache miss) instead of
+ * propagating the error to the request. `ping()` still reports the real state
+ * for `/health/ready`.
  */
 export const cachePlugin = fp(
   async (app: FastifyInstance) => {
@@ -27,15 +27,15 @@ export const cachePlugin = fp(
       maxRetriesPerRequest: 3,
       connectionName: 'erp-api',
       enableReadyCheck: true,
-      // Reintento con espera creciente pero acotada a 3 segundos.
+      // Retry with growing backoff, capped at 3 seconds.
       retryStrategy: (times: number) => Math.min(times * 200, 3000),
     })
 
     client.on('error', (error: Error) => {
-      app.log.warn({ err: error }, 'Error de conexión con Valkey')
+      app.log.warn({ err: error }, 'Valkey connection error')
     })
     client.on('ready', () => {
-      app.log.info({ url: env.VALKEY_URL }, 'Conectado a Valkey')
+      app.log.info({ url: env.VALKEY_URL }, 'Connected to Valkey')
     })
 
     const versionKey = (namespace: string): string => `${VERSION_PREFIX}${namespace}`
@@ -49,7 +49,7 @@ export const cachePlugin = fp(
           if (raw === null) return null
           return JSON.parse(raw)
         } catch (error) {
-          app.log.warn({ err: error, key }, 'No se pudo leer de la caché')
+          app.log.warn({ err: error, key }, 'Could not read from the cache')
           return null
         }
       },
@@ -59,7 +59,7 @@ export const cachePlugin = fp(
         try {
           await client.set(key, JSON.stringify(value), 'EX', ttl)
         } catch (error) {
-          app.log.warn({ err: error, key }, 'No se pudo escribir en la caché')
+          app.log.warn({ err: error, key }, 'Could not write to the cache')
         }
       },
 
@@ -71,13 +71,13 @@ export const cachePlugin = fp(
             const parsed = Number.parseInt(current, 10)
             return Number.isFinite(parsed) && parsed > 0 ? parsed : 1
           }
-          // Sólo la crea si no existe: dos instancias a la vez no se pisan.
+          // Only created when missing: two concurrent instances do not clobber each other.
           await client.set(key, '1', 'NX')
           const created = await client.get(key)
           const parsed = created === null ? 1 : Number.parseInt(created, 10)
           return Number.isFinite(parsed) && parsed > 0 ? parsed : 1
         } catch (error) {
-          app.log.warn({ err: error, namespace }, 'No se pudo leer la versión de caché')
+          app.log.warn({ err: error, namespace }, 'Could not read the cache version')
           return 1
         }
       },
@@ -85,10 +85,10 @@ export const cachePlugin = fp(
       async bumpVersion(namespace) {
         const key = versionKey(namespace)
         try {
-          // INCR crea la clave en 1 si no existía.
+          // INCR creates the key at 1 when it did not exist.
           return await client.incr(key)
         } catch (error) {
-          app.log.warn({ err: error, namespace }, 'No se pudo invalidar la caché')
+          app.log.warn({ err: error, namespace }, 'Could not invalidate the cache')
           return 1
         }
       },
@@ -98,7 +98,7 @@ export const cachePlugin = fp(
           const pong = await client.ping()
           return pong === 'PONG'
         } catch (error) {
-          app.log.warn({ err: error }, 'Valkey no responde')
+          app.log.warn({ err: error }, 'Valkey is not responding')
           return false
         }
       },
@@ -112,7 +112,7 @@ export const cachePlugin = fp(
       } catch {
         client.disconnect()
       }
-      app.log.info('Conexión con Valkey cerrada')
+      app.log.info('Valkey connection closed')
     })
   },
   { name: 'erp-cache' },

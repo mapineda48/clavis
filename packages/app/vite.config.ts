@@ -2,8 +2,8 @@ import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-// El monorepo tiene un unico `.env` en la raiz (dos niveles por encima de packages/app).
-// Vite debe leer de ahi las variables `VITE_*` en lugar de buscarlas en el paquete.
+// The monorepo keeps a single `.env` at the root (two levels above packages/app).
+// Vite has to read the `VITE_*` variables from there instead of looking inside the package.
 const monorepoRoot = fileURLToPath(new URL('../../', import.meta.url))
 
 export default defineConfig({

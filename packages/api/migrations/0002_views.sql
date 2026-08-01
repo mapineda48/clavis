@@ -1,9 +1,9 @@
 -- =============================================================================
--- 0002_views.sql — Vistas de apoyo para el panel de administración.
+-- 0002_views.sql — Support views for the administration panel.
 -- =============================================================================
 
--- Una única fila con los conteos globales por estado y por prioridad.
--- Pensada para GET /api/admin/stats: `SELECT * FROM erp.v_todo_stats`.
+-- A single row with the global counts per status and per priority.
+-- Meant for GET /api/admin/stats: `SELECT * FROM erp.v_todo_stats`.
 CREATE OR REPLACE VIEW erp.v_todo_stats AS
 SELECT
   count(*)::bigint                                                      AS total,
@@ -23,4 +23,4 @@ SELECT
 FROM erp.todos;
 
 COMMENT ON VIEW erp.v_todo_stats IS
-  'Fila única con los conteos de tareas por estado y por prioridad, más las no asignadas y las vencidas.';
+  'Single row with the task counts per status and per priority, plus the unassigned and overdue ones.';

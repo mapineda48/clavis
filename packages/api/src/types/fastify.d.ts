@@ -4,18 +4,18 @@ import type { Pool, PoolClient, QueryResult, QueryResultRow } from 'pg'
 import type { AuthContext, Permission } from '../lib/permissions.js'
 
 /**
- * Declaration merging de Fastify: aquí viven los tipos de todos los
- * decoradores que instalan los plugins de `src/plugins`.
+ * Fastify declaration merging: this is where the types of every decorator
+ * installed by the plugins in `src/plugins` live.
  */
 declare module 'fastify' {
   interface FastifyInstance {
-    /** Verifica el Bearer token y rellena `request.auth`. */
+    /** Verifies the Bearer token and fills `request.auth`. */
     authenticate: preHandlerHookHandler
 
-    /** Exige todos los permisos indicados (AND lógico); responde 403 si falta alguno. */
+    /** Demands every listed permission (logical AND); answers 403 if any is missing. */
     requirePermissions(...perms: Permission[]): preHandlerHookHandler
 
-    /** Acceso a PostgreSQL. */
+    /** Access to PostgreSQL. */
     db: {
       pool: Pool
       query<T extends QueryResultRow = any>(text: string, params?: unknown[]): Promise<QueryResult<T>>
@@ -23,19 +23,19 @@ declare module 'fastify' {
       ping(): Promise<boolean>
     }
 
-    /** Caché en Valkey (protocolo Redis). */
+    /** Cache on Valkey (Redis protocol). */
     cache: {
       client: Redis
       get<T>(key: string): Promise<T | null>
       set(key: string, value: unknown, ttlSeconds?: number): Promise<void>
-      /** Versión actual del namespace (se crea en 1 si no existe). */
+      /** Current version of the namespace (created at 1 when missing). */
       version(namespace: string): Promise<number>
-      /** INCR de la versión: invalida todas las claves derivadas. */
+      /** INCR of the version: invalidates every derived key. */
       bumpVersion(namespace: string): Promise<number>
       ping(): Promise<boolean>
     }
 
-    /** Almacenamiento de adjuntos en Azure Blob Storage / Azurite. */
+    /** Attachment storage on Azure Blob Storage / Azurite. */
     storage: {
       upload(blobName: string, data: Buffer, contentType: string): Promise<{ blobName: string; size: number }>
       download(blobName: string): Promise<{ stream: NodeJS.ReadableStream; contentType: string; size: number }>
@@ -43,7 +43,7 @@ declare module 'fastify' {
       ping(): Promise<boolean>
     }
 
-    /** Envío de correo (Resend o modo dry-run). */
+    /** Email delivery (Resend or dry-run mode). */
     mailer: {
       enabled: boolean
       provider: 'resend' | 'dry-run'
@@ -58,7 +58,7 @@ declare module 'fastify' {
   }
 
   interface FastifyRequest {
-    /** Contexto del usuario autenticado; disponible tras `fastify.authenticate`. */
+    /** Context of the authenticated user; available after `fastify.authenticate`. */
     auth: AuthContext
   }
 }

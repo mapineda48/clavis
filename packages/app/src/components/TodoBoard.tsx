@@ -5,7 +5,8 @@ import { useSeedDemo, useTodos } from '../api/todos'
 import type { CacheStatus } from '../api/client'
 import type { ScopeFilter, StatusFilter, TodoListParams } from '../api/todos'
 import { describeApiError } from '../api/client'
-import { STATUS_LABELS, TODO_STATUSES, isTodoStatus } from '../lib/types'
+import { useI18n } from '../i18n/I18nProvider'
+import { STATUS_LABEL_KEYS, TODO_STATUSES, isTodoStatus } from '../lib/types'
 import { TodoCard } from './TodoCard'
 import { TodoForm } from './TodoForm'
 import { useToast } from './Toast'
@@ -25,15 +26,14 @@ function parsePageSize(value: string): number {
   return PAGE_SIZES.some((size) => size === parsed) ? parsed : 10
 }
 
-/** Insignia que hace visible si la respuesta vino de la cache de Valkey. */
+/** Badge that makes it visible whether the response came from the Valkey cache. */
 function CacheBadge({ status }: { status: CacheStatus }) {
+  const { t } = useI18n()
+
   if (status === null) {
     return (
-      <span
-        className="cache-badge cache-badge--unknown"
-        title="La API no ha expuesto la cabecera X-Cache (revisa `exposedHeaders` en CORS)."
-      >
-        X-Cache: n/d
+      <span className="cache-badge cache-badge--unknown" title={t('todo.cacheUnknownTitle')}>
+        {t('todo.cacheLabel', { status: t('common.notAvailable') })}
       </span>
     )
   }
@@ -41,13 +41,9 @@ function CacheBadge({ status }: { status: CacheStatus }) {
   return (
     <span
       className={`cache-badge ${isHit ? 'cache-badge--hit' : 'cache-badge--miss'}`}
-      title={
-        isHit
-          ? 'La respuesta se ha servido desde Valkey sin tocar PostgreSQL.'
-          : 'La respuesta se ha calculado en PostgreSQL y se ha guardado en Valkey.'
-      }
+      title={isHit ? t('todo.cacheHitTitle') : t('todo.cacheMissTitle')}
     >
-      X-Cache: {status}
+      {t('todo.cacheLabel', { status })}
     </span>
   )
 }
@@ -55,6 +51,7 @@ function CacheBadge({ status }: { status: CacheStatus }) {
 export function TodoBoard() {
   const { has } = useAuth()
   const toast = useToast()
+  const { t } = useI18n()
 
   const canRead = has('todos:read')
   const canReadAll = has('todos:read:all')
@@ -66,7 +63,7 @@ export function TodoBoard() {
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
 
-  // Antirrebote del buscador: evita una peticion por pulsacion.
+  // Debounce for the search box: avoids one request per keystroke.
   useEffect(() => {
     const timer = window.setTimeout(() => {
       setQ(search.trim())
@@ -97,9 +94,7 @@ export function TodoBoard() {
     seedDemo.mutate(undefined, {
       onSuccess: (created) => {
         toast.success(
-          created > 0
-            ? `Se han creado ${String(created)} tareas de ejemplo.`
-            : 'Ya tenias tareas: no se ha creado ninguna nueva.',
+          created > 0 ? t('toast.seedCreated', { count: created }) : t('toast.seedSkipped'),
         )
       },
       onError: (error) => {
@@ -111,11 +106,8 @@ export function TodoBoard() {
   if (!canRead) {
     return (
       <section className="panel">
-        <h2 className="panel__title">Tablero</h2>
-        <p className="notice notice--warn">
-          Tu token no incluye el permiso <code>todos:read</code>, asi que la API rechazaria
-          cualquier consulta con un <code>403</code>.
-        </p>
+        <h2 className="panel__title">{t('nav.board')}</h2>
+        <p className="notice notice--warn">{t('todo.readForbidden')}</p>
       </section>
     )
   }
@@ -124,7 +116,7 @@ export function TodoBoard() {
     <div className="board">
       <section className="panel">
         <div className="panel__head">
-          <h2 className="panel__title">Tablero de tareas</h2>
+          <h2 className="panel__title">{t('todo.boardTitle')}</h2>
           <div className="panel__tools">
             <CacheBadge status={result?.cache ?? null} />
             <button
@@ -135,18 +127,18 @@ export function TodoBoard() {
               }}
               disabled={todosQuery.isFetching}
             >
-              {todosQuery.isFetching ? 'Actualizando…' : 'Actualizar'}
+              {todosQuery.isFetching ? t('common.refreshing') : t('common.refresh')}
             </button>
           </div>
         </div>
 
         <div className="filters">
           <label className="field">
-            <span className="field__label">Buscar</span>
+            <span className="field__label">{t('todo.filterSearch')}</span>
             <input
               type="search"
               className="input"
-              placeholder="Titulo o descripcion"
+              placeholder={t('todo.filterSearchPlaceholder')}
               value={search}
               onChange={(event) => {
                 setSearch(event.target.value)
@@ -155,7 +147,7 @@ export function TodoBoard() {
           </label>
 
           <label className="field">
-            <span className="field__label">Estado</span>
+            <span className="field__label">{t('todo.fieldStatus')}</span>
             <select
               className="input"
               value={status}
@@ -164,38 +156,34 @@ export function TodoBoard() {
                 setPage(1)
               }}
             >
-              <option value="all">Todos</option>
+              <option value="all">{t('todo.filterStatusAll')}</option>
               {TODO_STATUSES.map((value) => (
                 <option key={value} value={value}>
-                  {STATUS_LABELS[value]}
+                  {t(STATUS_LABEL_KEYS[value])}
                 </option>
               ))}
             </select>
           </label>
 
           <label className="field">
-            <span className="field__label">Alcance</span>
+            <span className="field__label">{t('todo.filterScope')}</span>
             <select
               className="input"
               value={canReadAll ? scope : 'mine'}
               disabled={!canReadAll}
-              title={
-                canReadAll
-                  ? 'Con todos:read:all puedes ver las tareas de todo el equipo.'
-                  : 'Necesitas el permiso todos:read:all para ver las tareas del equipo.'
-              }
+              title={canReadAll ? t('todo.scopeAllHint') : t('todo.scopeDeniedHint')}
               onChange={(event) => {
                 setScope(parseScope(event.target.value))
                 setPage(1)
               }}
             >
-              <option value="mine">Mis tareas</option>
-              <option value="all">Todo el equipo</option>
+              <option value="mine">{t('todo.scopeMine')}</option>
+              <option value="all">{t('todo.scopeAll')}</option>
             </select>
           </label>
 
           <label className="field field--narrow">
-            <span className="field__label">Por pagina</span>
+            <span className="field__label">{t('todo.filterPageSize')}</span>
             <select
               className="input"
               value={String(pageSize)}
@@ -213,21 +201,12 @@ export function TodoBoard() {
           </label>
         </div>
 
-        {!canReadAll && (
-          <p className="hint">
-            Solo ves las tareas donde eres propietario o asignado. El alcance «Todo el equipo»
-            requiere <code>todos:read:all</code>.
-          </p>
-        )}
+        {!canReadAll && <p className="hint">{t('todo.scopeNotice')}</p>}
       </section>
 
       <Can
         perm="todos:write"
-        fallback={
-          <p className="notice notice--info">
-            Sin el permiso <code>todos:write</code> el formulario de creacion no se muestra.
-          </p>
-        }
+        fallback={<p className="notice notice--info">{t('todo.writeForbidden')}</p>}
       >
         <TodoForm />
       </Can>
@@ -236,15 +215,12 @@ export function TodoBoard() {
         <p className="notice notice--error">{describeApiError(todosQuery.error)}</p>
       )}
 
-      {todosQuery.isPending && <p className="notice">Cargando tareas…</p>}
+      {todosQuery.isPending && <p className="notice">{t('todo.loading')}</p>}
 
       {!todosQuery.isPending && items.length === 0 && !todosQuery.isError && (
         <section className="empty">
-          <h3 className="empty__title">Aqui no hay nada todavia</h3>
-          <p className="empty__text">
-            Crea tu primera tarea o genera un juego de datos de ejemplo para probar filtros,
-            adjuntos y notificaciones.
-          </p>
+          <h3 className="empty__title">{t('todo.emptyTitle')}</h3>
+          <p className="empty__text">{t('todo.emptyText')}</p>
           <Can perm="todos:write">
             <button
               type="button"
@@ -252,7 +228,7 @@ export function TodoBoard() {
               onClick={runSeed}
               disabled={seedDemo.isPending}
             >
-              {seedDemo.isPending ? 'Creando…' : 'Crear datos de ejemplo'}
+              {seedDemo.isPending ? t('common.creating') : t('todo.seedButton')}
             </button>
           </Can>
         </section>
@@ -268,7 +244,7 @@ export function TodoBoard() {
             ))}
           </ul>
 
-          <nav className="pagination" aria-label="Paginacion">
+          <nav className="pagination" aria-label={t('nav.paginationLabel')}>
             <button
               type="button"
               className="btn btn--ghost btn--sm"
@@ -277,10 +253,14 @@ export function TodoBoard() {
                 setPage((current) => Math.max(1, current - 1))
               }}
             >
-              Anterior
+              {t('common.previous')}
             </button>
             <span className="pagination__info">
-              Pagina {page} de {totalPages} · {total} tarea{total === 1 ? '' : 's'}
+              {t(total === 1 ? 'todo.paginationInfoOne' : 'todo.paginationInfo', {
+                page,
+                pages: totalPages,
+                total,
+              })}
             </span>
             <button
               type="button"
@@ -290,7 +270,7 @@ export function TodoBoard() {
                 setPage((current) => current + 1)
               }}
             >
-              Siguiente
+              {t('common.next')}
             </button>
           </nav>
         </>

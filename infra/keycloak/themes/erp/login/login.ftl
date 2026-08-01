@@ -1,18 +1,18 @@
 <#--
-    Pantalla principal de inicio de sesion (usuario + contrasena).
+    Main sign-in screen (username + password).
 
-    Adaptada del login.ftl del tema `base` de Keycloak 26.4. Se conserva TODO lo
-    funcional del original:
-      - el formulario id="kc-form-login" con action="${url.loginAction}" y method="post",
-      - los campos name="username" / name="password" con sus id,
-      - el input oculto name="credentialId",
-      - el boton de mostrar/ocultar contrasena con data-password-toggle, aria-controls,
-        data-icon-show/hide y data-label-show/hide (lo mueve passwordVisibility.js),
-      - el import de passkeys.ftl y la llamada a <@passkeys.conditionalUIData />,
-      - los condicionales de realm.* (password, rememberMe, resetPasswordAllowed,
+    Adapted from the login.ftl of Keycloak 26.4's `base` theme. EVERYTHING
+    functional in the original is preserved:
+      - the form id="kc-form-login" with action="${url.loginAction}" and method="post",
+      - the name="username" / name="password" fields with their ids,
+      - the hidden input name="credentialId",
+      - the show/hide password button with data-password-toggle, aria-controls,
+        data-icon-show/hide and data-label-show/hide (passwordVisibility.js drives it),
+      - the passkeys.ftl import and the <@passkeys.conditionalUIData /> call,
+      - the realm.* conditionals (password, rememberMe, resetPasswordAllowed,
         registrationAllowed, loginWithEmailAllowed, registrationEmailAsUsername),
-      - el orden de tabulacion (1 = idioma, 2..7 = formulario, 8 = registro).
-    Lo unico que cambia es el marcado: usa las clases del tema.
+      - the tab order (1 = language, 2..7 = form, 8 = registration).
+    Only the markup changes: it uses the theme classes.
 -->
 <#import "template.ftl" as layout>
 <#import "passkeys.ftl" as passkeys>
@@ -53,8 +53,9 @@
                                        type="password" autocomplete="current-password"
                                        aria-invalid="<#if messagesPerField.existsError('username','password')>true</#if>"
                                 />
-                                <#-- passwordVisibility.js reemplaza la clase COMPLETA del primer hijo
-                                     de este boton, por eso cada data-icon-* es autosuficiente. -->
+                                <#-- passwordVisibility.js replaces the ENTIRE class of this
+                                     button's first child, hence every data-icon-* is
+                                     self-contained. -->
                                 <button class="${properties.kcFormPasswordVisibilityButtonClass!}" type="button"
                                         aria-label="${msg('showPassword')}" aria-controls="password"
                                         data-password-toggle tabindex="4"

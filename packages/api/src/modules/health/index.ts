@@ -1,24 +1,24 @@
-// Rutas publicas de salud. No requieren autenticacion y se excluyen del
-// esquema de seguridad de OpenAPI (`security: []`).
+// Public health routes. They need no authentication and are excluded from the
+// OpenAPI security scheme (`security: []`).
 import type { FastifyPluginAsync } from 'fastify'
-// Carga la ampliacion de tipos de @fastify/swagger (tags, summary, security en `schema`).
+// Pulls in the @fastify/swagger type augmentation (tags, summary, security inside `schema`).
 import type {} from '@fastify/swagger'
 
-/** Nombre del servicio publicado en /health. */
+/** Service name published by /health. */
 const SERVICE_NAME = 'erp-api'
 
-/** Esquema de la respuesta de /health. */
+/** Response schema of /health. */
 const HealthResponse = {
   type: 'object',
   properties: {
-    status: { type: 'string', description: 'Siempre "ok" si el proceso responde' },
+    status: { type: 'string', description: 'Always "ok" while the process answers' },
     service: { type: 'string' },
-    uptimeSeconds: { type: 'number', description: 'Segundos desde el arranque del proceso' },
+    uptimeSeconds: { type: 'number', description: 'Seconds since the process started' },
   },
   required: ['status', 'service', 'uptimeSeconds'],
 }
 
-/** Esquema de la respuesta de /health/ready (identico para 200 y 503). */
+/** Response schema of /health/ready (identical for 200 and 503). */
 const ReadyResponse = {
   type: 'object',
   properties: {
@@ -26,10 +26,10 @@ const ReadyResponse = {
     checks: {
       type: 'object',
       properties: {
-        database: { type: 'string', description: '"ok" o "error"' },
-        cache: { type: 'string', description: '"ok" o "error"' },
-        storage: { type: 'string', description: '"ok" o "error"' },
-        mailer: { type: 'string', description: '"resend", "dry-run" o "disabled"' },
+        database: { type: 'string', description: '"ok" or "error"' },
+        cache: { type: 'string', description: '"ok" or "error"' },
+        storage: { type: 'string', description: '"ok" or "error"' },
+        mailer: { type: 'string', description: '"resend", "dry-run" or "disabled"' },
       },
       required: ['database', 'cache', 'storage', 'mailer'],
     },
@@ -37,7 +37,7 @@ const ReadyResponse = {
   required: ['status', 'checks'],
 }
 
-/** Ejecuta un ping tolerante a fallos: cualquier error se traduce a false. */
+/** Runs a fault-tolerant ping: any error is turned into false. */
 async function safePing(ping: () => Promise<boolean>): Promise<boolean> {
   try {
     return await ping()
@@ -52,9 +52,9 @@ export const healthRoutes: FastifyPluginAsync = async (app) => {
     {
       config: {},
       schema: {
-        tags: ['salud'],
-        summary: 'Comprobacion de vida',
-        description: 'Responde siempre 200 mientras el proceso este vivo. Ruta publica.',
+        tags: ['health'],
+        summary: 'Liveness check',
+        description: 'Always answers 200 while the process is alive. Public route.',
         security: [],
         response: { 200: HealthResponse },
       },
@@ -71,11 +71,11 @@ export const healthRoutes: FastifyPluginAsync = async (app) => {
     {
       config: {},
       schema: {
-        tags: ['salud'],
-        summary: 'Comprobacion de disponibilidad',
+        tags: ['health'],
+        summary: 'Readiness check',
         description:
-          'Verifica base de datos, cache y almacenamiento, e informa del estado del correo. ' +
-          'Responde 503 si falla alguna dependencia critica; el correo no es critico. Ruta publica.',
+          'Checks database, cache and storage, and reports the state of the mailer. ' +
+          'Answers 503 if any critical dependency fails; the mailer is not critical. Public route.',
         security: [],
         response: { 200: ReadyResponse, 503: ReadyResponse },
       },

@@ -1,9 +1,9 @@
-// Adjuntos de tareas: subida multipart a Azurite, listado, descarga y borrado.
+// Task attachments: multipart upload to Azurite, listing, download and deletion.
 import { randomUUID } from 'node:crypto'
 import type { FastifyInstance, FastifyPluginAsync } from 'fastify'
-// Carga la ampliacion de tipos de @fastify/swagger (tags, summary, security en `schema`).
+// Pulls in the @fastify/swagger type augmentation (tags, summary, security inside `schema`).
 import type {} from '@fastify/swagger'
-// Carga la ampliacion de tipos de @fastify/multipart (request.file()).
+// Pulls in the @fastify/multipart type augmentation (request.file()).
 import type {} from '@fastify/multipart'
 import { badRequest, notFound } from '../../lib/errors.js'
 import { assertCanTouchTodo } from '../shared/scope.js'
@@ -11,20 +11,20 @@ import { recordAudit } from '../shared/audit.js'
 import { ErrorResponse, IdParams } from '../todos/schemas.js'
 import * as todosRepository from '../todos/repository.js'
 
-/** Namespace de version de cache de las listas de todos (el conteo de adjuntos viaja en ellas). */
+/** Cache version namespace of the todo listings (the attachment count travels in them). */
 const CACHE_NAMESPACE = 'todos'
 
-/** Limite por defecto si `MAX_UPLOAD_BYTES` no es utilizable: 10 MiB. */
+/** Fallback limit when `MAX_UPLOAD_BYTES` is not usable: 10 MiB. */
 const DEFAULT_MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 
-/** Tipo MIME por defecto cuando el cliente no lo indica. */
+/** MIME type used when the client does not send one. */
 const DEFAULT_CONTENT_TYPE = 'application/octet-stream'
 
 interface IdParamsInput {
   id: string
 }
 
-/** DTO publico de un adjunto (el nombre del blob es interno). */
+/** Public DTO of an attachment (the blob name stays internal). */
 interface AttachmentDto {
   id: string
   todoId: string
@@ -53,7 +53,7 @@ type AttachmentWithTodoRow = AttachmentRow & {
 
 const AttachmentSchema = {
   type: 'object',
-  description: 'Fichero adjunto a una tarea',
+  description: 'File attached to a task',
   properties: {
     id: { type: 'string' },
     todoId: { type: 'string' },
@@ -61,7 +61,7 @@ const AttachmentSchema = {
     contentType: { type: 'string' },
     sizeBytes: { type: 'integer' },
     uploadedBy: { type: 'string' },
-    createdAt: { type: 'string', description: 'Instante ISO 8601' },
+    createdAt: { type: 'string', description: 'ISO 8601 instant' },
   },
   required: ['id', 'todoId', 'fileName', 'contentType', 'sizeBytes', 'uploadedBy', 'createdAt'],
 }
@@ -84,15 +84,15 @@ const DeleteAttachmentResponse = {
   required: ['id', 'deleted'],
 }
 
-/** Lee el tamano maximo de subida del entorno con un valor por defecto seguro. */
+/** Reads the maximum upload size from the environment with a safe default. */
 function resolveMaxUploadBytes(): number {
   const parsed = Number.parseInt(process.env.MAX_UPLOAD_BYTES ?? '', 10)
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_MAX_UPLOAD_BYTES
 }
 
 /**
- * Sanea el nombre de fichero recibido: elimina cualquier ruta y deja solo
- * caracteres seguros para usarlo dentro del nombre del blob.
+ * Sanitizes the incoming file name: strips any path and keeps only characters
+ * that are safe to embed in the blob name.
  */
 export function sanitizeFileName(rawName: string | undefined | null): string {
   const withoutPath = (rawName ?? '').split(/[\\/]/).pop() ?? ''
@@ -102,15 +102,15 @@ export function sanitizeFileName(rawName: string | undefined | null): string {
     .replace(/_{2,}/g, '_')
     .replace(/^[._-]+/, '')
     .slice(0, 120)
-  return normalized.length > 0 ? normalized : 'archivo'
+  return normalized.length > 0 ? normalized : 'file'
 }
 
-/** Convierte un timestamptz de pg a ISO 8601. */
+/** Converts a pg timestamptz to ISO 8601. */
 function toIso(value: Date | string): string {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString()
 }
 
-/** Mapea una fila de `erp.todo_attachments` al DTO publico. */
+/** Maps a row of `erp.todo_attachments` to the public DTO. */
 function mapAttachment(row: AttachmentRow): AttachmentDto {
   return {
     id: row.id,
@@ -123,16 +123,16 @@ function mapAttachment(row: AttachmentRow): AttachmentDto {
   }
 }
 
-/** Invalida las listas cacheadas de todos (cambia `attachmentsCount`). */
+/** Invalidates the cached todo listings (`attachmentsCount` changes). */
 async function invalidateListCache(app: FastifyInstance): Promise<void> {
   try {
     await app.cache.bumpVersion(CACHE_NAMESPACE)
   } catch (err) {
-    app.log.warn({ err }, 'No se pudo invalidar la cache de todos')
+    app.log.warn({ err }, 'Could not invalidate the todos cache')
   }
 }
 
-/** Recupera el adjunto junto con la propiedad de su tarea, para decidir el acceso. */
+/** Fetches the attachment together with the ownership of its task, to decide access. */
 async function findAttachmentWithTodo(
   app: FastifyInstance,
   id: string,
@@ -156,7 +156,7 @@ async function findAttachmentWithTodo(
   return result.rows[0] ?? null
 }
 
-/** Cabecera Content-Disposition con nombre ASCII de reserva y nombre UTF-8. */
+/** Content-Disposition header with an ASCII fallback name and the UTF-8 name. */
 function buildContentDisposition(fileName: string): string {
   const asciiName = fileName.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '_')
   return `attachment; filename="${asciiName}"; filename*=UTF-8''${encodeURIComponent(fileName)}`
@@ -170,11 +170,11 @@ export const attachmentsRoutes: FastifyPluginAsync = async (app) => {
     {
       preHandler: [app.authenticate, app.requirePermissions('todos:write')],
       schema: {
-        tags: ['adjuntos'],
-        summary: 'Sube un adjunto a una tarea',
+        tags: ['attachments'],
+        summary: 'Upload an attachment to a task',
         description:
-          'Peticion multipart/form-data con el fichero en el campo "file". El blob se guarda ' +
-          `en Azure Blob Storage y el limite de tamano es de ${maxUploadBytes} bytes.`,
+          'multipart/form-data request carrying the file in the "file" field. The blob is stored ' +
+          `in Azure Blob Storage and the size limit is ${maxUploadBytes} bytes.`,
         security: [{ bearerAuth: [] }],
         consumes: ['multipart/form-data'],
         params: IdParams,
@@ -197,10 +197,10 @@ export const attachmentsRoutes: FastifyPluginAsync = async (app) => {
 
       const part = await request.file({ limits: { fileSize: maxUploadBytes, files: 1 } })
       if (!part) {
-        throw badRequest('Debes enviar un fichero en el campo "file"')
+        throw badRequest('You must send a file in the "file" field')
       }
       if (part.fieldname !== 'file') {
-        throw badRequest(`El campo del fichero debe llamarse "file" (recibido "${part.fieldname}")`)
+        throw badRequest(`The file field must be named "file" (received "${part.fieldname}")`)
       }
 
       let buffer: Buffer
@@ -209,20 +209,20 @@ export const attachmentsRoutes: FastifyPluginAsync = async (app) => {
       } catch (err) {
         const code = typeof err === 'object' && err !== null ? (err as { code?: string }).code : undefined
         if (code === 'FST_REQ_FILE_TOO_LARGE' || code === 'FST_FILES_LIMIT') {
-          throw badRequest(`El fichero supera el limite de ${maxUploadBytes} bytes`)
+          throw badRequest(`The file exceeds the limit of ${maxUploadBytes} bytes`)
         }
         throw err
       }
       if (part.file.truncated || buffer.byteLength > maxUploadBytes) {
-        throw badRequest(`El fichero supera el limite de ${maxUploadBytes} bytes`)
+        throw badRequest(`The file exceeds the limit of ${maxUploadBytes} bytes`)
       }
       if (buffer.byteLength === 0) {
-        throw badRequest('El fichero esta vacio')
+        throw badRequest('The file is empty')
       }
 
       const fileName = sanitizeFileName(part.filename)
       const contentType = part.mimetype || DEFAULT_CONTENT_TYPE
-      // Nombre determinista y unico: agrupa por tarea y evita colisiones.
+      // Deterministic and unique name: groups by task and avoids collisions.
       const blobName = `todos/${todo.id}/${randomUUID()}-${fileName}`
 
       const uploaded = await app.storage.upload(blobName, buffer, contentType)
@@ -237,11 +237,11 @@ export const attachmentsRoutes: FastifyPluginAsync = async (app) => {
         )
         attachment = mapAttachment(inserted.rows[0] as AttachmentRow)
       } catch (err) {
-        // Si no se pudo guardar el metadato, el blob quedaria huerfano.
+        // If the metadata could not be stored, the blob would be left orphaned.
         try {
           await app.storage.remove(uploaded.blobName)
         } catch (removeErr) {
-          app.log.warn({ err: removeErr, blobName }, 'No se pudo limpiar el blob huerfano')
+          app.log.warn({ err: removeErr, blobName }, 'Could not clean up the orphaned blob')
         }
         throw err
       }
@@ -274,9 +274,9 @@ export const attachmentsRoutes: FastifyPluginAsync = async (app) => {
     {
       preHandler: [app.authenticate, app.requirePermissions('todos:read')],
       schema: {
-        tags: ['adjuntos'],
-        summary: 'Lista los adjuntos de una tarea',
-        description: 'Devuelve los metadatos de los ficheros asociados a la tarea indicada.',
+        tags: ['attachments'],
+        summary: 'List the attachments of a task',
+        description: 'Returns the metadata of the files linked to the given task.',
         security: [{ bearerAuth: [] }],
         params: IdParams,
         response: {
@@ -313,11 +313,11 @@ export const attachmentsRoutes: FastifyPluginAsync = async (app) => {
     {
       preHandler: [app.authenticate, app.requirePermissions('todos:read')],
       schema: {
-        tags: ['adjuntos'],
-        summary: 'Descarga un adjunto',
+        tags: ['attachments'],
+        summary: 'Download an attachment',
         description:
-          'Devuelve el contenido binario del fichero con su tipo MIME original. ' +
-          'Solo es accesible si la tarea asociada es visible para el usuario.',
+          'Returns the binary content of the file with its original MIME type. ' +
+          'It is only reachable when the task it belongs to is visible to the user.',
         security: [{ bearerAuth: [] }],
         params: IdParams,
         produces: ['application/octet-stream'],
@@ -327,7 +327,7 @@ export const attachmentsRoutes: FastifyPluginAsync = async (app) => {
       const auth = request.auth
       const row = await findAttachmentWithTodo(app, request.params.id)
       if (!row) {
-        throw notFound('El adjunto indicado no existe')
+        throw notFound('The requested attachment does not exist')
       }
       assertCanTouchTodo(auth, { ownerId: row.owner_id, assigneeId: row.assignee_id }, 'read')
 
@@ -346,9 +346,9 @@ export const attachmentsRoutes: FastifyPluginAsync = async (app) => {
     {
       preHandler: [app.authenticate, app.requirePermissions('todos:delete')],
       schema: {
-        tags: ['adjuntos'],
-        summary: 'Elimina un adjunto',
-        description: 'Borra el blob del almacenamiento y su fila de metadatos.',
+        tags: ['attachments'],
+        summary: 'Delete an attachment',
+        description: 'Removes the blob from storage and its metadata row.',
         security: [{ bearerAuth: [] }],
         params: IdParams,
         response: {
@@ -363,16 +363,16 @@ export const attachmentsRoutes: FastifyPluginAsync = async (app) => {
       const auth = request.auth
       const row = await findAttachmentWithTodo(app, request.params.id)
       if (!row) {
-        throw notFound('El adjunto indicado no existe')
+        throw notFound('The requested attachment does not exist')
       }
       assertCanTouchTodo(auth, { ownerId: row.owner_id, assigneeId: row.assignee_id }, 'delete')
 
       try {
         await app.storage.remove(row.blob_name)
       } catch (err) {
-        // El metadato se borra igualmente: es preferible dejar basura en el
-        // almacenamiento a dejar una fila que apunta a un blob inaccesible.
-        app.log.warn({ err, blobName: row.blob_name }, 'No se pudo borrar el blob del adjunto')
+        // The metadata is deleted anyway: leaving garbage in storage is better
+        // than keeping a row that points at an unreachable blob.
+        app.log.warn({ err, blobName: row.blob_name }, 'Could not delete the attachment blob')
       }
 
       const removed = await app.db.query('DELETE FROM erp.todo_attachments WHERE id = $1', [row.id])
