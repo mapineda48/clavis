@@ -71,6 +71,23 @@ services:
       # `erp` es el tema propio de ./infra/keycloak/themes/erp; `keycloak` vuelve
       # al tema que trae el servidor.
       KEYCLOAK_LOGIN_THEME: ${KEYCLOAK_LOGIN_THEME:-erp}
+      # --- tema de los correos que envia Keycloak (recuperar contrasena, etc.)
+      KEYCLOAK_EMAIL_THEME: ${KEYCLOAK_EMAIL_THEME:-erp}
+      # --- SMTP del realm: lo usa KEYCLOAK, no la API.
+      # La API envia por la API HTTP de Resend; Keycloak solo sabe hablar SMTP,
+      # asi que se apunta al relay SMTP de Resend con la MISMA clave.
+      # Todos los valores llevan defecto: el render falla si un marcador queda
+      # vacio, y eso impediria arrancar el stack a quien no use correo.
+      KEYCLOAK_SMTP_HOST: ${KEYCLOAK_SMTP_HOST:-smtp.resend.com}
+      KEYCLOAK_SMTP_PORT: ${KEYCLOAK_SMTP_PORT:-587}
+      KEYCLOAK_SMTP_FROM: ${KEYCLOAK_SMTP_FROM:-onboarding@resend.dev}
+      KEYCLOAK_SMTP_FROM_DISPLAY_NAME: ${KEYCLOAK_SMTP_FROM_DISPLAY_NAME:-ERP Demo}
+      KEYCLOAK_SMTP_SSL: ${KEYCLOAK_SMTP_SSL:-false}
+      KEYCLOAK_SMTP_STARTTLS: ${KEYCLOAK_SMTP_STARTTLS:-true}
+      KEYCLOAK_SMTP_AUTH: ${KEYCLOAK_SMTP_AUTH:-true}
+      KEYCLOAK_SMTP_USER: ${KEYCLOAK_SMTP_USER:-resend}
+      # Se reutiliza RESEND_API_KEY para no tener dos secretos que mantener.
+      KEYCLOAK_SMTP_PASSWORD: ${RESEND_API_KEY:-sin-configurar}
       # --- URLs del SPA (redirect URIs y web origins)
       APP_DEV_URL: ${APP_DEV_URL:-http://localhost:5173}
       APP_PROD_URL: ${APP_PROD_URL:-http://localhost:8081}

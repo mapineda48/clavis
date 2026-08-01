@@ -550,9 +550,105 @@ Notas:
 
 ---
 
+<a id="recuperar-contrasena"></a>
+
+## 9. Recuperar contraseña y correo de Keycloak
+
+### Dos caminos de correo distintos
+
+| Quién envía | Cómo | Qué manda |
+|---|---|---|
+| La API (`@erp/api`) | API **HTTP** de Resend | Notificaciones de tareas |
+| **Keycloak** | **SMTP** | Recuperar contraseña, verificar correo |
+
+Keycloak no habla con la API HTTP de Resend, solo con SMTP. Por eso el realm apunta a
+`smtp.resend.com:587` (STARTTLS) y `docker-compose.yml` reutiliza `RESEND_API_KEY` como
+contraseña SMTP: un único secreto para los dos caminos.
+
+### Qué controla cada variable
+
+| Variable | Efecto |
+|---|---|
+| `KEYCLOAK_SMTP_HOST` / `_PORT` | Servidor SMTP (`smtp.resend.com` / `587`) |
+| `KEYCLOAK_SMTP_USER` | Siempre `resend` en el relay de Resend |
+| `KEYCLOAK_SMTP_FROM` | Remitente; **debe** ser de un dominio verificado |
+| `KEYCLOAK_EMAIL_THEME` | Tema de los correos (`erp` = el propio) |
+| `DEMO_ADMIN_EMAIL` | Debe ser una dirección real para poder probarlo |
+
+La contraseña SMTP no está en `.env`: sale de `RESEND_API_KEY`.
+
+### Comprobar que el SMTP responde
+
+```bash
+python3 - <<'PY'
+import smtplib, re, pathlib, ssl
+key = re.search(r'^RESEND_API_KEY=(.*)$', pathlib.Path('.env').read_text(), re.M).group(1).strip()
+s = smtplib.SMTP('smtp.resend.com', 587, timeout=20)
+s.starttls(context=ssl.create_default_context()); s.login('resend', key)
+print('AUTH OK'); s.quit()
+PY
+```
+
+### Aplicarlo a un realm que YA existe
+
+`smtpServer`, `resetPasswordAllowed` y `emailTheme` solo se leen **al importar** el realm. Para
+un realm en marcha, sin perder datos:
+
+```bash
+set -a; source .env; set +a
+
+docker compose exec keycloak /opt/keycloak/bin/kcadm.sh config credentials \
+  --server http://localhost:8080 --realm master \
+  --user "$KC_BOOTSTRAP_ADMIN_USERNAME" --password "$KC_BOOTSTRAP_ADMIN_PASSWORD"
+
+# Recuperación + tema de correo + caducidad del enlace (30 min)
+docker compose exec keycloak /opt/keycloak/bin/kcadm.sh update realms/erp \
+  -s resetPasswordAllowed=true \
+  -s emailTheme=erp \
+  -s actionTokenGeneratedByUserLifespan=1800
+
+# SMTP (ojo: es un objeto JSON, no campos sueltos)
+docker compose exec keycloak /opt/keycloak/bin/kcadm.sh update realms/erp \
+  -s "smtpServer={\"host\":\"$KEYCLOAK_SMTP_HOST\",\"port\":\"$KEYCLOAK_SMTP_PORT\",\"from\":\"$KEYCLOAK_SMTP_FROM\",\"fromDisplayName\":\"$KEYCLOAK_SMTP_FROM_DISPLAY_NAME\",\"ssl\":\"false\",\"starttls\":\"true\",\"auth\":\"true\",\"user\":\"$KEYCLOAK_SMTP_USER\",\"password\":\"$RESEND_API_KEY\"}"
+```
+
+Cambiar el correo de un usuario:
+
+```bash
+UID=$(docker compose exec -T keycloak /opt/keycloak/bin/kcadm.sh get users -r erp \
+        -q username=admin --fields id | grep -o '"id" : "[^"]*"' | cut -d'"' -f4)
+docker compose exec keycloak /opt/keycloak/bin/kcadm.sh update "users/$UID" -r erp \
+  -s 'email=tu.correo@ejemplo.com' -s 'emailVerified=true'
+```
+
+`actionTokenGeneratedByUserLifespan` es un campo **de primer nivel** del realm, no un
+`attributes.*`: con `-s attributes.actionToken…` no se aplica y no avisa.
+
+### Dónde viven las pantallas y el correo
+
+```
+infra/keycloak/themes/erp/login/login-reset-password.ftl   ← pedir el enlace
+infra/keycloak/themes/erp/login/login-update-password.ftl  ← fijar la contraseña
+infra/keycloak/themes/erp/email/html/password-reset.ftl    ← cuerpo del correo
+infra/keycloak/themes/erp/email/html/template.ftl          ← maqueta común
+infra/keycloak/themes/erp/email/messages/                  ← asunto y textos
+```
+
+El correo se maqueta con tablas y CSS en línea a propósito: los clientes de correo descartan
+`<style>` y las hojas externas.
+
+### Ver el correo enviado sin abrir el buzón
+
+```bash
+resend emails list --limit 3
+resend emails get <id>            # incluye el HTML y el enlace de acción
+```
+
+---
+
 <a id="resolucion-de-problemas"></a>
 
-## 9. Resolución de problemas
+## 10. Resolución de problemas
 
 ### Keycloak tarda mucho en arrancar o aparece `unhealthy`
 

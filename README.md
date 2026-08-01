@@ -383,6 +383,55 @@ mirar los logs.
 
 ---
 
+## Recuperar contraseña ("he olvidado mi contraseña")
+
+Hay un detalle que conviene tener claro antes de tocar nada: **son dos caminos de correo
+distintos**, no uno.
+
+| Quién envía | Cómo | Qué manda |
+|---|---|---|
+| La API (`@erp/api`) | API **HTTP** de Resend (SDK `resend`) | Notificaciones de tareas |
+| **Keycloak** | **SMTP** | Recuperar contraseña, verificar correo, avisos de cuenta |
+
+Keycloak no sabe hablar con la API HTTP de Resend: solo envía por SMTP. Por eso el realm
+configura el relay SMTP de Resend (`smtp.resend.com:587`, STARTTLS) y `docker-compose.yml`
+reutiliza **la misma** `RESEND_API_KEY` como contraseña SMTP, para que solo tengas un secreto
+que mantener:
+
+```yaml
+KEYCLOAK_SMTP_USER: ${KEYCLOAK_SMTP_USER:-resend}
+KEYCLOAK_SMTP_PASSWORD: ${RESEND_API_KEY:-sin-configurar}
+```
+
+### Requisitos para que funcione
+
+1. `RESEND_API_KEY` con valor en `.env`.
+2. `KEYCLOAK_SMTP_FROM` con una dirección de un **dominio verificado** en Resend
+   (`resend domains` te lo dice). Con el dominio de pruebas `onboarding@resend.dev` solo puedes
+   escribir a la dirección con la que te registraste.
+3. El usuario debe tener un **correo real**. Los `*@erp.local` de `.env.example` no reciben nada:
+   cambia `DEMO_ADMIN_EMAIL` en tu `.env` por una dirección tuya antes de probarlo.
+
+### El recorrido
+
+1. En el login, enlace **"¿Has olvidado la contraseña?"** (aparece porque el realm tiene
+   `resetPasswordAllowed: true`).
+2. Formulario que pide usuario o correo → Keycloak envía el mensaje.
+3. El correo llega con el diseño del tema `erp` y un botón de acción.
+4. El enlace abre la pantalla de **nueva contraseña** (con confirmación y la opción de cerrar el
+   resto de sesiones).
+5. Al guardar, la sesión continúa hacia la aplicación.
+
+Las tres pantallas y el correo usan el tema propio: viven en
+`infra/keycloak/themes/erp/login/login-reset-password.ftl`,
+`.../login-update-password.ftl` y `infra/keycloak/themes/erp/email/`.
+
+> El realm solo lee `smtpServer`, `resetPasswordAllowed` y `emailTheme` **al importarse**. Si tu
+> realm ya existe, aplícalos en caliente con `kcadm.sh` (ver `docs/operacion.md`) o recrea el
+> stack con `docker compose down -v`.
+
+---
+
 ## Guion de demostración
 
 Sesión de 10 minutos que enseña el modelo de permisos de punta a punta. Usa una ventana privada
