@@ -72,7 +72,7 @@ feature here rather than a problem: with the stack down most of the time, the
 
 ## 3. What a successful deploy means
 
-`scripts/smoke-production.sh` asserts four things, and each one exists because a
+`scripts/smoke-production.sh` asserts five things, and each one exists because a
 cheaper check passes while the thing is broken:
 
 1. **The served certificate is not Traefik's self-signed default.** Traefik does
@@ -81,13 +81,35 @@ cheaper check passes while the thing is broken:
    is broken for every real browser.
 2. **`/api/health/ready` answers with JSON.** The SPA replies to any unknown
    path with `index.html` and HTTP 200, so a misrouted probe passes forever.
-3. **The discovery document reports the public issuer.** The cheapest single
+3. **The runtime configuration handed to the browser is what the browser needs.**
+   Everything else builds its own URLs, so it all stays green while the SPA is
+   pointed somewhere useless.
+4. **The discovery document reports the public issuer.** The cheapest single
    catch for the whole `KC_HOSTNAME` / proxy-headers / `sslRequired` family.
-4. **A real token is granted and spends on a protected route**, and is refused
+5. **A real token is granted and spends on a protected route**, and is refused
    without one.
 
-Even four is not everything. The silent-SSO regression described below passed
-all four, because none of them opens the application in a browser.
+And `wait-for-deploy.sh` polls for the *commit* the host is serving, published
+into `/config.js` at container start — not merely for a 200. The previous
+release answers health checks perfectly well, so waiting on health alone hands
+the smoke suite the old stack and every result afterwards describes the wrong
+thing.
+
+Even five is not everything, and that is not a hedge. Two defects passed the
+whole suite and were only found by driving a real browser:
+
+- a frame-options header at the edge broke Keycloak's third-party-cookie iframe,
+  so `keycloak-js` never finished initialising and **logging in was impossible**.
+  The assertions above use the direct grant and never touch the browser's
+  framing rules.
+- the SPA was handed an `apiUrl` ending in `/api`, and its client prepends `/api`
+  itself, so every request after login went to `/api/api/...` and 404'd. The
+  assertions build their own URLs and never read what the browser is told to
+  call. Assertion 3 exists because of this one.
+
+Anything that only a browser can see needs a browser. `chrome-devtools-mcp`
+drives one; the flow worth walking is landing page → login → task list → create
+→ confirm the API refuses what the UI hides.
 
 ---
 
@@ -204,11 +226,18 @@ comes up. The cost, stated plainly: realm state created at runtime is discarded
 on every deploy. The demo users carry **fixed ids** so that re-importing does
 not mint new subjects and orphan the `erp.users` rows keyed by them.
 
-**`frameDeny: true` breaks the silent SSO check.** It sends
-`X-Frame-Options: DENY` on every response, including `/silent-check-sso.html`,
-which keycloak-js loads in a hidden iframe. The browser refuses to render it,
-the `postMessage` never arrives, and the SPA sits on "checking session" forever
-with nothing logged anywhere. `SAMEORIGIN` still refuses third-party framing.
+**Do not set frame-options at the edge at all.** It applies to both hostnames,
+and Keycloak serves endpoints that MUST be framable from the application's
+origin — `/protocol/openid-connect/3p-cookies/step1.html` above all, which
+keycloak-js loads on startup. Any value, `DENY` or even `SAMEORIGIN`, makes the
+browser refuse the frame; keycloak-js then fails with "Timeout when waiting for
+3rd party check iframe message" and login becomes impossible while every
+container stays healthy. nginx and Keycloak each declare their own policy
+correctly; the edge only gets in the way.
+
+**The SPA's `apiUrl` is the bare origin.** Its client prepends `/api` to every
+path itself, so an origin with `/api` on the end yields `/api/api/todos`.
+Development gets this right by accident, since `VITE_API_URL` has no path.
 
 **`/user/tokens/verify` does not evaluate a Cloudflare token's IP condition.** It
 returns success from a source the token would reject for any real operation, so
