@@ -134,6 +134,41 @@ Every one of these cost a real failure. Do not rediscover them.
   repo (`README.md`, the other docs, this file, source comments). Heading anchors
   change too when the headings change language, so the deep links break with them.
 
+### Deployment (`infra/terraform`, `infra/deploy`)
+
+Full detail in `docs/deployment.md`. The ones that bite hardest:
+
+- cloud-init runs `runcmd` with **dash**. `set -euxo pipefail` aborts on the
+  `set` line itself and nothing below it runs; the only symptom is
+  `cloud-init status: error` on a host where nothing was installed.
+- **blobfuse2 serves stale file content.** A blob overwritten in place keeps
+  reading as its previous version while the directory listing refreshes
+  normally. Anything whose freshness matters is fetched over HTTPS with the SAS,
+  not through the mount.
+- `libfuse.mount-options` is **not a real key** and is ignored silently; the
+  real ones are the scalars `libfuse.uid` / `libfuse.gid`. Declaring
+  `components:` replaces the default pipeline, so `file_cache` and `attr_cache`
+  have to be listed explicitly.
+- Traefik refuses any ACME store with group or other permission bits, and
+  `chmod` on a flat-namespace container returns success without doing anything.
+  The store lives on local ext4 at 0600 and is copied to and from the mount.
+  **One store per resolver**: Traefik serves by SNI from a single merged store,
+  so a staging certificate stops the production resolver ever ordering.
+- Never `rm -rf` the stack directory: bind mounts resolve to an inode at
+  container start, and Traefik would keep reading a deleted path while serving
+  its old configuration.
+- An EXIT trap whose last command fails **replaces** the script's exit status.
+- `cap_drop: ALL` removes `CAP_DAC_OVERRIDE` (root can no longer read files it
+  does not own) and `CAP_CHOWN`. Keycloak cannot run `read_only`; everything
+  else can.
+- `kc.sh import` needs `--optimized`, and `start --import-realm` is hard-wired
+  to IGNORE_EXISTING — which is why a one-shot `import --override` runs on every
+  deploy and the demo users carry **fixed ids**.
+- `frameDeny: true` sends `X-Frame-Options: DENY` on `/silent-check-sso.html`
+  and hangs the SPA on "checking session" with nothing logged. Use SAMEORIGIN.
+- Cloudflare's `/user/tokens/verify` does **not** evaluate the token's IP
+  condition, so it proves nothing as a preflight.
+
 ### Mail
 
 These are **two different paths**: the API sends through Resend's **HTTP API**, and
