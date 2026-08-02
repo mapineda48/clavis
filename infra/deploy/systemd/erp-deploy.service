@@ -1,0 +1,10 @@
+[Unit]
+Description=Reconcile the running stack with the published desired state
+Requires=erp-blobfuse2.service docker.service
+After=erp-blobfuse2.service docker.service erp-acme-restore.service
+
+[Service]
+Type=oneshot
+UMask=0077
+ExecStart=/opt/erp/bin/reconcile.sh
+TimeoutStartSec=600

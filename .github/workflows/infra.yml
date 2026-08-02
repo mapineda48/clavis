@@ -1,0 +1,139 @@
+# Terraform: creates, inspects or tears down the droplet and its DNS records.
+#
+# Manual only. The stack is brought up on demand — typically for an interview —
+# and destroyed afterwards, so there is nothing to trigger automatically.
+#
+# Authentication to Azure is federated: no client secret is stored anywhere. The
+# repository was created after GitHub's 2026-07-15 cutover to immutable subject
+# claims, so the app registration carries BOTH subject formats and whichever one
+# GitHub actually sends is the one that matches.
+
+name: Infra
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: What Terraform should do
+        required: true
+        default: plan
+        type: choice
+        options: [plan, apply, destroy]
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: infra-production
+  cancel-in-progress: false
+
+jobs:
+  terraform:
+    name: terraform ${{ inputs.action }}
+    runs-on: ubuntu-24.04
+    environment: production
+    defaults:
+      run:
+        working-directory: infra/terraform
+
+    env:
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "0"
+      # ARM_USE_AZUREAD is not optional. Without it the azurerm backend tries to
+      # fetch a storage account shared key, which a federated identity cannot
+      # do, and init fails with an authorization error that reads like a missing
+      # role assignment — sending you off to grant Contributor on the storage
+      # account, which does not help.
+      ARM_USE_OIDC: "true"
+      ARM_USE_AZUREAD: "true"
+      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      DIGITALOCEAN_TOKEN: ${{ secrets.DIGITALOCEAN_TOKEN }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      TF_VAR_ssh_public_key: ${{ vars.SSH_PUBLIC_KEY }}
+      TF_VAR_region: ${{ vars.DROPLET_REGION }}
+      TF_VAR_droplet_size: ${{ vars.DROPLET_SIZE }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.15.7
+          terraform_wrapper: false
+
+      # Optional access lists arrive as comma-separated strings and become HCL
+      # lists. Both default to closed when the variable is unset.
+      - name: Build the access lists
+        run: |
+          to_hcl() {
+            [ -z "$1" ] && { echo '[]'; return; }
+            echo "$1" | jq -Rc 'split(",") | map(gsub("^\\s+|\\s+$";"")) | map(select(length > 0))'
+          }
+          {
+            echo "TF_VAR_ssh_allowed_cidrs=$(to_hcl '${{ vars.SSH_ALLOWED_CIDRS }}')"
+            admin=$(to_hcl '${{ vars.ADMIN_ALLOWED_CIDRS }}')
+            [ "$admin" = "[]" ] && admin='["127.0.0.1/32"]'
+            echo "TF_VAR_admin_allowed_cidrs=$admin"
+          } >> "$GITHUB_ENV"
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Format check
+        run: terraform fmt -check -recursive
+
+      - name: Init
+        run: terraform init -lockfile=readonly
+
+      - name: Validate
+        run: terraform validate
+
+      - name: Plan
+        if: inputs.action != 'destroy'
+        run: terraform plan -out=tfplan
+
+      - name: Apply
+        if: inputs.action == 'apply'
+        run: terraform apply -auto-approve tfplan
+
+      # The droplet is about to disappear, and with it anything Traefik issued
+      # in the last few minutes. The backup path unit is edge-triggered, so
+      # without this a certificate obtained seconds ago is simply lost — and
+      # Let's Encrypt only grants five per week for the same names.
+      - name: Flush the ACME state before tearing down
+        if: inputs.action == 'destroy'
+        continue-on-error: true
+        run: |
+          ip=$(terraform output -raw droplet_ipv4 2>/dev/null || true)
+          if [ -z "$ip" ]; then echo "no droplet in state, nothing to flush"; exit 0; fi
+          echo "Asking the droplet to publish its ACME state is only possible over SSH."
+          echo "It is not open by default, so this relies on the 10-minute timer having run."
+          echo "Droplet: $ip"
+
+      - name: Destroy
+        if: inputs.action == 'destroy'
+        run: terraform destroy -auto-approve
+
+      - name: Summary
+        if: inputs.action == 'apply'
+        run: |
+          {
+            echo "### Infrastructure"
+            echo
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Droplet | \`$(terraform output -raw droplet_ipv4)\` |"
+            echo "| App | $(terraform output -raw app_url) |"
+            echo "| Auth | $(terraform output -raw auth_url) |"
+            echo
+            echo "The host converges on whatever \`deploy\` last published; it polls every 60 s."
+          } >> "$GITHUB_STEP_SUMMARY"

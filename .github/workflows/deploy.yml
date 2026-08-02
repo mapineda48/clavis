@@ -1,0 +1,163 @@
+# Publishes the desired state and proves the result actually works.
+#
+# The pipeline never connects to the droplet. It writes a bundle and a
+# current.json to a private blob container; a systemd timer on the host notices
+# within a minute and converges. Rolling back is republishing an older bundle.
+#
+# The four assertions at the end are the point of this workflow. "The container
+# is up" and "HTTP 200" are both worthless here: Traefik serves a self-signed
+# certificate rather than crashing when its ACME store is unreadable, and a
+# misrouted health probe is answered by the SPA with 200 and some HTML.
+
+name: Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: Commit to deploy (defaults to the current one)
+        required: false
+        type: string
+  workflow_run:
+    workflows: [Images]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  # Never cancel: two runs finishing out of order would leave the older digest
+  # tuple published last.
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish and verify
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-24.04
+    environment: production
+
+    env:
+      ARM_USE_OIDC: "true"
+      ARM_USE_AZUREAD: "true"
+      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      ERP_APP_FQDN: ${{ vars.ERP_APP_FQDN }}
+      ERP_AUTH_FQDN: ${{ vars.ERP_AUTH_FQDN }}
+      ERP_REALM: ${{ vars.ERP_REALM || 'erp' }}
+      ERP_CERT_RESOLVER: ${{ vars.ERP_CERT_RESOLVER || 'staging' }}
+      ERP_ACME_EMAIL: ${{ vars.ERP_ACME_EMAIL }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.commit || github.sha }}
+
+      - name: Resolve the commit being deployed
+        run: echo "DEPLOY_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.15.7
+          terraform_wrapper: false
+
+      # The workflow reads what Terraform owns rather than duplicating it in
+      # variables that then drift.
+      - name: Read the infrastructure outputs
+        working-directory: infra/terraform
+        run: |
+          terraform init -lockfile=readonly >/dev/null
+          {
+            echo "ERP_STORAGE_ACCOUNT=$(terraform output -raw storage_account_name)"
+            echo "ERP_DEPLOY_CONTAINER=$(terraform output -raw deploy_container)"
+            echo "ERP_DEPLOY_PREFIX=$(terraform output -raw deploy_prefix)"
+            echo "ERP_ATTACHMENTS_CONTAINER=$(terraform output -raw attachments_container)"
+          } >> "$GITHUB_ENV"
+          echo "::add-mask::$(terraform output -raw attachments_connection_string)"
+          echo "ERP_STORAGE_CONNECTION_STRING=$(terraform output -raw attachments_connection_string)" >> "$GITHUB_ENV"
+
+      # `outputs.imageid` from the build is a LOCAL config id and is not
+      # pullable. Resolving the tag here gives the registry digest, which is.
+      - name: Resolve image digests
+        run: |
+          repo=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')
+          for image in api app keycloak; do
+            ref="ghcr.io/${repo}/${image}:sha-${DEPLOY_SHA}"
+            digest=$(docker buildx imagetools inspect "$ref" --format '{{ .Manifest.Digest }}')
+            [ -n "$digest" ] || { echo "no digest for $ref"; exit 1; }
+            echo "resolved ${image} -> ${digest}"
+            var=$(echo "$image" | tr '[:lower:]' '[:upper:]')
+            echo "ERP_${var}_IMAGE=ghcr.io/${repo}/${image}@${digest}" >> "$GITHUB_ENV"
+          done
+
+      - name: Build the bundle
+        env:
+          ERP_DATABASE_URL: ${{ secrets.ERP_DATABASE_URL }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          KC_BOOTSTRAP_ADMIN_USERNAME: ${{ secrets.KC_BOOTSTRAP_ADMIN_USERNAME }}
+          KC_BOOTSTRAP_ADMIN_PASSWORD: ${{ secrets.KC_BOOTSTRAP_ADMIN_PASSWORD }}
+          KEYCLOAK_API_CLIENT_SECRET: ${{ secrets.KEYCLOAK_API_CLIENT_SECRET }}
+          DEMO_ADMIN_EMAIL: ${{ secrets.DEMO_ADMIN_EMAIL }}
+          DEMO_ADMIN_PASSWORD: ${{ secrets.DEMO_ADMIN_PASSWORD }}
+          DEMO_MANAGER_PASSWORD: ${{ secrets.DEMO_MANAGER_PASSWORD }}
+          DEMO_USER_PASSWORD: ${{ secrets.DEMO_USER_PASSWORD }}
+          MAIL_FROM: ${{ vars.MAIL_FROM }}
+          KEYCLOAK_SMTP_FROM: ${{ vars.KEYCLOAK_SMTP_FROM }}
+          ERP_ADMIN_ALLOWLIST_RAW: ${{ vars.ADMIN_ALLOWED_CIDRS }}
+        run: bash scripts/build-deploy-bundle.sh
+
+      - name: Publish to blob storage
+        run: |
+          base="${ERP_DEPLOY_PREFIX}"
+          az storage blob upload --auth-mode login --overwrite \
+            --account-name "$ERP_STORAGE_ACCOUNT" --container-name "$ERP_DEPLOY_CONTAINER" \
+            --name "${base}/bundles/${DEPLOY_SHA}.tar.gz" --file dist/bundle.tar.gz -o none
+          # current.json LAST: until it points at the new bundle, nothing on the
+          # host changes, so a failed upload above leaves the running stack alone.
+          az storage blob upload --auth-mode login --overwrite \
+            --account-name "$ERP_STORAGE_ACCOUNT" --container-name "$ERP_DEPLOY_CONTAINER" \
+            --name "${base}/current.json" --file dist/current.json -o none
+          echo "published ${DEPLOY_SHA}"
+
+      - name: Wait for the host to converge
+        run: bash scripts/wait-for-deploy.sh
+
+      - name: Smoke test
+        env:
+          DEMO_ADMIN_PASSWORD: ${{ secrets.DEMO_ADMIN_PASSWORD }}
+          DEMO_MANAGER_PASSWORD: ${{ secrets.DEMO_MANAGER_PASSWORD }}
+          DEMO_USER_PASSWORD: ${{ secrets.DEMO_USER_PASSWORD }}
+        run: bash scripts/smoke-production.sh
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### Deploy"
+            echo
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Commit | \`${DEPLOY_SHA}\` |"
+            echo "| App | https://${ERP_APP_FQDN} |"
+            echo "| Auth | https://${ERP_AUTH_FQDN} |"
+            echo "| Certificate | \`${ERP_CERT_RESOLVER}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,15 @@
+# Provider plugins: re-downloaded from .terraform.lock.hcl, which IS committed.
+.terraform/
+
+# State never lives here; the backend is Azure Blob Storage.
+*.tfstate
+*.tfstate.*
+.terraform.tfstate.lock.info
+
+# Plans and local overrides.
+tfplan
+*.tfplan
+terraform.tfvars
+terraform.tfvars.json
+*.auto.tfvars
+crash.log

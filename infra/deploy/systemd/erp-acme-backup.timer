@@ -1,0 +1,16 @@
+[Unit]
+Description=Periodic safety net for the ACME backup
+
+# The .path unit above is edge-triggered inotify: events that arrive while the
+# service is still running can be coalesced and lost. Losing one means the next
+# droplet re-orders certificates from scratch, and Let's Encrypt allows only 5
+# per identical name set per week.
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=10min
+AccuracySec=30s
+Unit=erp-acme-backup.service
+
+[Install]
+WantedBy=timers.target

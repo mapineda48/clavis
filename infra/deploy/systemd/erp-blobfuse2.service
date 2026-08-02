@@ -1,0 +1,37 @@
+[Unit]
+Description=Mount the deploy container from Azure Blob Storage with blobfuse2
+Documentation=https://learn.microsoft.com/azure/storage/blobs/blobfuse2-what-is
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/etc/blobfuse2.yaml
+
+# NOTE: deliberately no `ConditionPathIsMountPoint=!/mnt/deploy`. A stale FUSE
+# mount — daemon killed, "Transport endpoint is not connected" — still appears
+# in /proc/self/mountinfo, so that condition would evaluate false, systemd would
+# SKIP the unit, the start job would report SUCCESS, and docker.service would
+# come up on a dead mount believing its dependency was satisfied.
+
+[Service]
+# Foreground, so systemd actually supervises the process. The daemonising
+# default combined with Type=oneshot leaves the unit "active (exited)" forever
+# after the mount dies, and Restart= never fires.
+Type=simple
+ExecStartPre=-/bin/fusermount3 -u /mnt/deploy
+# rmdir only succeeds on an EMPTY directory, which is the point: blobfuse2
+# refuses to mount over a non-empty one, and `rm -rf` next to a cloud mount is
+# how you delete the certificates you were trying to protect.
+ExecStartPre=-/bin/sh -c 'mountpoint -q /mnt/deploy || { rmdir /mnt/deploy 2>/dev/null && mkdir -p /mnt/deploy; }'
+ExecStartPre=/bin/mkdir -p /mnt/deploy /var/cache/blobfuse2
+ExecStart=/usr/bin/blobfuse2 mount /mnt/deploy --config-file=/etc/blobfuse2.yaml --foreground
+# The unit is not "started" until the mount is actually visible, so anything
+# ordered After= this really does get a usable /mnt/deploy.
+ExecStartPost=/bin/sh -c 'for _ in $(seq 1 60); do mountpoint -q /mnt/deploy && exit 0; sleep 1; done; echo "blobfuse2 never mounted"; exit 1'
+ExecStopPost=-/bin/fusermount3 -u /mnt/deploy
+
+Restart=on-failure
+RestartSec=5
+StartLimitBurst=10
+StartLimitIntervalSec=300
+
+[Install]
+WantedBy=multi-user.target
