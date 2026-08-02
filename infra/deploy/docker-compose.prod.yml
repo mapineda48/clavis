@@ -222,7 +222,12 @@ services:
     image: ${ERP_KEYCLOAK_IMAGE:?}
     container_name: erp-keycloak-import
     restart: "no"
-    command: ["import", "--file", "/import/realm-erp.json", "--override", "true"]
+    # --optimized is required, not an optimisation. Without it kc.sh re-augments
+    # the image at startup, the baked KC_DB=postgres is not applied to that run,
+    # and it fails with "Driver does not support the provided URL" followed by a
+    # thoroughly misleading "/import/realm-erp.json (No such file or directory)"
+    # — the file is there and readable; the re-augmentation is what breaks.
+    command: ["import", "--file=/import/realm-erp.json", "--override=true", "--optimized"]
     environment:
       KC_DB_URL: jdbc:postgresql://${ERP_DB_HOST:?}/${ERP_KC_DB_NAME:-keycloak}?sslmode=require
       KC_DB_USERNAME: ${ERP_DB_USER:?}

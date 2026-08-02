@@ -147,7 +147,11 @@ ERP_STORAGE_CONNECTION_STRING=${ERP_STORAGE_CONNECTION_STRING}
 ERP_ATTACHMENTS_CONTAINER=${ERP_ATTACHMENTS_CONTAINER}
 
 RESEND_API_KEY=${RESEND_API_KEY:-}
-MAIL_FROM=${MAIL_FROM:-ERP Demo <onboarding@resend.dev>}
+# Quoted because it contains <...>. Compose strips the quotes when it
+# interpolates, but an unquoted value makes the file impossible to \`source\`
+# from a shell — which is the same trap the repository root .env already
+# documents.
+MAIL_FROM="${MAIL_FROM:-ERP Demo <onboarding@resend.dev>}"
 MAIL_ENABLED=${MAIL_ENABLED:-true}
 
 LOG_LEVEL=${LOG_LEVEL:-info}
