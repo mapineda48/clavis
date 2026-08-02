@@ -80,6 +80,9 @@ services:
       # Development gets this right by accident: VITE_API_URL is a bare origin.
       # Same origin as the SPA, so no call the app makes is ever cross-origin.
       ERP_API_URL: https://${ERP_APP_FQDN:?}
+      # Published in /config.js so the pipeline can tell a host that has
+      # converged from one that merely answers.
+      ERP_COMMIT: ${ERP_COMMIT:-unknown}
     read_only: true
     tmpfs:
       - /run

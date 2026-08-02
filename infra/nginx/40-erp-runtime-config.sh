@@ -17,6 +17,9 @@ ERP_KEYCLOAK_REALM="${ERP_KEYCLOAK_REALM:-erp}"
 ERP_KEYCLOAK_CLIENT_ID="${ERP_KEYCLOAK_CLIENT_ID:-erp-app}"
 ERP_KEYCLOAK_API_CLIENT_ID="${ERP_KEYCLOAK_API_CLIENT_ID:-erp-api}"
 ERP_API_URL="${ERP_API_URL:-http://localhost:3000}"
+# Commit this build was deployed from. It is what lets the pipeline tell a
+# converged host from one that merely answers.
+ERP_COMMIT="${ERP_COMMIT:-dev}"
 
 # Written OUTSIDE the document root, and served through an `alias` in app.conf.
 # The root belongs to the image and stays read-only, so in production the whole
@@ -38,6 +41,7 @@ KEYCLOAK_REALM_JS="$(escape_js "$ERP_KEYCLOAK_REALM")"
 KEYCLOAK_CLIENT_ID_JS="$(escape_js "$ERP_KEYCLOAK_CLIENT_ID")"
 KEYCLOAK_API_CLIENT_ID_JS="$(escape_js "$ERP_KEYCLOAK_API_CLIENT_ID")"
 API_URL_JS="$(escape_js "$ERP_API_URL")"
+COMMIT_JS="$(escape_js "$ERP_COMMIT")"
 
 cat > "$OUTPUT_FILE" <<EOF
 // File generated at startup by 40-erp-runtime-config.sh.
@@ -47,7 +51,8 @@ window.__ERP_CONFIG__ = {
   keycloakRealm: '${KEYCLOAK_REALM_JS}',
   keycloakClientId: '${KEYCLOAK_CLIENT_ID_JS}',
   apiClientId: '${KEYCLOAK_API_CLIENT_ID_JS}',
-  apiUrl: '${API_URL_JS}'
+  apiUrl: '${API_URL_JS}',
+  commit: '${COMMIT_JS}'
 };
 EOF
 
@@ -57,3 +62,4 @@ echo "[erp-runtime-config]   keycloakRealm    = ${ERP_KEYCLOAK_REALM}"
 echo "[erp-runtime-config]   keycloakClientId = ${ERP_KEYCLOAK_CLIENT_ID}"
 echo "[erp-runtime-config]   apiClientId      = ${ERP_KEYCLOAK_API_CLIENT_ID}"
 echo "[erp-runtime-config]   apiUrl           = ${ERP_API_URL}"
+echo "[erp-runtime-config]   commit           = ${ERP_COMMIT}"

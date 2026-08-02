@@ -125,6 +125,7 @@ cat > "$STAGE/.env" <<EOF
 # Contains live credentials. Never leaves the private blob container.
 ERP_APP_FQDN=${ERP_APP_FQDN}
 ERP_AUTH_FQDN=${ERP_AUTH_FQDN}
+ERP_COMMIT=${DEPLOY_SHA}
 
 ERP_API_IMAGE=${ERP_API_IMAGE}
 ERP_APP_IMAGE=${ERP_APP_IMAGE}
