@@ -73,8 +73,13 @@ services:
       ERP_KEYCLOAK_REALM: ${KEYCLOAK_REALM:-erp}
       ERP_KEYCLOAK_CLIENT_ID: ${KEYCLOAK_APP_CLIENT_ID:-erp-app}
       ERP_KEYCLOAK_API_CLIENT_ID: ${KEYCLOAK_API_CLIENT_ID:-erp-api}
-      # Same origin as the SPA: no preflight on any call the app makes.
-      ERP_API_URL: https://${ERP_APP_FQDN:?}/api
+      # The ORIGIN only — no /api suffix. The SPA's client already prepends
+      # /api to every path it requests (src/api/client.ts builds
+      # `${config.apiUrl}${path}` and every path starts with /api), so adding it
+      # here produces /api/api/todos and a 404 on the first call after login.
+      # Development gets this right by accident: VITE_API_URL is a bare origin.
+      # Same origin as the SPA, so no call the app makes is ever cross-origin.
+      ERP_API_URL: https://${ERP_APP_FQDN:?}
     read_only: true
     tmpfs:
       - /run

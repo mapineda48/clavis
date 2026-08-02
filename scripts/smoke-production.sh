@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Four assertions against the live deployment.
+# Five assertions against the live deployment.
 #
 # Each one exists because a cheaper check passes while the thing is broken:
 #
@@ -12,13 +12,22 @@
 #   2. /api/health/ready answers with JSON. The SPA replies to any unknown path
 #      with index.html and HTTP 200, so a misrouted probe passes forever.
 #
-#   3. The discovery document reports the public issuer. This is the cheapest
+#   3. The runtime configuration handed to the browser is what the browser
+#      actually needs. Everything else here builds its own URLs, so it all
+#      stayed green while the SPA was told to call an apiUrl ending in /api and
+#      every request after login went to /api/api/… and 404'd.
+#
+#   4. The discovery document reports the public issuer. This is the cheapest
 #      single catch for the whole KC_HOSTNAME / proxy-headers / sslRequired
 #      family: get it wrong and tokens are minted with an issuer the API
 #      refuses.
 #
-#   4. A real token is granted and spends successfully on a protected route.
+#   5. A real token is granted and spends successfully on a protected route.
 #      Without this, nothing has verified the thing the lab exists to show.
+#
+# Even five is not everything: none of them opens the application in a browser,
+# which is how a frame-options header that made login impossible passed the
+# whole suite. See docs/deployment.md.
 # =============================================================================
 set -uo pipefail
 
@@ -73,7 +82,24 @@ else
   bad "/api/health/ready did not return JSON (the SPA is probably answering it)"
 fi
 
-echo "=== 3. OIDC discovery ==="
+echo "=== 3. Runtime configuration served to the SPA ==="
+# The assertions above build their own URLs, so they pass regardless of what the
+# browser is actually told to call. That is how an apiUrl with a trailing /api
+# shipped: the client prepends /api to every path itself, so the first request
+# after login went to /api/api/todos and 404'd while everything here stayed
+# green.
+cfg=$(curl -s $INSECURE --max-time 15 "https://${ERP_APP_FQDN}/config.js")
+cfg_val() { printf '%s' "$cfg" | sed -n "s/.*$1: *'\([^']*\)'.*/\1/p"; }
+api_url=$(cfg_val apiUrl)
+kc_url=$(cfg_val keycloakUrl)
+[ "$api_url" = "https://${ERP_APP_FQDN}" ] \
+  && ok "apiUrl is the bare origin (${api_url})" \
+  || bad "apiUrl is '${api_url}', expected 'https://${ERP_APP_FQDN}' with no path — the client adds /api itself"
+[ "$kc_url" = "https://${ERP_AUTH_FQDN}" ] \
+  && ok "keycloakUrl is ${kc_url}" \
+  || bad "keycloakUrl is '${kc_url}', expected 'https://${ERP_AUTH_FQDN}'"
+
+echo "=== 4. OIDC discovery ==="
 expected="https://${ERP_AUTH_FQDN}/realms/${REALM}"
 issuer_claim=$(curl -s $INSECURE --max-time 15 \
   "${expected}/.well-known/openid-configuration" | jq -r '.issuer // empty')
@@ -81,7 +107,7 @@ issuer_claim=$(curl -s $INSECURE --max-time 15 \
   && ok "issuer is ${issuer_claim}" \
   || bad "issuer is '${issuer_claim:-<none>}', expected '${expected}'"
 
-echo "=== 4. End-to-end token ==="
+echo "=== 5. End-to-end token ==="
 token_for() {
   curl -s $INSECURE --max-time 20 \
     -d "client_id=${CLIENT}" -d "username=$1" -d "password=$2" -d grant_type=password \
