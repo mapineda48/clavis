@@ -1,0 +1,93 @@
+# Continuous integration: everything that can be checked without any secret.
+#
+# Deliberately runnable by a fork: the verification suites boot the whole stack
+# from .env.example, and with an empty RESEND_API_KEY the mailer falls back to
+# dry-run instead of failing.
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  static:
+    name: Typecheck and build
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      # No version here on purpose: action-setup reads `packageManager` from
+      # package.json, so the pin lives in exactly one place.
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm -r typecheck
+
+      - name: Build
+        run: pnpm -r build
+
+  verify:
+    name: End-to-end verification
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      # The suites read the demo usernames and passwords straight from .env.
+      # The template values are the development ones, which is exactly what the
+      # stack boots with here.
+      - name: Create .env from the template
+        run: cp .env.example .env
+
+      - name: Start the stack
+        run: docker compose up -d --build
+
+      # `api` depends on postgres, valkey, azurite and keycloak being healthy,
+      # and keycloak in turn waits for the realm renderer to finish, so waiting
+      # for this one service transitively waits for the whole stack.
+      - name: Wait for the API to become healthy
+        run: |
+          for _ in $(seq 1 60); do
+            status=$(docker compose ps api --format '{{.Status}}')
+            case "$status" in
+              *healthy*) echo "api is healthy: $status"; exit 0 ;;
+              *Exited*|*exited*) echo "api exited: $status"; exit 1 ;;
+            esac
+            sleep 5
+          done
+          echo "The API never became healthy."
+          exit 1
+
+      - name: Verify the API
+        run: bash scripts/verify-api.sh
+
+      - name: Verify the login theme
+        run: bash scripts/verify-login-theme.sh
+
+      - name: Service logs
+        if: failure()
+        run: docker compose logs --tail=120
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v

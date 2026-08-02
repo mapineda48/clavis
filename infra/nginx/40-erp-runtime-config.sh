@@ -18,7 +18,14 @@ ERP_KEYCLOAK_CLIENT_ID="${ERP_KEYCLOAK_CLIENT_ID:-erp-app}"
 ERP_KEYCLOAK_API_CLIENT_ID="${ERP_KEYCLOAK_API_CLIENT_ID:-erp-api}"
 ERP_API_URL="${ERP_API_URL:-http://localhost:3000}"
 
-OUTPUT_FILE="${ERP_CONFIG_PATH:-/usr/share/nginx/html/config.js}"
+# Written OUTSIDE the document root, and served through an `alias` in app.conf.
+# The root belongs to the image and stays read-only, so in production the whole
+# container can run with `read_only: true` and a tmpfs on /run. Writing into
+# /usr/share/nginx/html would abort this script (it runs under `set -eu`) and
+# take the container down at startup.
+OUTPUT_FILE="${ERP_CONFIG_PATH:-/run/erp/config.js}"
+
+mkdir -p "$(dirname "$OUTPUT_FILE")"
 
 # Escapes a value so it can be embedded inside JavaScript single quotes:
 # backslashes first, then the single quotes.
