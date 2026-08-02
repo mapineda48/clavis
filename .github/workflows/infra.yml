@@ -88,6 +88,38 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
+      # `plan` never authenticates a CREATE, so a token that cannot write shows
+      # up halfway through `apply` — after the droplet already exists — as a
+      # bare "401 Unauthorized". Failing here instead, with a message that names
+      # the likely cause, is worth the two seconds.
+      # A real write, deliberately, not /user/tokens/verify.
+      #
+      # Verified the hard way: `verify` returns success even from a source the
+      # token's Client IP Address Filtering condition rejects, so it is worth
+      # nothing as a preflight. Only an actual write proves the token can do the
+      # thing the apply is about to ask of it.
+      - name: Preflight the Cloudflare token
+        env:
+          ZONE_ID: ${{ vars.CLOUDFLARE_ZONE_ID }}
+        run: |
+          zone="${ZONE_ID:-$(curl -s -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            "https://api.cloudflare.com/client/v4/zones?name=${{ vars.CLOUDFLARE_ZONE_NAME || 'mapineda48.com' }}" \
+            | jq -r '.result[0].id // empty')}"
+          [ -n "$zone" ] || { echo "::error::Could not even read the zone with this token."; exit 1; }
+          resp=$(curl -s -X POST -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            -H 'Content-Type: application/json' \
+            --data '{"type":"TXT","name":"_terraform-preflight","content":"preflight","ttl":60}' \
+            "https://api.cloudflare.com/client/v4/zones/${zone}/dns_records")
+          id=$(echo "$resp" | jq -r '.result.id // empty')
+          if [ -z "$id" ]; then
+            echo "$resp" | jq -c '{success, errors: [.errors[]?.message]}'
+            echo "::error::The Cloudflare token cannot write to the zone from this runner. If it works from your own machine, it has Client IP Address Filtering set — GitHub-hosted runners have no stable address, so the filter has to go or a separate unfiltered token is needed."
+            exit 1
+          fi
+          curl -s -X DELETE -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            "https://api.cloudflare.com/client/v4/zones/${zone}/dns_records/${id}" -o /dev/null
+          echo "The token can create and delete records in the zone."
+
       - name: Format check
         run: terraform fmt -check -recursive
 

@@ -33,7 +33,11 @@ write_files:
 %{ endfor ~}
 
 runcmd:
-  - set -euxo pipefail
+  # cloud-init concatenates these into ONE script and runs it with /bin/sh,
+  # which on Ubuntu is dash. `pipefail` is a bashism: dash aborts the whole
+  # script on the `set` line itself, so every command below silently never runs
+  # and the only symptom is `cloud-init status: error`.
+  - set -eux
   - install -d -m 0755 /opt/erp /opt/erp/stack /var/lib/erp /etc/erp
   - install -d -m 0700 /var/lib/traefik
   - install -d -m 0755 /mnt/deploy /var/cache/blobfuse2

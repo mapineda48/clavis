@@ -73,7 +73,7 @@ install -d -m 0700 -o root -g root "$STACK"
 rm -rf "${STACK:?}/"*
 cp -a "${work}/." "$STACK/"
 chmod 0700 "$STACK"
-chmod 0600 "${STACK}/.env" "${STACK}/secrets/cf_dns_token"
+chmod 0600 "${STACK}/.env"
 
 cd "$STACK"
 

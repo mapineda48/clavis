@@ -18,12 +18,6 @@ networks:
   erp-net:
     driver: bridge
 
-secrets:
-  # A file rather than an `environment:` entry: anything in the environment is
-  # visible to `docker inspect` and to every process that can read /proc.
-  cf_dns_token:
-    file: ./secrets/cf_dns_token
-
 services:
   # ---------------------------------------------------------------------------
   # Edge. Terminates TLS for both hostnames with a single certificate.
@@ -33,12 +27,11 @@ services:
     container_name: erp-traefik
     restart: unless-stopped
     ports:
+      # 80 is not only the HTTPS redirect: it is also where the ACME HTTP-01
+      # challenge is answered, which is why this host needs no Cloudflare
+      # credential at all.
       - "80:80"
       - "443:443"
-    environment:
-      CF_DNS_API_TOKEN_FILE: /run/secrets/cf_dns_token
-    secrets:
-      - cf_dns_token
     volumes:
       - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro
       - ./traefik/dynamic:/etc/traefik/dynamic:ro

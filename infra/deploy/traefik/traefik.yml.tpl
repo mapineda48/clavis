@@ -90,15 +90,17 @@ certificatesResolvers:
       storage: /acme.json
       caServer: https://acme-staging-v02.api.letsencrypt.org/directory
       keyType: EC256
-      dnsChallenge:
-        provider: cloudflare
-        # Ask Cloudflare's own resolvers, not the host's: the propagation check
-        # otherwise races a cached negative answer for the TXT record.
-        resolvers:
-          - "1.1.1.1:53"
-          - "1.0.0.1:53"
-        propagation:
-          delayBeforeChecks: 10s
+      # HTTP-01, not DNS-01, and the reason is worth stating: DNS-01 would put a
+      # token that can rewrite the whole mapineda48.com zone on a public-facing
+      # host. HTTP-01 needs no credential at all — Traefik answers the challenge
+      # on the port it already listens on. Traefik installs the challenge router
+      # ahead of the HTTP-to-HTTPS redirection automatically.
+      #
+      # The cost is that the A record must already point here when the
+      # certificate is ordered. Terraform creates both records in the same apply
+      # that creates the droplet, with a 60 s TTL, and Traefik retries.
+      httpChallenge:
+        entryPoint: web
 
   production:
     acme:
@@ -106,10 +108,5 @@ certificatesResolvers:
       storage: /acme.json
       caServer: https://acme-v02.api.letsencrypt.org/directory
       keyType: EC256
-      dnsChallenge:
-        provider: cloudflare
-        resolvers:
-          - "1.1.1.1:53"
-          - "1.0.0.1:53"
-        propagation:
-          delayBeforeChecks: 10s
+      httpChallenge:
+        entryPoint: web
