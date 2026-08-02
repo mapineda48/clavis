@@ -50,7 +50,9 @@ jobs:
       ERP_AUTH_FQDN: ${{ vars.ERP_AUTH_FQDN }}
       ERP_REALM: ${{ vars.ERP_REALM || 'erp' }}
       ERP_CERT_RESOLVER: ${{ vars.ERP_CERT_RESOLVER || 'staging' }}
-      ERP_ACME_EMAIL: ${{ vars.ERP_ACME_EMAIL }}
+      # A secret rather than a variable: it is a personal address, and this way
+      # it is masked if anything ever echoes it.
+      ERP_ACME_EMAIL: ${{ secrets.ERP_ACME_EMAIL }}
 
     steps:
       - name: Checkout
