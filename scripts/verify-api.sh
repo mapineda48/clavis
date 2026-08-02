@@ -15,7 +15,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
 require_tools curl python3
 require_env
 require_up "$KC/realms/$REALM/.well-known/openid-configuration" "Keycloak"
-require_up "$API/health" "The API"
+require_up "$API/api/health" "The API"
 
 echo "=== 1. Tokens for the three demo users ==="
 T_ADMIN=$(token_for "$(envval DEMO_ADMIN_USERNAME)" DEMO_ADMIN_PASSWORD)
@@ -42,10 +42,10 @@ PY
 
 echo
 echo "=== 3. Service health ==="
-chk "$(curl -s -o /dev/null -w '%{http_code}' "$API/health")" 200 "GET /health"
-echo "  ready: $(curl -s "$API/health/ready" | python3 -c 'import sys,json;d=json.load(sys.stdin);print(d.get("status"), json.dumps(d.get("checks"), ensure_ascii=False))' 2>/dev/null)"
-chk "$(curl -s -o /dev/null -w '%{http_code}' "$API/health/ready")" 200 "GET /health/ready"
-chk "$(curl -s -o /dev/null -w '%{http_code}' "$API/docs")" 200 "GET /docs (Swagger)"
+chk "$(curl -s -o /dev/null -w '%{http_code}' "$API/api/health")" 200 "GET /api/health"
+echo "  ready: $(curl -s "$API/api/health/ready" | python3 -c 'import sys,json;d=json.load(sys.stdin);print(d.get("status"), json.dumps(d.get("checks"), ensure_ascii=False))' 2>/dev/null)"
+chk "$(curl -s -o /dev/null -w '%{http_code}' "$API/api/health/ready")" 200 "GET /api/health/ready"
+chk "$(curl -s -o /dev/null -w '%{http_code}' "$API/api/docs")" 200 "GET /api/docs (Swagger)"
 
 echo
 echo "=== 4. Effective permissions per user ==="

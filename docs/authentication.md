@@ -278,7 +278,7 @@ missing it answers `403` with the standard envelope `{ error: { code, message, s
 
 | Endpoint | Permission |
 |---|---|
-| `GET /health`, `GET /health/ready`, `GET /docs` | *(public, no token)* |
+| `GET /api/health`, `GET /api/health/ready`, `GET /api/docs` | *(public, no token)* |
 | `GET /api/me` | *(authentication only)* |
 | `GET /api/todos` | `todos:read` (+ `todos:read:all` if `scope=all`) |
 | `GET /api/todos/:id` | `todos:read` |

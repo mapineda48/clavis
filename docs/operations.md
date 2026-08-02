@@ -79,12 +79,12 @@ Iterating on the **login theme** (`infra/keycloak/themes/erp`) needs none of the
 ### Health checks
 
 ```bash
-curl -s http://localhost:3000/health | jq
-curl -s http://localhost:3000/health/ready | jq
+curl -s http://localhost:3000/api/health | jq
+curl -s http://localhost:3000/api/health/ready | jq
 curl -sf http://localhost:8080/realms/erp/.well-known/openid-configuration >/dev/null && echo "realm erp OK"
 ```
 
-`/health/ready` returns `200` when database, cache and storage answer, and `503` when any of
+`/api/health/ready` returns `200` when database, cache and storage answer, and `503` when any of
 those three fails, with the breakdown in `checks`. The mailer is reported too — `resend`,
 `dry-run` or `disabled` — but it is **not** critical: email being unavailable never makes the
 service unready.
@@ -952,7 +952,7 @@ Typical causes, in order of frequency:
   will never be a `HIT`.
 - `CACHE_TTL_SECONDS` too low. Check the effective value with
   `docker compose config | grep CACHE_TTL`.
-- Valkey down: `curl -s http://localhost:3000/health/ready | jq '.checks.cache'`.
+- Valkey down: `curl -s http://localhost:3000/api/health/ready | jq '.checks.cache'`.
 - Remember the key includes `sub`, scope, filters and pagination: changing any filter is
   legitimately a new key and therefore a `MISS`.
 
@@ -961,7 +961,7 @@ Typical causes, in order of frequency:
 1. Check which mode the *mailer* is in:
 
    ```bash
-   curl -s http://localhost:3000/health/ready | jq '.checks.mailer'
+   curl -s http://localhost:3000/api/health/ready | jq '.checks.mailer'
    docker compose logs api | grep -i mail
    ```
 
@@ -996,7 +996,7 @@ container:
 docker compose up -d --force-recreate azurite
 ```
 
-While the blob container does not exist, `GET /health/ready` reports `storage: "error"` and answers
+While the blob container does not exist, `GET /api/health/ready` reports `storage: "error"` and answers
 `503`. The probe is self-healing: it recreates the container idempotently, so retrying once Azurite
 is healthy is enough.
 

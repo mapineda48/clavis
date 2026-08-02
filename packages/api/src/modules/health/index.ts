@@ -4,10 +4,10 @@ import type { FastifyPluginAsync } from 'fastify'
 // Pulls in the @fastify/swagger type augmentation (tags, summary, security inside `schema`).
 import type {} from '@fastify/swagger'
 
-/** Service name published by /health. */
+/** Service name published by /api/health. */
 const SERVICE_NAME = 'erp-api'
 
-/** Response schema of /health. */
+/** Response schema of /api/health. */
 const HealthResponse = {
   type: 'object',
   properties: {
@@ -18,7 +18,7 @@ const HealthResponse = {
   required: ['status', 'service', 'uptimeSeconds'],
 }
 
-/** Response schema of /health/ready (identical for 200 and 503). */
+/** Response schema of /api/health/ready (identical for 200 and 503). */
 const ReadyResponse = {
   type: 'object',
   properties: {

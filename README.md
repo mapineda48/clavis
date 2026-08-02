@@ -111,7 +111,7 @@ pnpm --filter @erp/app dev
 Quick check that the backend is complete:
 
 ```bash
-curl -s http://localhost:3000/health/ready | jq
+curl -s http://localhost:3000/api/health/ready | jq
 # { "status": "ok", "checks": { "database": …, "cache": …, "storage": …, "mailer": … } }
 ```
 
@@ -140,8 +140,8 @@ In that mode the frontend configuration does not travel inside the bundle: nginx
 | Keycloak | <http://localhost:8080> | OIDC issuer of the `erp` realm |
 | Keycloak admin console | <http://localhost:8080/admin> | Username/password = `KC_BOOTSTRAP_ADMIN_USERNAME` / `KC_BOOTSTRAP_ADMIN_PASSWORD` from `.env` |
 | Realm OIDC metadata | <http://localhost:8080/realms/erp/.well-known/openid-configuration> | Endpoints and JWKS |
-| API (`@erp/api`) | <http://localhost:3000> | REST under `/api`, health on `/health` and `/health/ready` |
-| Swagger UI | <http://localhost:3000/docs> | Living documentation of every endpoint |
+| API (`@erp/api`) | <http://localhost:3000> | REST under `/api`, health on `/api/health` and `/api/health/ready` |
+| Swagger UI | <http://localhost:3000/api/docs> | Living documentation of every endpoint |
 | SPA in development (Vite) | <http://localhost:5173> | `pnpm --filter @erp/app dev` |
 | Compiled SPA (nginx, `full` profile) | <http://localhost:8081> | Only with `--profile full` |
 | PostgreSQL | `localhost:5432` | Databases `erp` (application) and `keycloak` (identity) |
@@ -394,7 +394,7 @@ The API picks its provider at startup:
 | `RESEND_API_KEY` set | `resend` | Really sends it and returns the message `id`. |
 | `MAIL_ENABLED=false` | `dry-run` | Manual switch to silence email even when a key is present. |
 
-`GET /health/ready` reports the *mailer* status, so you can tell which mode you are in without
+`GET /api/health/ready` reports the *mailer* status, so you can tell which mode you are in without
 reading the logs.
 
 ### Turning on real delivery

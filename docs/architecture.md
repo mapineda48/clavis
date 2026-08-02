@@ -56,7 +56,7 @@ which forces **every relative import to carry the `.js` extension** even though 
 | `migrations/` | Versioned SQL, `NNNN_name.sql`, lexicographic order. |
 
 Request validation uses **Fastify's native JSON Schema** (the `schema` property of each route,
-validated by ajv), not zod. That same definition feeds Swagger, so the documentation at `/docs`
+validated by ajv), not zod. That same definition feeds Swagger, so the documentation at `/api/docs`
 cannot drift away from the validation that actually runs.
 
 Decorators available across the whole application:

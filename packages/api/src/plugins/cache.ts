@@ -18,7 +18,7 @@ const VERSION_PREFIX = 'erp:ver:'
  * The cache is an accelerator, never a single point of failure: if Valkey does
  * not answer, operations degrade (they behave like a cache miss) instead of
  * propagating the error to the request. `ping()` still reports the real state
- * for `/health/ready`.
+ * for `/api/health/ready`.
  */
 export const cachePlugin = fp(
   async (app: FastifyInstance) => {

@@ -41,7 +41,10 @@ async function main(): Promise<void> {
   try {
     await app.listen({ host: env.HOST, port: env.PORT })
     const baseUrl = `http://${displayHost(env.HOST)}:${env.PORT}`
-    app.log.info({ url: baseUrl, docs: `${baseUrl}/docs` }, `API ready — documentation at ${baseUrl}/docs`)
+    app.log.info(
+      { url: baseUrl, docs: `${baseUrl}/api/docs` },
+      `API ready — documentation at ${baseUrl}/api/docs`,
+    )
   } catch (error) {
     app.log.error({ err: error }, 'Could not start the server')
     process.exit(1)

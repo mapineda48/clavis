@@ -28,7 +28,7 @@ export const storagePlugin = fp(
       await ensureContainer()
       app.log.info({ container: env.AZURE_STORAGE_CONTAINER }, 'Attachment container available')
     } catch (error) {
-      // Startup is not aborted: /health/ready will report it and the container
+      // Startup is not aborted: /api/health/ready will report it and the container
       // is retried on the first upload or download.
       app.log.warn(
         { err: error, container: env.AZURE_STORAGE_CONTAINER },

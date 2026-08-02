@@ -93,7 +93,10 @@ export async function buildServer(): Promise<FastifyInstance> {
   })
 
   await app.register(swaggerUi, {
-    routePrefix: '/docs',
+    // Under /api like everything else the API serves: in production a single
+    // reverse-proxy rule sends /api to this service and everything else to the
+    // SPA, so a path outside /api would be answered by the SPA instead.
+    routePrefix: '/api/docs',
     uiConfig: {
       docExpansion: 'list',
       deepLinking: true,
@@ -112,7 +115,12 @@ export async function buildServer(): Promise<FastifyInstance> {
   await app.register(authPlugin)
 
   // --- Routes
-  await app.register(healthRoutes)
+  // Every path this service answers lives under /api, health checks included.
+  // That is what lets the edge route on a single prefix with no exceptions: a
+  // probe against /health would otherwise reach the SPA, which answers any
+  // unknown path with index.html and HTTP 200 — a readiness check that can
+  // never fail.
+  await app.register(healthRoutes, { prefix: '/api' })
   await app.register(meRoutes, { prefix: '/api' })
   await app.register(todosRoutes, { prefix: '/api' })
   await app.register(attachmentsRoutes, { prefix: '/api' })
