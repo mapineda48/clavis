@@ -35,10 +35,11 @@ services:
     volumes:
       - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro
       - ./traefik/dynamic:/etc/traefik/dynamic:ro
-      # A single-FILE bind mount, and on local ext4 rather than the blob mount.
-      # Safe because Traefik rewrites acme.json in place (O_TRUNC) instead of
-      # replacing the inode; a writer that renamed would orphan this mount.
-      - /var/lib/traefik/acme.json:/acme.json
+      # The ACME stores, on local ext4 rather than the blob mount: Traefik
+      # rejects any store with group or other permission bits, and chmod on a
+      # flat-namespace blob container silently does nothing. A directory rather
+      # than a single file because each resolver keeps its own store.
+      - /var/lib/traefik:/acme
     # No Docker socket anywhere: routing comes from the file provider, so a
     # container that manages to start on this host cannot mint itself a route
     # and take over the Keycloak hostname with a label.

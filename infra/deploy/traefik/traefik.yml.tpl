@@ -87,7 +87,12 @@ certificatesResolvers:
   staging:
     acme:
       email: "${ERP_ACME_EMAIL}"
-      storage: /acme.json
+      # One store PER RESOLVER, not one shared file. Traefik loads every
+      # certificate it finds into a single store and serves by SNI match, so a
+      # staging certificate sitting in the same file satisfies the request and
+      # the production resolver never orders anything — the site keeps serving
+      # an untrusted certificate and no error is logged anywhere.
+      storage: /acme/staging.json
       caServer: https://acme-staging-v02.api.letsencrypt.org/directory
       keyType: EC256
       # HTTP-01, not DNS-01, and the reason is worth stating: DNS-01 would put a
@@ -105,7 +110,7 @@ certificatesResolvers:
   production:
     acme:
       email: "${ERP_ACME_EMAIL}"
-      storage: /acme.json
+      storage: /acme/production.json
       caServer: https://acme-v02.api.letsencrypt.org/directory
       keyType: EC256
       httpChallenge:

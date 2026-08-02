@@ -29,7 +29,10 @@
     "password": "__KEYCLOAK_SMTP_PASSWORD__"
   },
   "internationalizationEnabled": true,
-  "supportedLocales": ["en", "es"],
+  "supportedLocales": [
+    "en",
+    "es"
+  ],
   "defaultLocale": "en",
   "defaultSignatureAlgorithm": "RS256",
   "accessTokenLifespan": 900,
@@ -242,6 +245,7 @@
   ],
   "users": [
     {
+      "id": "a0000000-0000-4000-a000-000000000001",
       "username": "__DEMO_ADMIN_USERNAME__",
       "email": "__DEMO_ADMIN_EMAIL__",
       "firstName": "Administrator",
@@ -262,6 +266,7 @@
       ]
     },
     {
+      "id": "a0000000-0000-4000-a000-000000000002",
       "username": "__DEMO_MANAGER_USERNAME__",
       "email": "__DEMO_MANAGER_EMAIL__",
       "firstName": "Manager",
@@ -282,6 +287,7 @@
       ]
     },
     {
+      "id": "a0000000-0000-4000-a000-000000000003",
       "username": "__DEMO_USER_USERNAME__",
       "email": "__DEMO_USER_EMAIL__",
       "firstName": "Worker",

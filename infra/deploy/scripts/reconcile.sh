@@ -42,7 +42,16 @@ mountpoint -q "$MOUNT" || { echo "reconcile: $MOUNT is not a mount point" >&2; e
 # silently replace this one and leak the staging directory.
 CURRENT_JSON=$(mktemp)
 work=""
-cleanup() { rm -f "$CURRENT_JSON"; [ -n "$work" ] && rm -rf "$work"; }
+# `return 0` is load-bearing: an EXIT trap whose last command fails REPLACES the
+# script's exit status. Without it, `[ -n "$work" ]` on the already-converged
+# path — where $work was never set — turned a clean `exit 0` into a silent
+# exit 1, and systemd reported the timer as failing every minute while the
+# stack was in fact perfectly healthy.
+cleanup() {
+  rm -f "$CURRENT_JSON"
+  [ -n "$work" ] && rm -rf "$work"
+  return 0
+}
 trap cleanup EXIT
 
 SAS=$(sed -n 's/^[[:space:]]*sas:[[:space:]]*"\(.*\)"[[:space:]]*$/\1/p' /etc/blobfuse2.yaml)
@@ -69,6 +78,7 @@ running() {
 }
 
 if [ -f "$STATE" ] && [ "$(cat "$STATE")" = "$commit" ] && running; then
+  log "already on ${commit}, nothing to do"
   exit 0
 fi
 
@@ -96,8 +106,23 @@ docker compose --project-directory "$work" config -q
 # by the containers that need them — Traefik runs without CAP_DAC_OVERRIDE and
 # the Keycloak import container runs as uid 1000.
 install -d -m 0700 -o root -g root "$STACK"
-rm -rf "${STACK:?}/"*
+
+# Copy OVER the existing tree; never `rm -rf` it first.
+#
+# Traefik bind-mounts ./traefik/dynamic and ./traefik/traefik.yml, and a bind
+# mount is resolved to an inode when the container starts. Deleting and
+# recreating those paths leaves the running container pointed at something that
+# no longer exists — observed as "reading directory /etc/traefik/dynamic: no
+# such file or directory" while Traefik happily kept serving the previous
+# configuration. `cp` truncates in place, so the inodes survive.
 cp -a "${work}/." "$STACK/"
+
+# Then drop only the files the new bundle no longer ships, leaving directories
+# alone.
+(cd "$STACK" && find . -type f -printf '%P\n') | while IFS= read -r rel; do
+  [ -e "${work}/${rel}" ] || rm -f "${STACK:?}/${rel}"
+done
+
 chmod 0700 "$STACK"
 chmod 0600 "${STACK}/.env"
 
@@ -116,8 +141,13 @@ docker compose pull --quiet
 log "converging the realm"
 docker compose --profile import run --rm --no-deps keycloak-import
 
+# --force-recreate, deliberately. Compose only recreates a container whose
+# service definition changed, and Traefik's does not change between deploys —
+# only the files it reads do. Its static configuration is read once at startup
+# and never re-watched, so without this a resolver or entry-point change is
+# published, reported as deployed, and silently never applied.
 log "starting"
-docker compose up -d --remove-orphans --wait --wait-timeout 300
+docker compose up -d --force-recreate --remove-orphans --wait --wait-timeout 300
 
 printf '%s' "$commit" > "$STATE"
 log "converged on ${commit}"
