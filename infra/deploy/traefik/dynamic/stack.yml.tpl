@@ -38,15 +38,26 @@ http:
         stsIncludeSubdomains: false
         forceSTSHeader: true
         contentTypeNosniff: true
-        # SAMEORIGIN, not frameDeny. `frameDeny: true` sends
-        # X-Frame-Options: DENY on every response, including
-        # /silent-check-sso.html — the page keycloak-js loads in a hidden iframe
-        # to check for an existing session. The browser refuses to render it,
-        # the postMessage back to the app never fires, and the SPA sits on
-        # "checking session" forever with nothing logged anywhere. Third-party
-        # framing is still blocked; only the app's own origin may frame it.
-        customFrameOptionsValue: SAMEORIGIN
         browserXssFilter: true
+        # NO frame-options header here, and that is deliberate.
+        #
+        # Setting one at the edge applies it to BOTH hostnames, and Keycloak
+        # serves some endpoints that MUST be framable from the application's
+        # origin — /protocol/openid-connect/3p-cookies/step1.html above all,
+        # which keycloak-js loads in a hidden iframe on startup. Forcing DENY or
+        # even SAMEORIGIN onto it makes the browser refuse to render the frame,
+        # keycloak-js waits for a message that never arrives, and initialisation
+        # fails with "Timeout when waiting for 3rd party check iframe message".
+        #
+        # Logging in becomes impossible while every container stays healthy, the
+        # certificate stays valid and the smoke suite still passes 8/8 — because
+        # those assertions use the direct grant and never touch the browser's
+        # framing rules. It took DevTools to see it.
+        #
+        # Each application already declares its own policy correctly: nginx
+        # sends SAMEORIGIN for the SPA from infra/nginx/app.conf, and Keycloak
+        # sets its own per endpoint precisely because a few of them have to be
+        # framable.
         referrerPolicy: strict-origin-when-cross-origin
         customResponseHeaders:
           Server: ""
