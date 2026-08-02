@@ -38,7 +38,14 @@ http:
         stsIncludeSubdomains: false
         forceSTSHeader: true
         contentTypeNosniff: true
-        frameDeny: true
+        # SAMEORIGIN, not frameDeny. `frameDeny: true` sends
+        # X-Frame-Options: DENY on every response, including
+        # /silent-check-sso.html — the page keycloak-js loads in a hidden iframe
+        # to check for an existing session. The browser refuses to render it,
+        # the postMessage back to the app never fires, and the SPA sits on
+        # "checking session" forever with nothing logged anywhere. Third-party
+        # framing is still blocked; only the app's own origin may frame it.
+        customFrameOptionsValue: SAMEORIGIN
         browserXssFilter: true
         referrerPolicy: strict-origin-when-cross-origin
         customResponseHeaders:
