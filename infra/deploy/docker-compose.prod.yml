@@ -245,6 +245,13 @@ services:
     # nothing worth surviving a restart, and the API invalidates by namespace
     # version anyway.
     command: ["valkey-server", "--save", "", "--appendonly", "no", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    # Run as the image's own valkey user (999:1000). The entrypoint only chowns
+    # /data when it starts as root, and that chown is what fails under
+    # cap_drop: ALL — the container then restarts forever with nothing but
+    # "chown: .: Operation not permitted" in its logs. Starting unprivileged
+    # skips that branch entirely, so no capability has to be granted back.
+    # Nothing writes to /data anyway: persistence is off, this is a cache.
+    user: "999:1000"
     read_only: true
     tmpfs:
       - /data

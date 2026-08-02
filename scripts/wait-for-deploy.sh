@@ -24,8 +24,11 @@ echo "Waiting for https://${ERP_APP_FQDN} to serve ${DEPLOY_SHA} (up to ${TIMEOU
 deadline=$(( SECONDS + TIMEOUT_SECONDS ))
 last=""
 while [ "$SECONDS" -lt "$deadline" ]; do
+  # No `|| echo 000` here: on failure curl still emits its own "000" through
+  # -w, and the two concatenate into a puzzling "000000".
   code=$(curl -s $INSECURE -o /dev/null -w '%{http_code}' --max-time 10 \
-    "https://${ERP_APP_FQDN}/api/health" 2>/dev/null || echo 000)
+    "https://${ERP_APP_FQDN}/api/health" 2>/dev/null) || code=""
+  [ -n "$code" ] || code="000"
 
   if [ "$code" = "200" ]; then
     ready=$(curl -s $INSECURE --max-time 10 "https://${ERP_APP_FQDN}/api/health/ready" 2>/dev/null)
