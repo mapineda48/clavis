@@ -2,9 +2,9 @@
 /**
  * Renders the Keycloak realm from its template.
  *
- * Reads `realm-erp.template.json` (it lives next to this file), replaces every
+ * Reads `realm-clavis.template.json` (it lives next to this file), replaces every
  * marker of the form __VARIABLE_NAME__ with the matching value from
- * `process.env` and writes the result as `realm-erp.json` inside OUTPUT_DIR
+ * `process.env` and writes the result as `realm-clavis.json` inside OUTPUT_DIR
  * (/import by default, which is the `keycloak-import` volume).
  *
  * Rules:
@@ -22,10 +22,10 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url))
-const TEMPLATE_PATH = resolve(SCRIPT_DIR, 'realm-erp.template.json')
+const TEMPLATE_PATH = resolve(SCRIPT_DIR, 'realm-clavis.template.json')
 
 const OUTPUT_DIR = process.env.OUTPUT_DIR || '/import'
-const OUTPUT_NAME = process.env.OUTPUT_NAME || 'realm-erp.json'
+const OUTPUT_NAME = process.env.OUTPUT_NAME || 'realm-clavis.json'
 const OUTPUT_PATH = resolve(OUTPUT_DIR, OUTPUT_NAME)
 
 /** Marker: two underscores, the name in upper case, two underscores. */

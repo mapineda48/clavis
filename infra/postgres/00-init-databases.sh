@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Creates Keycloak's role and database inside the same PostgreSQL server the ERP
+# Creates Keycloak's role and database inside the same PostgreSQL server Clavis
 # uses.
 #
 # The official postgres image runs this file with bash from

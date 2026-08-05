@@ -1,0 +1,1240 @@
+/* =============================================================================
+   Clavis demo login theme — the one stylesheet.
+
+   No remote fonts, no CDNs, no dependencies: everything is solved with the
+   system font stack and SVG icons embedded as data URIs.
+
+   Contents:
+     1. Variables (colour, shape, spacing, icons)
+     2. Dark mode (redefines colour variables only)
+     3. Reset scoped to the theme
+     4. Structure: layout, brand panel, form panel
+     5. Demo user cheat sheet
+     6. Card, header and language selector
+     7. Forms: fields, inputs, show/hide password, options
+     8. Buttons and links
+     9. Alerts
+    10. Federated identities, info and footer
+    11. Mask-based icons
+    12. Narrow screens
+    13. Reduced motion
+   ========================================================================== */
+
+
+/* =============================================================================
+   1. Variables
+   ========================================================================== */
+
+:root {
+  /* --- System typography (nothing downloaded) --------------------------- */
+  --clavis-font-sans:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
+    Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+  --clavis-font-mono:
+    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+
+  /* --- Shape ------------------------------------------------------------ */
+  --clavis-radius-sm: 8px;
+  --clavis-radius-md: 12px;
+  --clavis-radius-lg: 20px;
+  --clavis-radius-pill: 999px;
+
+  /* --- Spacing ---------------------------------------------------------- */
+  --clavis-space-1: 0.375rem;
+  --clavis-space-2: 0.625rem;
+  --clavis-space-3: 1rem;
+  --clavis-space-4: 1.5rem;
+  --clavis-space-5: 2rem;
+  --clavis-space-6: 3rem;
+  --clavis-gutter: clamp(1.25rem, 4vw, 3rem);
+
+  /* --- Colour: surfaces and text ---------------------------------------- */
+  --clavis-bg: #f2f1f8;
+  --clavis-bg-2: #e8e6f2;
+  --clavis-surface: #ffffff;
+  --clavis-surface-2: #f7f6fb;
+  --clavis-text: #1a1830;
+  --clavis-text-muted: #56546e;
+  --clavis-border: #dcd9ea;
+  --clavis-border-strong: #bcb7d3;
+
+  /* --- Colour: identity -------------------------------------------------- */
+  /* --clavis-primary fills buttons (white text on top of it);
+     --clavis-accent tints text and links (it has to be legible on the surface). */
+  --clavis-primary: #4c2fb0;
+  --clavis-primary-hover: #3d2492;
+  --clavis-primary-soft: #ece7fb;
+  --clavis-on-primary: #ffffff;
+  --clavis-accent: #4c2fb0;
+  --clavis-focus: #6d4ae0;
+  --clavis-focus-ring: 0 0 0 3px rgba(109, 74, 224, 0.32);
+
+  /* --- Colour: brand panel (gradient and translucent surfaces) ----------- */
+  --clavis-brand-gradient: linear-gradient(155deg, #241155 0%, #3b1f8f 46%, #0f5f66 100%);
+  --clavis-on-brand: #ffffff;
+  --clavis-on-brand-muted: rgba(255, 255, 255, 0.84);
+  --clavis-brand-surface: rgba(255, 255, 255, 0.11);
+  --clavis-brand-surface-strong: rgba(255, 255, 255, 0.2);
+  --clavis-brand-border: rgba(255, 255, 255, 0.26);
+
+  /* --- Colour: alert states --------------------------------------------- */
+  --clavis-danger: #b3261e;
+  --clavis-danger-bg: #fdeceb;
+  --clavis-warning: #8a5200;
+  --clavis-warning-bg: #fdf3e2;
+  --clavis-success: #0d6b46;
+  --clavis-success-bg: #e8f6ef;
+  --clavis-info: #17558c;
+  --clavis-info-bg: #e9f1fd;
+
+  /* --- Colour: shadows --------------------------------------------------- */
+  --clavis-shadow-sm: 0 1px 2px rgba(20, 16, 50, 0.08);
+  --clavis-shadow-md: 0 10px 30px -14px rgba(20, 16, 50, 0.35), 0 2px 6px rgba(20, 16, 50, 0.06);
+  --clavis-shadow-lg: 0 28px 64px -28px rgba(20, 16, 50, 0.5), 0 6px 16px rgba(20, 16, 50, 0.08);
+
+  /* --- Icons: embedded SVG, used as a mask ------------------------------- */
+  /* They are painted with background-color: currentColor, so they follow the
+     surrounding text colour. */
+  --clavis-icon-eye: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12Z'/%3E%3Ccircle cx='12' cy='12' r='3'/%3E%3C/svg%3E");
+  --clavis-icon-eye-off: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10.6 5.7A9.9 9.9 0 0 1 12 5.5c6.4 0 10 6.5 10 6.5a17.7 17.7 0 0 1-3.3 4.2'/%3E%3Cpath d='M6.6 7A17.6 17.6 0 0 0 2 12s3.6 6.5 10 6.5a9.7 9.7 0 0 0 4-.8'/%3E%3Cpath d='M9.9 9.9a3 3 0 0 0 4.2 4.2'/%3E%3Cpath d='m3 3 18 18'/%3E%3C/svg%3E");
+  --clavis-icon-info: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M12 11v5.4'/%3E%3Cpath d='M12 7.7h.01'/%3E%3C/svg%3E");
+  --clavis-icon-success: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6.5 9.4 17.1 4 11.7'/%3E%3C/svg%3E");
+  --clavis-icon-warning: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3.2 1.9 20.6h20.2z'/%3E%3Cpath d='M12 9.6v4.6'/%3E%3Cpath d='M12 17.4h.01'/%3E%3C/svg%3E");
+  --clavis-icon-error: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M12 7.4v5.2'/%3E%3Cpath d='M12 16.4h.01'/%3E%3C/svg%3E");
+
+  /* Fallback for the PatternFly alerts of inherited pages that end up outside an
+     .clavis-alert: without this value the mask would be invalid and the icon would
+     show up as a solid square. */
+  --clavis-alert-icon: var(--clavis-icon-info);
+}
+
+
+/* =============================================================================
+   2. Dark mode — redefines colour variables ONLY
+   ========================================================================== */
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --clavis-bg: #0d0c14;
+    --clavis-bg-2: #14131d;
+    --clavis-surface: #171621;
+    --clavis-surface-2: #1f1d2b;
+    --clavis-text: #ecebf5;
+    --clavis-text-muted: #a7a3bd;
+    --clavis-border: #2e2b3f;
+    --clavis-border-strong: #423e57;
+
+    --clavis-primary: #6d4ae0;
+    --clavis-primary-hover: #7c5cf0;
+    --clavis-primary-soft: #221a44;
+    --clavis-on-primary: #ffffff;
+    --clavis-accent: #b3a0ff;
+    --clavis-focus: #9b82ff;
+    --clavis-focus-ring: 0 0 0 3px rgba(155, 130, 255, 0.35);
+
+    --clavis-brand-gradient: linear-gradient(155deg, #170e33 0%, #2c1670 46%, #0b4950 100%);
+    --clavis-on-brand: #ffffff;
+    --clavis-on-brand-muted: rgba(255, 255, 255, 0.8);
+    --clavis-brand-surface: rgba(255, 255, 255, 0.1);
+    --clavis-brand-surface-strong: rgba(255, 255, 255, 0.18);
+    --clavis-brand-border: rgba(255, 255, 255, 0.22);
+
+    --clavis-danger: #ff9d95;
+    --clavis-danger-bg: #2c1518;
+    --clavis-warning: #f0c274;
+    --clavis-warning-bg: #2b2010;
+    --clavis-success: #74dfae;
+    --clavis-success-bg: #10251d;
+    --clavis-info: #8fc2ff;
+    --clavis-info-bg: #14202f;
+
+    --clavis-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5);
+    --clavis-shadow-md: 0 10px 30px -14px rgba(0, 0, 0, 0.8), 0 2px 6px rgba(0, 0, 0, 0.4);
+    --clavis-shadow-lg: 0 28px 64px -28px rgba(0, 0, 0, 0.9), 0 6px 16px rgba(0, 0, 0, 0.45);
+  }
+}
+
+
+/* =============================================================================
+   3. Reset scoped to the theme
+   ========================================================================== */
+
+.clavis-html,
+.clavis-html *,
+.clavis-html *::before,
+.clavis-html *::after {
+  box-sizing: border-box;
+}
+
+.clavis-html {
+  height: 100%;
+  /* Keeps native controls (scrollbars, autofill, checkboxes) in step with the theme. */
+  color-scheme: light dark;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+.clavis-body {
+  margin: 0;
+  min-height: 100%;
+  font-family: var(--clavis-font-sans);
+  font-size: 1rem;
+  line-height: 1.55;
+  color: var(--clavis-text);
+  background-color: var(--clavis-bg);
+  /* Safety net: no width should ever produce horizontal scrolling. */
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+.clavis-html h1,
+.clavis-html h2,
+.clavis-html h3,
+.clavis-html p,
+.clavis-html ul,
+.clavis-html ol,
+.clavis-html figure {
+  margin: 0;
+}
+
+.clavis-html ul,
+.clavis-html ol {
+  padding: 0;
+  list-style: none;
+}
+
+.clavis-html img,
+.clavis-html svg {
+  max-width: 100%;
+}
+
+.clavis-html button,
+.clavis-html input,
+.clavis-html select,
+.clavis-html textarea {
+  font: inherit;
+  color: inherit;
+}
+
+/* Very long words (email addresses, tokens) never widen the layout. */
+.clavis-html p,
+.clavis-html label,
+.clavis-html a,
+.clavis-html span,
+.clavis-html h1,
+.clavis-html h2,
+.clavis-html h3 {
+  overflow-wrap: break-word;
+}
+
+/* Visible, consistent focus on everything interactive. */
+.clavis-html :focus-visible {
+  outline: 2px solid var(--clavis-focus);
+  outline-offset: 2px;
+}
+
+
+/* =============================================================================
+   4. Structure
+   ========================================================================== */
+
+.clavis-layout {
+  display: grid;
+  /* minmax(0, …) stops the content forcing columns wider than the grid. */
+  grid-template-columns: minmax(0, 42%) minmax(0, 1fr);
+  min-height: 100vh;
+  min-height: 100dvh;
+  width: 100%;
+}
+
+/* Gradient band used only by the stacked layout (see section 12). */
+.clavis-layout::before {
+  content: none;
+}
+
+.clavis-brand,
+.clavis-panel {
+  min-width: 0;
+}
+
+/* --- Brand panel (left) ------------------------------------------------- */
+
+.clavis-brand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--clavis-gutter);
+  color: var(--clavis-on-brand);
+  background-image: var(--clavis-brand-gradient);
+  background-repeat: no-repeat;
+  background-size: cover;
+}
+
+.clavis-brand__inner {
+  display: flex;
+  flex-direction: column;
+  gap: var(--clavis-space-4);
+  width: 100%;
+  max-width: 30rem;
+}
+
+.clavis-brand__logo {
+  width: 3rem;
+  height: 3rem;
+  color: var(--clavis-on-brand);
+  filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.35));
+}
+
+.clavis-brand__title {
+  font-size: clamp(1.75rem, 1.2rem + 1.6vw, 2.5rem);
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  margin-top: calc(var(--clavis-space-2) * -1);
+}
+
+.clavis-brand__tagline {
+  max-width: 34ch;
+  color: var(--clavis-on-brand-muted);
+  font-size: 1.0625rem;
+}
+
+.clavis-brand__points {
+  display: flex;
+  flex-direction: column;
+  gap: var(--clavis-space-2);
+}
+
+.clavis-brand__point {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--clavis-space-2);
+  font-size: 0.9375rem;
+  color: var(--clavis-on-brand);
+}
+
+.clavis-brand__point-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 1.375rem;
+  height: 1.375rem;
+  margin-top: 0.1rem;
+  border-radius: var(--clavis-radius-pill);
+  background-color: var(--clavis-brand-surface-strong);
+  border: 1px solid var(--clavis-brand-border);
+  color: var(--clavis-on-brand);
+}
+
+.clavis-brand__point-icon svg {
+  width: 0.875rem;
+  height: 0.875rem;
+  display: block;
+}
+
+/* --- Form panel (right) ------------------------------------------------- */
+
+.clavis-panel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--clavis-gutter);
+  background-color: var(--clavis-bg);
+}
+
+
+/* =============================================================================
+   5. Demo user cheat sheet
+   ========================================================================== */
+
+.clavis-users {
+  display: flex;
+  flex-direction: column;
+  gap: var(--clavis-space-2);
+  margin-top: var(--clavis-space-2);
+}
+
+.clavis-users__title {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--clavis-on-brand-muted);
+}
+
+.clavis-user {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--clavis-space-1) var(--clavis-space-2);
+  padding: var(--clavis-space-2) var(--clavis-space-3);
+  border: 1px solid var(--clavis-brand-border);
+  border-radius: var(--clavis-radius-md);
+  background-color: var(--clavis-brand-surface);
+  color: var(--clavis-on-brand);
+}
+
+.clavis-user__head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.clavis-user__name {
+  font-family: var(--clavis-font-mono);
+  font-size: 0.9375rem;
+  font-weight: 700;
+}
+
+.clavis-user__role {
+  font-size: 0.75rem;
+  color: var(--clavis-on-brand-muted);
+}
+
+.clavis-user__perms {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+/* Permission chips: pure white on a translucent surface => comfortably AA. */
+.clavis-perm {
+  display: inline-block;
+  padding: 0.1rem 0.45rem;
+  border: 1px solid var(--clavis-brand-border);
+  border-radius: var(--clavis-radius-pill);
+  background-color: var(--clavis-brand-surface-strong);
+  color: var(--clavis-on-brand);
+  font-family: var(--clavis-font-mono);
+  font-size: 0.6875rem;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+.clavis-user__use {
+  grid-column: 2;
+  grid-row: 1;
+  justify-self: end;
+  padding: 0.3rem 0.7rem;
+  border: 1px solid var(--clavis-brand-border);
+  border-radius: var(--clavis-radius-pill);
+  background-color: var(--clavis-brand-surface-strong);
+  color: var(--clavis-on-brand);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+}
+
+.clavis-user__use:hover {
+  background-color: rgba(255, 255, 255, 0.3);
+  border-color: rgba(255, 255, 255, 0.45);
+}
+
+.clavis-user__use:active {
+  transform: translateY(1px);
+}
+
+.clavis-user__use:focus-visible {
+  outline: 2px solid var(--clavis-on-brand);
+  outline-offset: 2px;
+}
+
+.clavis-user__use[disabled] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.clavis-users__note {
+  margin-top: var(--clavis-space-1);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--clavis-on-brand-muted);
+}
+
+
+/* =============================================================================
+   6. Card, header and language selector
+   ========================================================================== */
+
+.clavis-card {
+  width: 100%;
+  max-width: 440px;
+  margin: 0 auto;
+  padding: clamp(1.5rem, 1rem + 2vw, 2.5rem);
+  background-color: var(--clavis-surface);
+  border: 1px solid var(--clavis-border);
+  border-radius: var(--clavis-radius-lg);
+  box-shadow: var(--clavis-shadow-lg);
+}
+
+.clavis-card__head {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: var(--clavis-space-4);
+}
+
+.clavis-card__title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: -0.015em;
+  color: var(--clavis-text);
+}
+
+.clavis-card__subtitle {
+  margin-top: var(--clavis-space-1);
+  font-size: 0.9375rem;
+  color: var(--clavis-text-muted);
+}
+
+.clavis-card__subtitle .required {
+  color: var(--clavis-danger);
+}
+
+.clavis-card__body {
+  display: block;
+}
+
+/* Echo of the already identified user (screens with auth.showUsername()). */
+.clavis-username-echo {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--clavis-space-1) var(--clavis-space-2);
+  margin-top: var(--clavis-space-3);
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--clavis-border);
+  border-radius: var(--clavis-radius-md);
+  background-color: var(--clavis-surface-2);
+  font-size: 0.875rem;
+  min-width: 0;
+}
+
+.clavis-username-echo label {
+  font-family: var(--clavis-font-mono);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
+.clavis-restart-link {
+  color: var(--clavis-accent);
+  font-size: 0.8125rem;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.clavis-restart-link:hover {
+  text-decoration-thickness: 2px;
+}
+
+/* --- Language selector -------------------------------------------------- */
+/* menu-button-links.js (base theme) opens the menu by setting
+   style="display:block" on the [role="menu"] element and aria-expanded="true" on
+   the button, and removes that inline property on close. That is why the list is
+   hidden with display:none: the script's inline style wins and reveals it. */
+
+.clavis-locale {
+  align-self: flex-end;
+  margin-bottom: var(--clavis-space-2);
+}
+
+.clavis-locale__dropdown {
+  position: relative;
+}
+
+.clavis-locale__button,
+.clavis-locale__dropdown > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0.65rem;
+  border: 1px solid var(--clavis-border);
+  border-radius: var(--clavis-radius-pill);
+  background-color: var(--clavis-surface-2);
+  color: var(--clavis-text-muted);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.clavis-locale__button::after,
+.clavis-locale__dropdown > button::after {
+  content: "";
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid currentColor;
+}
+
+.clavis-locale__button:hover,
+.clavis-locale__dropdown > button:hover {
+  color: var(--clavis-text);
+  border-color: var(--clavis-border-strong);
+}
+
+.clavis-locale__list {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  inset-inline-end: 0;
+  z-index: 30;
+  display: none;
+  min-width: 9rem;
+  padding: 0.25rem;
+  margin: 0;
+  border: 1px solid var(--clavis-border);
+  border-radius: var(--clavis-radius-md);
+  background-color: var(--clavis-surface);
+  box-shadow: var(--clavis-shadow-md);
+}
+
+/* Declarative fallback in case the inline style never gets applied. */
+.clavis-locale__dropdown > button[aria-expanded="true"] + .clavis-locale__list {
+  display: block;
+}
+
+.clavis-locale__list li {
+  list-style: none;
+}
+
+.clavis-locale__item {
+  display: block;
+  padding: 0.4rem 0.6rem;
+  border-radius: var(--clavis-radius-sm);
+  color: var(--clavis-text);
+  font-size: 0.875rem;
+  text-decoration: none;
+}
+
+.clavis-locale__item:hover,
+.clavis-locale__item:focus {
+  background-color: var(--clavis-primary-soft);
+  color: var(--clavis-text);
+}
+
+
+/* =============================================================================
+   7. Forms
+   ========================================================================== */
+
+.clavis-field {
+  margin-bottom: var(--clavis-space-3);
+}
+
+.clavis-label {
+  display: block;
+  margin-bottom: 0.35rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--clavis-text);
+}
+
+.clavis-input,
+.clavis-card__body select,
+.clavis-card__body textarea {
+  display: block;
+  width: 100%;
+  min-height: 2.875rem;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid var(--clavis-border-strong);
+  border-radius: var(--clavis-radius-md);
+  background-color: var(--clavis-surface);
+  color: var(--clavis-text);
+  font-size: 1rem; /* 16px: stops iOS from zooming in automatically */
+  line-height: 1.4;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+}
+
+.clavis-input::placeholder {
+  color: var(--clavis-text-muted);
+  opacity: 0.8;
+}
+
+.clavis-input:hover,
+.clavis-card__body select:hover,
+.clavis-card__body textarea:hover {
+  border-color: var(--clavis-focus);
+}
+
+.clavis-input:focus-visible,
+.clavis-input:focus,
+.clavis-card__body select:focus,
+.clavis-card__body textarea:focus {
+  /* A transparent outline instead of `outline: none`, so the system forced
+     colours mode still paints a visible focus ring. */
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  border-color: var(--clavis-focus);
+  box-shadow: var(--clavis-focus-ring);
+}
+
+.clavis-input[disabled],
+.clavis-input[readonly] {
+  background-color: var(--clavis-surface-2);
+  color: var(--clavis-text-muted);
+  cursor: not-allowed;
+}
+
+/* Error state: the template signals it with aria-invalid="true". */
+.clavis-input[aria-invalid="true"] {
+  border-color: var(--clavis-danger);
+}
+
+.clavis-input[aria-invalid="true"]:focus,
+.clavis-input[aria-invalid="true"]:focus-visible {
+  border-color: var(--clavis-danger);
+  box-shadow: 0 0 0 3px var(--clavis-danger-bg);
+}
+
+.clavis-field-error {
+  display: block;
+  margin-top: 0.4rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--clavis-danger);
+}
+
+/* --- Input group with a show/hide button -------------------------------- */
+
+.clavis-input-group {
+  position: relative;
+  display: block;
+  width: 100%;
+}
+
+/* Reserved room so the button never covers the text being typed. */
+.clavis-input-group .clavis-input {
+  padding-inline-end: 3rem;
+}
+
+.clavis-toggle {
+  position: absolute;
+  inset-inline-end: 0.35rem;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  padding: 0;
+  border: 0;
+  border-radius: var(--clavis-radius-sm);
+  background-color: transparent;
+  color: var(--clavis-text-muted);
+  cursor: pointer;
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.clavis-toggle:hover {
+  color: var(--clavis-text);
+  background-color: var(--clavis-primary-soft);
+}
+
+/* --- Options row (remember me / forgot my password) --------------------- */
+
+.clavis-options {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+}
+
+.clavis-options > * {
+  min-width: 0;
+}
+
+/* In our login.ftl the class sits ON the <label>; on the pages inherited from the
+   base theme the structure is <div class="checkbox"><label>. Both shapes are
+   covered so the "remember me" row looks the same either way. */
+.clavis-checkbox,
+.clavis-options .checkbox label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: var(--clavis-text-muted);
+  cursor: pointer;
+}
+
+.clavis-options .checkbox {
+  display: flex;
+  align-items: center;
+}
+
+.clavis-html input[type="checkbox"] {
+  width: 1rem;
+  height: 1rem;
+  margin: 0;
+  accent-color: var(--clavis-primary);
+  cursor: pointer;
+}
+
+
+/* =============================================================================
+   8. Buttons and links
+   ========================================================================== */
+
+.clavis-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.65rem 1.1rem;
+  border: 1px solid transparent;
+  border-radius: var(--clavis-radius-md);
+  background-color: var(--clavis-surface-2);
+  color: var(--clavis-text);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  line-height: 1.2;
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease,
+    color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+.clavis-btn:active {
+  transform: translateY(1px);
+}
+
+.clavis-btn[disabled],
+.clavis-btn[aria-disabled="true"] {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.clavis-btn--primary {
+  background-color: var(--clavis-primary);
+  border-color: var(--clavis-primary);
+  color: var(--clavis-on-primary);
+  box-shadow: var(--clavis-shadow-sm);
+}
+
+.clavis-btn--primary:hover {
+  background-color: var(--clavis-primary-hover);
+  border-color: var(--clavis-primary-hover);
+}
+
+.clavis-btn--ghost {
+  background-color: transparent;
+  border-color: var(--clavis-border-strong);
+  color: var(--clavis-text);
+}
+
+.clavis-btn--ghost:hover {
+  background-color: var(--clavis-surface-2);
+  border-color: var(--clavis-focus);
+}
+
+.clavis-btn--block {
+  display: flex;
+  width: 100%;
+}
+
+.clavis-btn--lg {
+  padding: 0.85rem 1.25rem;
+  font-size: 1rem;
+  border-radius: var(--clavis-radius-md);
+}
+
+/* Links that look like buttons are excluded: they already have their own style. */
+.clavis-link,
+.clavis-card__body a:not(.clavis-btn):not(.clavis-social__link),
+.clavis-options a {
+  color: var(--clavis-accent);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.clavis-link:hover,
+.clavis-card__body a:not(.clavis-btn):not(.clavis-social__link):hover,
+.clavis-options a:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+
+/* =============================================================================
+   9. Alerts
+   ========================================================================== */
+
+/* Our templates emit .clavis-alert--<type>; the templates inherited from the base
+   theme emit .alert-<type> (and .pf-m-*). Both variants are covered. */
+
+.clavis-alert {
+  --clavis-alert-fg: var(--clavis-info);
+  --clavis-alert-bg: var(--clavis-info-bg);
+  --clavis-alert-icon: var(--clavis-icon-info);
+
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  margin-bottom: var(--clavis-space-3);
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--clavis-border);
+  border-inline-start: 4px solid var(--clavis-alert-fg);
+  border-radius: var(--clavis-radius-md);
+  background-color: var(--clavis-alert-bg);
+  color: var(--clavis-text);
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.clavis-alert--error,
+.clavis-alert.alert-error,
+.clavis-alert.pf-m-danger {
+  --clavis-alert-fg: var(--clavis-danger);
+  --clavis-alert-bg: var(--clavis-danger-bg);
+  --clavis-alert-icon: var(--clavis-icon-error);
+}
+
+.clavis-alert--warning,
+.clavis-alert.alert-warning,
+.clavis-alert.pf-m-warning {
+  --clavis-alert-fg: var(--clavis-warning);
+  --clavis-alert-bg: var(--clavis-warning-bg);
+  --clavis-alert-icon: var(--clavis-icon-warning);
+}
+
+.clavis-alert--success,
+.clavis-alert.alert-success,
+.clavis-alert.pf-m-success {
+  --clavis-alert-fg: var(--clavis-success);
+  --clavis-alert-bg: var(--clavis-success-bg);
+  --clavis-alert-icon: var(--clavis-icon-success);
+}
+
+.clavis-alert--info,
+.clavis-alert.alert-info,
+.clavis-alert.pf-m-info {
+  --clavis-alert-fg: var(--clavis-info);
+  --clavis-alert-bg: var(--clavis-info-bg);
+  --clavis-alert-icon: var(--clavis-icon-info);
+}
+
+.clavis-alert__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 1.125rem;
+  height: 1.125rem;
+  margin-top: 0.15rem;
+  color: var(--clavis-alert-fg);
+}
+
+.clavis-alert__icon svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.clavis-alert__text {
+  min-width: 0;
+  color: var(--clavis-text);
+}
+
+.clavis-alert__text a {
+  color: var(--clavis-accent);
+}
+
+/* Alerts of the inherited pages that draw their own PatternFly alert (e.g.
+   login-recovery-authn-code-config.ftl, which we do not override): the icon
+   container arrives empty and we paint it with a mask. `--clavis-alert-icon` has a
+   default value in :root so it never ends up as a solid block. */
+.pf-c-alert__icon {
+  flex: none;
+  width: 1.125rem;
+  height: 1.125rem;
+  margin-top: 0.15rem;
+  background-color: var(--clavis-alert-fg);
+  -webkit-mask-image: var(--clavis-alert-icon);
+  mask-image: var(--clavis-alert-icon);
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+}
+
+
+/* =============================================================================
+   10. Federated identities, info and footer
+   ========================================================================== */
+
+.clavis-social {
+  margin-top: var(--clavis-space-4);
+}
+
+.clavis-social hr {
+  border: 0;
+  border-top: 1px solid var(--clavis-border);
+  margin: 0 0 var(--clavis-space-3);
+}
+
+.clavis-social h2 {
+  margin-bottom: var(--clavis-space-2);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--clavis-text-muted);
+}
+
+.clavis-social__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--clavis-space-2);
+}
+
+.clavis-social__item {
+  min-width: 0;
+}
+
+.clavis-social__link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.65rem 1rem;
+  border: 1px solid var(--clavis-border-strong);
+  border-radius: var(--clavis-radius-md);
+  background-color: var(--clavis-surface);
+  color: var(--clavis-text);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.clavis-social__link:hover {
+  background-color: var(--clavis-surface-2);
+  border-color: var(--clavis-focus);
+  text-decoration: none;
+}
+
+.clavis-signup,
+#kc-info {
+  margin-top: var(--clavis-space-4);
+  padding-top: var(--clavis-space-3);
+  border-top: 1px solid var(--clavis-border);
+  font-size: 0.875rem;
+  color: var(--clavis-text-muted);
+  text-align: center;
+}
+
+.clavis-footer {
+  margin-top: var(--clavis-space-4);
+  padding-top: var(--clavis-space-3);
+  border-top: 1px solid var(--clavis-border);
+  font-size: 0.75rem;
+  line-height: 1.6;
+  color: var(--clavis-text-muted);
+  text-align: center;
+}
+
+.clavis-footer a {
+  color: var(--clavis-accent);
+  font-weight: 600;
+}
+
+
+/* =============================================================================
+   11. Mask-based icons
+   ========================================================================== */
+
+/* passwordVisibility.js replaces the whole className of the <i> with
+   "clavis-icon clavis-icon--eye" or "clavis-icon clavis-icon--eye-off". For robustness each
+   of the three selectors defines size and presentation on its own. */
+.clavis-icon,
+.clavis-icon--eye,
+.clavis-icon--eye-off {
+  display: inline-block;
+  flex: none;
+  width: 1.25rem;
+  height: 1.25rem;
+  background-color: currentColor;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+}
+
+.clavis-icon--eye {
+  -webkit-mask-image: var(--clavis-icon-eye);
+  mask-image: var(--clavis-icon-eye);
+}
+
+.clavis-icon--eye-off {
+  -webkit-mask-image: var(--clavis-icon-eye-off);
+  mask-image: var(--clavis-icon-eye-off);
+}
+
+
+/* =============================================================================
+   12. Narrow screens (< 900 px)
+   ========================================================================== */
+
+/* A single column. The brand panel dissolves (display: contents) so its pieces
+   land directly on the grid: a compact header on top (logo + title + tagline
+   over the gradient) and the user cheat sheet BELOW the form. The gradient band
+   itself is painted by .clavis-layout::before. */
+
+@media (max-width: 899.98px) {
+  .clavis-layout {
+    grid-template-columns: auto minmax(0, 1fr);
+    align-content: start;
+    min-height: 100vh;
+    min-height: 100dvh;
+  }
+
+  .clavis-layout::before {
+    content: "";
+    grid-column: 1 / -1;
+    grid-row: 1 / 3;
+    background-image: var(--clavis-brand-gradient);
+    background-repeat: no-repeat;
+    background-size: cover;
+  }
+
+  .clavis-brand,
+  .clavis-brand__inner {
+    display: contents;
+  }
+
+  /* Positioned so they stack above the gradient band. */
+  .clavis-brand__logo,
+  .clavis-brand__title,
+  .clavis-brand__tagline {
+    position: relative;
+    color: var(--clavis-on-brand);
+  }
+
+  .clavis-brand__logo {
+    grid-column: 1;
+    grid-row: 1;
+    align-self: center;
+    width: 2.25rem;
+    height: 2.25rem;
+    margin: 1.1rem 0 0.9rem 1.25rem;
+  }
+
+  .clavis-brand__title {
+    grid-column: 2;
+    grid-row: 1;
+    align-self: center;
+    margin: 0;
+    padding: 0 1.25rem 0 0.75rem;
+    font-size: 1.375rem;
+  }
+
+  .clavis-brand__tagline {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    max-width: none;
+    padding: 0 1.25rem 1.25rem;
+    font-size: 0.875rem;
+  }
+
+  /* The three selling points are surplus in the compact header. */
+  .clavis-brand__points {
+    display: none;
+  }
+
+  .clavis-panel {
+    grid-column: 1 / -1;
+    grid-row: 3;
+    padding: clamp(1.25rem, 4vw, 2rem) 1rem;
+  }
+
+  /* Outside the gradient: the cheat sheet becomes its own card with the same
+     background, so the translucent chips keep their contrast. */
+  .clavis-users {
+    grid-column: 1 / -1;
+    grid-row: 4;
+    margin: 0 1rem 1.5rem;
+    padding: var(--clavis-space-3);
+    border-radius: var(--clavis-radius-lg);
+    background-image: var(--clavis-brand-gradient);
+    background-repeat: no-repeat;
+    background-size: cover;
+    color: var(--clavis-on-brand);
+    box-shadow: var(--clavis-shadow-md);
+  }
+}
+
+/* Very narrow phones (320 px): nothing may overflow horizontally. */
+@media (max-width: 420px) {
+  .clavis-card {
+    padding: 1.25rem 1rem;
+    border-radius: var(--clavis-radius-md);
+  }
+
+  .clavis-panel {
+    padding: 1.25rem 0.75rem;
+  }
+
+  .clavis-users {
+    margin-inline: 0.75rem;
+  }
+
+  .clavis-user {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .clavis-user__use {
+    grid-column: 1;
+    grid-row: 3;
+    justify-self: start;
+  }
+
+  .clavis-perm {
+    white-space: normal;
+  }
+
+  .clavis-username-echo {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
+
+/* =============================================================================
+   13. Reduced motion
+   ========================================================================== */
+
+@media (prefers-reduced-motion: reduce) {
+  .clavis-html *,
+  .clavis-html *::before,
+  .clavis-html *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .clavis-btn:active,
+  .clavis-user__use:active {
+    transform: none;
+  }
+}

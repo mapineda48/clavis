@@ -49,7 +49,7 @@ function parseAccessToken(raw: unknown): ParsedAccessToken {
 /* ------------------------------------------------------------------ */
 
 export interface UserProfile {
-  /** The `sub` of the token, which is also the id in `erp.users`. */
+  /** The `sub` of the token, which is also the id in `clavis.users`. */
   id: string
   username: string
   email: string | null
@@ -87,7 +87,7 @@ function readSession(): SessionState {
   const claims = parseAccessToken(keycloak.tokenParsed)
   // This runs outside React, so the label comes from the active locale.
   const username = claims.username ?? translateActive('common.unknown')
-  // The permissions are the client roles of the API client (`erp-api`).
+  // The permissions are the client roles of the API client (`clavis-api`).
   const permissions = (claims.clientRoles[config.apiClientId] ?? []).filter(isPermission)
   return {
     authenticated: true,

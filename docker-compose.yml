@@ -1,4 +1,4 @@
-# Infrastructure stack for the demo ERP.
+# Infrastructure stack for the Clavis demo.
 #
 # Every variable is read from the .env at the monorepo root through docker
 # compose interpolation. Each reference carries a default so the stack still
@@ -12,20 +12,20 @@
 #   (default)  postgres, keycloak-realm, keycloak, valkey, azurite, api
 #   full       adds the SPA served by nginx on port 8081
 
-name: ${COMPOSE_PROJECT_NAME:-erp-demo}
+name: ${COMPOSE_PROJECT_NAME:-clavis}
 
 services:
   # ---------------------------------------------------------------------------
-  # PostgreSQL: the ERP database and — via the init script — Keycloak's.
+  # PostgreSQL: Clavis database and — via the init script — Keycloak's.
   # ---------------------------------------------------------------------------
   postgres:
     image: postgres:17.6-alpine
-    container_name: ${COMPOSE_PROJECT_NAME:-erp-demo}-postgres
+    container_name: ${COMPOSE_PROJECT_NAME:-clavis}-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-erp}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-erp_dev_password}
-      POSTGRES_DB: ${POSTGRES_DB:-erp}
+      POSTGRES_USER: ${POSTGRES_USER:-clavis}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-clavis_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-clavis}
       # Consumed by infra/postgres/00-init-databases.sh
       KEYCLOAK_DB_NAME: ${KEYCLOAK_DB_NAME:-keycloak}
       KEYCLOAK_DB_USER: ${KEYCLOAK_DB_USER:-keycloak}
@@ -40,40 +40,40 @@ services:
     healthcheck:
       test:
         - CMD-SHELL
-        - pg_isready -U ${POSTGRES_USER:-erp} -d ${POSTGRES_DB:-erp}
+        - pg_isready -U ${POSTGRES_USER:-clavis} -d ${POSTGRES_DB:-clavis}
       interval: 5s
       timeout: 5s
       retries: 20
       start_period: 10s
     networks:
-      - erp-net
+      - clavis-net
 
   # ---------------------------------------------------------------------------
   # Realm renderer (one-shot). Replaces the __VAR__ markers in
-  # realm-erp.template.json and drops realm-erp.json into the keycloak-import
+  # realm-clavis.template.json and drops realm-clavis.json into the keycloak-import
   # volume.
   # ---------------------------------------------------------------------------
   keycloak-realm:
     image: node:22.23.1-alpine
-    container_name: ${COMPOSE_PROJECT_NAME:-erp-demo}-keycloak-realm
+    container_name: ${COMPOSE_PROJECT_NAME:-clavis}-keycloak-realm
     restart: "no"
     working_dir: /work
     command: ["node", "/work/render-realm.mjs"]
     environment:
       OUTPUT_DIR: /import
       # --- realm identity
-      KEYCLOAK_REALM: ${KEYCLOAK_REALM:-erp}
-      KEYCLOAK_APP_CLIENT_ID: ${KEYCLOAK_APP_CLIENT_ID:-erp-app}
-      KEYCLOAK_API_CLIENT_ID: ${KEYCLOAK_API_CLIENT_ID:-erp-api}
-      KEYCLOAK_API_CLIENT_SECRET: ${KEYCLOAK_API_CLIENT_SECRET:-erp_api_dev_secret}
+      KEYCLOAK_REALM: ${KEYCLOAK_REALM:-clavis}
+      KEYCLOAK_APP_CLIENT_ID: ${KEYCLOAK_APP_CLIENT_ID:-clavis-app}
+      KEYCLOAK_API_CLIENT_ID: ${KEYCLOAK_API_CLIENT_ID:-clavis-api}
+      KEYCLOAK_API_CLIENT_SECRET: ${KEYCLOAK_API_CLIENT_SECRET:-clavis_api_dev_secret}
       KEYCLOAK_PUBLIC_URL: ${KEYCLOAK_PUBLIC_URL:-http://localhost:8080}
       # --- login screen theme
       # Fills the __KEYCLOAK_LOGIN_THEME__ marker in the realm template.
-      # `erp` is the custom theme in ./infra/keycloak/themes/erp; `keycloak`
+      # `clavis` is the custom theme in ./infra/keycloak/themes/clavis; `keycloak`
       # falls back to the one shipped with the server.
-      KEYCLOAK_LOGIN_THEME: ${KEYCLOAK_LOGIN_THEME:-erp}
+      KEYCLOAK_LOGIN_THEME: ${KEYCLOAK_LOGIN_THEME:-clavis}
       # --- theme for the emails Keycloak sends (password reset, etc.)
-      KEYCLOAK_EMAIL_THEME: ${KEYCLOAK_EMAIL_THEME:-erp}
+      KEYCLOAK_EMAIL_THEME: ${KEYCLOAK_EMAIL_THEME:-clavis}
       # --- realm SMTP: used by KEYCLOAK, not by the API.
       # The API sends through the Resend HTTP API; Keycloak only speaks SMTP,
       # so it points at the Resend SMTP relay with the SAME key.
@@ -82,7 +82,7 @@ services:
       KEYCLOAK_SMTP_HOST: ${KEYCLOAK_SMTP_HOST:-smtp.resend.com}
       KEYCLOAK_SMTP_PORT: ${KEYCLOAK_SMTP_PORT:-587}
       KEYCLOAK_SMTP_FROM: ${KEYCLOAK_SMTP_FROM:-onboarding@resend.dev}
-      KEYCLOAK_SMTP_FROM_DISPLAY_NAME: ${KEYCLOAK_SMTP_FROM_DISPLAY_NAME:-ERP Demo}
+      KEYCLOAK_SMTP_FROM_DISPLAY_NAME: ${KEYCLOAK_SMTP_FROM_DISPLAY_NAME:-Clavis}
       KEYCLOAK_SMTP_SSL: ${KEYCLOAK_SMTP_SSL:-false}
       KEYCLOAK_SMTP_STARTTLS: ${KEYCLOAK_SMTP_STARTTLS:-true}
       KEYCLOAK_SMTP_AUTH: ${KEYCLOAK_SMTP_AUTH:-true}
@@ -94,26 +94,26 @@ services:
       APP_PROD_URL: ${APP_PROD_URL:-http://localhost:8081}
       # --- demo users
       DEMO_ADMIN_USERNAME: ${DEMO_ADMIN_USERNAME:-admin}
-      DEMO_ADMIN_EMAIL: ${DEMO_ADMIN_EMAIL:-admin@erp.local}
+      DEMO_ADMIN_EMAIL: ${DEMO_ADMIN_EMAIL:-admin@clavis.local}
       DEMO_ADMIN_PASSWORD: ${DEMO_ADMIN_PASSWORD:-Admin123!}
       DEMO_MANAGER_USERNAME: ${DEMO_MANAGER_USERNAME:-manager}
-      DEMO_MANAGER_EMAIL: ${DEMO_MANAGER_EMAIL:-manager@erp.local}
+      DEMO_MANAGER_EMAIL: ${DEMO_MANAGER_EMAIL:-manager@clavis.local}
       DEMO_MANAGER_PASSWORD: ${DEMO_MANAGER_PASSWORD:-Manager123!}
       DEMO_USER_USERNAME: ${DEMO_USER_USERNAME:-worker}
-      DEMO_USER_EMAIL: ${DEMO_USER_EMAIL:-worker@erp.local}
+      DEMO_USER_EMAIL: ${DEMO_USER_EMAIL:-worker@clavis.local}
       DEMO_USER_PASSWORD: ${DEMO_USER_PASSWORD:-Worker123!}
     volumes:
       - ./infra/keycloak:/work:ro
       - keycloak-import:/import
     networks:
-      - erp-net
+      - clavis-net
 
   # ---------------------------------------------------------------------------
   # Keycloak 26 in development mode, importing the realm on boot.
   # ---------------------------------------------------------------------------
   keycloak:
     image: quay.io/keycloak/keycloak:26.4.0
-    container_name: ${COMPOSE_PROJECT_NAME:-erp-demo}-keycloak
+    container_name: ${COMPOSE_PROJECT_NAME:-clavis}-keycloak
     restart: unless-stopped
     command: ["start-dev", "--import-realm"]
     depends_on:
@@ -138,7 +138,7 @@ services:
       - "8080:8080"
     volumes:
       - keycloak-import:/opt/keycloak/data/import
-      # Custom login theme (`erp`), mounted read-only.
+      # Custom login theme (`clavis`), mounted read-only.
       # Mounting over /opt/keycloak/themes is safe: in the official image that
       # directory only holds a README. The built-in themes (base, keycloak,
       # keycloak.v2) are NOT there — they ship inside the server JARs — so this
@@ -159,14 +159,14 @@ services:
       retries: 30
       start_period: 60s
     networks:
-      - erp-net
+      - clavis-net
 
   # ---------------------------------------------------------------------------
   # Valkey: cache for the todo listings.
   # ---------------------------------------------------------------------------
   valkey:
     image: valkey/valkey:8.1.3-alpine
-    container_name: ${COMPOSE_PROJECT_NAME:-erp-demo}-valkey
+    container_name: ${COMPOSE_PROJECT_NAME:-clavis}-valkey
     restart: unless-stopped
     command: ["valkey-server", "--appendonly", "yes", "--dir", "/data"]
     ports:
@@ -180,14 +180,14 @@ services:
       retries: 20
       start_period: 5s
     networks:
-      - erp-net
+      - clavis-net
 
   # ---------------------------------------------------------------------------
   # Azurite: Azure Storage emulator backing the attachments.
   # ---------------------------------------------------------------------------
   azurite:
     image: mcr.microsoft.com/azure-storage/azurite:3.35.0
-    container_name: ${COMPOSE_PROJECT_NAME:-erp-demo}-azurite
+    container_name: ${COMPOSE_PROJECT_NAME:-clavis}-azurite
     restart: unless-stopped
     command:
       - azurite
@@ -223,7 +223,7 @@ services:
       retries: 20
       start_period: 10s
     networks:
-      - erp-net
+      - clavis-net
 
   # ---------------------------------------------------------------------------
   # Fastify API. The build context is the ROOT of the repo (pnpm monorepo).
@@ -232,8 +232,8 @@ services:
     build:
       context: .
       dockerfile: packages/api/Dockerfile
-    image: ${COMPOSE_PROJECT_NAME:-erp-demo}-api
-    container_name: ${COMPOSE_PROJECT_NAME:-erp-demo}-api
+    image: ${COMPOSE_PROJECT_NAME:-clavis}-api
+    container_name: ${COMPOSE_PROJECT_NAME:-clavis}-api
     restart: unless-stopped
     depends_on:
       postgres:
@@ -253,18 +253,18 @@ services:
       CACHE_TTL_SECONDS: ${CACHE_TTL_SECONDS:-60}
       MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-10485760}
       # --- derived variables (contract, section 6)
-      DATABASE_URL: "postgres://${POSTGRES_USER:-erp}:${POSTGRES_PASSWORD:-erp_dev_password}@postgres:5432/${POSTGRES_DB:-erp}"
+      DATABASE_URL: "postgres://${POSTGRES_USER:-clavis}:${POSTGRES_PASSWORD:-clavis_dev_password}@postgres:5432/${POSTGRES_DB:-clavis}"
       VALKEY_URL: "redis://valkey:6379"
-      KEYCLOAK_ISSUER: "${KEYCLOAK_PUBLIC_URL:-http://localhost:8080}/realms/${KEYCLOAK_REALM:-erp}"
-      KEYCLOAK_INTERNAL_ISSUER: "http://keycloak:8080/realms/${KEYCLOAK_REALM:-erp}"
-      KEYCLOAK_AUDIENCE: ${KEYCLOAK_API_CLIENT_ID:-erp-api}
+      KEYCLOAK_ISSUER: "${KEYCLOAK_PUBLIC_URL:-http://localhost:8080}/realms/${KEYCLOAK_REALM:-clavis}"
+      KEYCLOAK_INTERNAL_ISSUER: "http://keycloak:8080/realms/${KEYCLOAK_REALM:-clavis}"
+      KEYCLOAK_AUDIENCE: ${KEYCLOAK_API_CLIENT_ID:-clavis-api}
       CORS_ORIGINS: "${APP_DEV_URL:-http://localhost:5173},${APP_PROD_URL:-http://localhost:8081}"
       # --- storage
       AZURE_STORAGE_CONNECTION_STRING: "${AZURE_STORAGE_CONNECTION_STRING:-DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;QueueEndpoint=http://azurite:10001/devstoreaccount1;TableEndpoint=http://azurite:10002/devstoreaccount1;}"
-      AZURE_STORAGE_CONTAINER: ${AZURE_STORAGE_CONTAINER:-erp-attachments}
+      AZURE_STORAGE_CONTAINER: ${AZURE_STORAGE_CONTAINER:-clavis-attachments}
       # --- email
       RESEND_API_KEY: ${RESEND_API_KEY:-}
-      MAIL_FROM: "${MAIL_FROM:-ERP Demo <onboarding@resend.dev>}"
+      MAIL_FROM: "${MAIL_FROM:-Clavis <onboarding@resend.dev>}"
       MAIL_REPLY_TO: ${MAIL_REPLY_TO:-}
       MAIL_ENABLED: ${MAIL_ENABLED:-true}
     ports:
@@ -280,37 +280,37 @@ services:
       retries: 12
       start_period: 20s
     networks:
-      - erp-net
+      - clavis-net
 
   # ---------------------------------------------------------------------------
   # SPA served by nginx. Only under the `full` profile.
-  # Configuration arrives at runtime: 40-erp-runtime-config.sh turns these ERP_*
-  # variables into window.__ERP_CONFIG__ inside /config.js.
+  # Configuration arrives at runtime: 40-clavis-runtime-config.sh turns these CLAVIS_*
+  # variables into window.__CLAVIS_CONFIG__ inside /config.js.
   # ---------------------------------------------------------------------------
   app:
     profiles: ["full"]
     build:
       context: .
       dockerfile: packages/app/Dockerfile
-    image: ${COMPOSE_PROJECT_NAME:-erp-demo}-app
-    container_name: ${COMPOSE_PROJECT_NAME:-erp-demo}-app
+    image: ${COMPOSE_PROJECT_NAME:-clavis}-app
+    container_name: ${COMPOSE_PROJECT_NAME:-clavis}-app
     restart: unless-stopped
     depends_on:
       api:
         condition: service_healthy
     environment:
-      ERP_KEYCLOAK_URL: ${KEYCLOAK_PUBLIC_URL:-http://localhost:8080}
-      ERP_KEYCLOAK_REALM: ${KEYCLOAK_REALM:-erp}
-      ERP_KEYCLOAK_CLIENT_ID: ${KEYCLOAK_APP_CLIENT_ID:-erp-app}
-      ERP_KEYCLOAK_API_CLIENT_ID: ${KEYCLOAK_API_CLIENT_ID:-erp-api}
-      ERP_API_URL: ${VITE_API_URL:-http://localhost:3000}
+      CLAVIS_KEYCLOAK_URL: ${KEYCLOAK_PUBLIC_URL:-http://localhost:8080}
+      CLAVIS_KEYCLOAK_REALM: ${KEYCLOAK_REALM:-clavis}
+      CLAVIS_KEYCLOAK_CLIENT_ID: ${KEYCLOAK_APP_CLIENT_ID:-clavis-app}
+      CLAVIS_KEYCLOAK_API_CLIENT_ID: ${KEYCLOAK_API_CLIENT_ID:-clavis-api}
+      CLAVIS_API_URL: ${VITE_API_URL:-http://localhost:3000}
     ports:
       - "8081:80"
     networks:
-      - erp-net
+      - clavis-net
 
 networks:
-  erp-net:
+  clavis-net:
     driver: bridge
 
 volumes:

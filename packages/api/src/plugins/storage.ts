@@ -85,7 +85,7 @@ export const storagePlugin = fp(
 
     app.decorate('storage', storage)
   },
-  { name: 'erp-storage' },
+  { name: 'clavis-storage' },
 )
 
 export default storagePlugin

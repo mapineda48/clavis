@@ -7,7 +7,7 @@ import type { ScopeFilter } from '../shared/scope.js'
 /** Database access decorated on the Fastify instance. */
 type Database = FastifyInstance['db']
 
-/** Statuses accepted by `erp.todos.status`. */
+/** Statuses accepted by `clavis.todos.status`. */
 export type TodoStatus = 'todo' | 'in_progress' | 'done'
 
 /** Public representation of a todo. */
@@ -26,7 +26,7 @@ export interface TodoDto {
   attachmentsCount: number
 }
 
-/** Minimal data of an ERP user. */
+/** Minimal data of a Clavis user. */
 export interface UserDto {
   id: string
   username: string
@@ -113,7 +113,7 @@ const TODO_COLUMNS = `
   t.created_at,
   t.updated_at,
   t.completed_at,
-  (SELECT count(*)::int FROM erp.todo_attachments a WHERE a.todo_id = t.id) AS attachments_count
+  (SELECT count(*)::int FROM clavis.todo_attachments a WHERE a.todo_id = t.id) AS attachments_count
 `
 
 /** Stable ordering: open tasks first, then priority, due date and age. */
@@ -135,7 +135,7 @@ function escapeLike(value: string): string {
   return value.replace(/[\\%_]/g, (match) => `\\${match}`)
 }
 
-/** Maps a row of `erp.todos` to the public DTO. */
+/** Maps a row of `clavis.todos` to the public DTO. */
 function mapTodo(row: TodoRow): TodoDto {
   return {
     id: row.id,
@@ -153,7 +153,7 @@ function mapTodo(row: TodoRow): TodoDto {
   }
 }
 
-/** Maps a row of `erp.users` to the public DTO. */
+/** Maps a row of `clavis.users` to the public DTO. */
 function mapUser(row: UserRow): UserDto {
   return {
     id: row.id,
@@ -185,7 +185,7 @@ export async function listTodos(db: Database, options: ListTodosOptions): Promis
   const where = conditions.join(' AND ')
 
   const totals = await db.query<{ total: number }>(
-    `SELECT count(*)::int AS total FROM erp.todos t WHERE ${where}`,
+    `SELECT count(*)::int AS total FROM clavis.todos t WHERE ${where}`,
     params,
   )
   const total = totals.rows[0]?.total ?? 0
@@ -193,7 +193,7 @@ export async function listTodos(db: Database, options: ListTodosOptions): Promis
   const offset = (options.page - 1) * options.pageSize
   const rows = await db.query<TodoRow>(
     `SELECT ${TODO_COLUMNS}
-     FROM erp.todos t
+     FROM clavis.todos t
      WHERE ${where}
      ${TODO_ORDER}
      LIMIT $${index} OFFSET $${index + 1}`,
@@ -206,7 +206,7 @@ export async function listTodos(db: Database, options: ListTodosOptions): Promis
 /** Returns a todo by its id, or null when it does not exist. */
 export async function getTodoById(db: Database, id: string): Promise<TodoDto | null> {
   const result = await db.query<TodoRow>(
-    `SELECT ${TODO_COLUMNS} FROM erp.todos t WHERE t.id = $1`,
+    `SELECT ${TODO_COLUMNS} FROM clavis.todos t WHERE t.id = $1`,
     [id],
   )
   const row = result.rows[0]
@@ -218,7 +218,7 @@ export async function createTodo(db: Database, input: CreateTodoInput): Promise<
   const status: TodoStatus = input.status ?? 'todo'
   const result = await db.query<TodoRow>(
     `WITH inserted AS (
-       INSERT INTO erp.todos (title, description, status, priority, due_date, owner_id, assignee_id, completed_at)
+       INSERT INTO clavis.todos (title, description, status, priority, due_date, owner_id, assignee_id, completed_at)
        VALUES ($1, $2, $3, $4, $5::date, $6, $7, CASE WHEN $3 = 'done' THEN now() ELSE NULL END)
        RETURNING *
      )
@@ -290,7 +290,7 @@ export async function updateTodo(
   params.push(id)
   const result = await db.query<TodoRow>(
     `WITH updated AS (
-       UPDATE erp.todos
+       UPDATE clavis.todos
        SET ${assignments.join(', ')}
        WHERE id = $${index}
        RETURNING *
@@ -312,10 +312,10 @@ export async function deleteTodo(
 ): Promise<{ deleted: boolean; blobNames: string[] }> {
   return db.tx(async (client) => {
     const attachments = await client.query<{ blob_name: string }>(
-      'SELECT blob_name FROM erp.todo_attachments WHERE todo_id = $1',
+      'SELECT blob_name FROM clavis.todo_attachments WHERE todo_id = $1',
       [id],
     )
-    const removed = await client.query('DELETE FROM erp.todos WHERE id = $1', [id])
+    const removed = await client.query('DELETE FROM clavis.todos WHERE id = $1', [id])
     return {
       deleted: (removed.rowCount ?? 0) > 0,
       blobNames: attachments.rows.map((row) => row.blob_name),
@@ -384,7 +384,7 @@ export async function seedDemoTodos(
   ownerId: string,
 ): Promise<{ created: number; items: TodoDto[] }> {
   const existing = await db.query<{ total: number }>(
-    'SELECT count(*)::int AS total FROM erp.todos WHERE owner_id = $1',
+    'SELECT count(*)::int AS total FROM clavis.todos WHERE owner_id = $1',
     [ownerId],
   )
   if ((existing.rows[0]?.total ?? 0) > 0) {
@@ -393,7 +393,7 @@ export async function seedDemoTodos(
 
   const result = await db.query<TodoRow>(
     `WITH inserted AS (
-       INSERT INTO erp.todos (title, description, status, priority, due_date, owner_id, assignee_id, completed_at)
+       INSERT INTO clavis.todos (title, description, status, priority, due_date, owner_id, assignee_id, completed_at)
        SELECT s.title,
               s.description,
               s.status,
@@ -428,7 +428,7 @@ export async function countByStatus(
 ): Promise<Record<TodoStatus, number>> {
   const where = scope ? `WHERE ${scope.clause}` : ''
   const result = await db.query<{ status: string; total: number }>(
-    `SELECT t.status, count(*)::int AS total FROM erp.todos t ${where} GROUP BY t.status`,
+    `SELECT t.status, count(*)::int AS total FROM clavis.todos t ${where} GROUP BY t.status`,
     scope ? scope.params : [],
   )
 
@@ -441,10 +441,10 @@ export async function countByStatus(
   return counts
 }
 
-/** Looks up an ERP user by its id (Keycloak `sub`). */
+/** Looks up a Clavis user by its id (Keycloak `sub`). */
 export async function findUserById(db: Database, id: string): Promise<UserDto | null> {
   const result = await db.query<UserRow>(
-    'SELECT id, username, email, display_name, last_seen_at FROM erp.users WHERE id = $1',
+    'SELECT id, username, email, display_name, last_seen_at FROM clavis.users WHERE id = $1',
     [id],
   )
   const row = result.rows[0]

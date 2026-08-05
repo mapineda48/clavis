@@ -37,21 +37,21 @@ The `package.json` scripts and the `Makefile` targets are equivalent; use whiche
 ### Working on a single package
 
 ```bash
-pnpm --filter @erp/app dev          # only the SPA (http://localhost:5173)
-pnpm --filter @erp/api dev          # only the API with tsx watch (needs the rest of the stack up)
-pnpm --filter @erp/api typecheck
-pnpm --filter @erp/app build
+pnpm --filter @clavis/app dev          # only the SPA (http://localhost:5173)
+pnpm --filter @clavis/api dev          # only the API with tsx watch (needs the rest of the stack up)
+pnpm --filter @clavis/api typecheck
+pnpm --filter @clavis/app build
 ```
 
 The usual workflow is **infrastructure in Docker + SPA locally**: `docker compose up -d --build`
-brings up postgres, keycloak, valkey, azurite and the API; `pnpm --filter @erp/app dev` gives you
+brings up postgres, keycloak, valkey, azurite and the API; `pnpm --filter @clavis/app dev` gives you
 hot reload on the frontend.
 
 If you would rather iterate on the API locally, stop the container to free port 3000:
 
 ```bash
 docker compose stop api
-pnpm --filter @erp/api dev
+pnpm --filter @clavis/api dev
 ```
 
 Careful: the API running locally needs to reach the services through `localhost`, not through their
@@ -72,7 +72,7 @@ docker compose config                   # the compose file already interpolated 
 `docker compose config` is the fastest way to check the final value of the derived variables
 (`DATABASE_URL`, `KEYCLOAK_ISSUER`, `CORS_ORIGINS`, …) without entering any container.
 
-Iterating on the **login theme** (`infra/keycloak/themes/erp`) needs none of these commands: with
+Iterating on the **login theme** (`infra/keycloak/themes/clavis`) needs none of these commands: with
 `start-dev` themes are not cached, so reloading the browser is enough unless you touch
 `theme.properties` or add files. Details in [section 8](#login-theme).
 
@@ -81,7 +81,7 @@ Iterating on the **login theme** (`infra/keycloak/themes/erp`) needs none of the
 ```bash
 curl -s http://localhost:3000/api/health | jq
 curl -s http://localhost:3000/api/health/ready | jq
-curl -sf http://localhost:8080/realms/erp/.well-known/openid-configuration >/dev/null && echo "realm erp OK"
+curl -sf http://localhost:8080/realms/clavis/.well-known/openid-configuration >/dev/null && echo "realm clavis OK"
 ```
 
 `/api/health/ready` returns `200` when database, cache and storage answer, and `503` when any of
@@ -113,13 +113,13 @@ Keycloak's database lives inside the `pg-data` volume. Therefore:
 |---|---|
 | `docker compose restart keycloak` | The realm already exists → **no import**. Template changes are not applied. |
 | `docker compose down` + `up` | `pg-data` is still there → **no import**. |
-| `docker compose down -v` + `up` | `pg-data` is gone → Keycloak starts empty and **does import** `realm-erp.json`. |
+| `docker compose down -v` + `up` | `pg-data` is gone → Keycloak starts empty and **does import** `realm-clavis.json`. |
 
-The one-shot `keycloak-realm` service does run on every `up`, so the `/import/realm-erp.json` file
+The one-shot `keycloak-realm` service does run on every `up`, so the `/import/realm-clavis.json` file
 inside the `keycloak-import` volume is **always up to date** with the template and with `.env`.
 What does not refresh without `-v` is whatever Keycloak already stored in Postgres.
 
-Rule of thumb: **any change to `infra/keycloak/realm-erp.template.json` or to the `DEMO_*`,
+Rule of thumb: **any change to `infra/keycloak/realm-clavis.template.json` or to the `DEMO_*`,
 `KEYCLOAK_*`, `APP_*_URL` variables requires `down -v`.** That includes `KEYCLOAK_LOGIN_THEME`,
 which feeds the realm's `loginTheme` field; for that particular case there is a live alternative
 with `kcadm.sh` that destroys no data, in [section 8](#login-theme).
@@ -135,7 +135,7 @@ press "Create sample data", or call `POST /api/todos/seed-demo`.
 ```bash
 # Only the application and Keycloak databases
 docker compose down
-docker volume rm erp-demo_pg-data
+docker volume rm clavis_pg-data
 docker compose up -d --build
 
 # Only the cache (harmless: it rebuilds itself)
@@ -143,12 +143,12 @@ docker compose exec valkey valkey-cli FLUSHALL
 
 # Only the attachments
 docker compose down
-docker volume rm erp-demo_azurite-data
+docker volume rm clavis_azurite-data
 docker compose up -d
 ```
 
-The `erp-demo_` prefix comes from `COMPOSE_PROJECT_NAME`. Check the real names with
-`docker volume ls | grep erp-demo`.
+The `clavis_` prefix comes from `COMPOSE_PROJECT_NAME`. Check the real names with
+`docker volume ls | grep clavis`.
 
 ---
 
@@ -180,7 +180,7 @@ docker compose logs api | grep -i migration     # migrations applied at startup
 docker compose logs keycloak | grep -i import   # realm import
 ```
 
-In local development (`pnpm --filter @erp/api dev`) the output goes through `pino-pretty` and comes
+In local development (`pnpm --filter @clavis/api dev`) the output goes through `pino-pretty` and comes
 out readable and coloured.
 
 ---
@@ -200,53 +200,53 @@ docker compose exec -it postgres psql -U "$POSTGRES_USER" -d "$KEYCLOAK_DB_NAME"
 With literal values, if you would rather not load `.env`:
 
 ```bash
-docker compose exec -it postgres psql -U erp -d erp
+docker compose exec -it postgres psql -U clavis -d clavis
 ```
 
 Inside `psql`:
 
 ```sql
 \dn                          -- schemas
-\dt erp.*                    -- tables in the erp schema
-\d erp.todos                 -- structure of a table
-\di erp.*                    -- indexes
+\dt clavis.*                    -- tables in the clavis schema
+\d clavis.todos                 -- structure of a table
+\di clavis.*                    -- indexes
 \x on                        -- vertical output, handy for wide rows
 
-SELECT version, applied_at FROM erp.schema_migrations ORDER BY version;
+SELECT version, applied_at FROM clavis.schema_migrations ORDER BY version;
 
-SELECT id, username, email, last_seen_at FROM erp.users ORDER BY last_seen_at DESC NULLS LAST;
+SELECT id, username, email, last_seen_at FROM clavis.users ORDER BY last_seen_at DESC NULLS LAST;
 
 SELECT t.id, t.title, t.status, t.priority, o.username AS owner, a.username AS assignee
-  FROM erp.todos t
-  JOIN erp.users o ON o.id = t.owner_id
-  LEFT JOIN erp.users a ON a.id = t.assignee_id
+  FROM clavis.todos t
+  JOIN clavis.users o ON o.id = t.owner_id
+  LEFT JOIN clavis.users a ON a.id = t.assignee_id
  ORDER BY t.created_at DESC
  LIMIT 20;
 
-SELECT * FROM erp.v_todo_stats;
+SELECT * FROM clavis.v_todo_stats;
 
 SELECT created_at, actor_id, action, entity, entity_id
-  FROM erp.audit_log
+  FROM clavis.audit_log
  ORDER BY created_at DESC
  LIMIT 20;
 
 SELECT a.file_name, a.content_type, a.size_bytes, a.blob_name
-  FROM erp.todo_attachments a
+  FROM clavis.todo_attachments a
  ORDER BY a.created_at DESC;
 ```
 
 One-off queries without opening an interactive session:
 
 ```bash
-docker compose exec postgres psql -U erp -d erp -c "SELECT count(*) FROM erp.todos;"
-docker compose exec postgres psql -U erp -d erp -Atc "SELECT status, count(*) FROM erp.todos GROUP BY status;"
+docker compose exec postgres psql -U clavis -d clavis -c "SELECT count(*) FROM clavis.todos;"
+docker compose exec postgres psql -U clavis -d clavis -Atc "SELECT status, count(*) FROM clavis.todos GROUP BY status;"
 ```
 
 Backup and restore:
 
 ```bash
-docker compose exec postgres pg_dump -U erp -d erp --schema=erp > /tmp/erp-backup.sql
-cat /tmp/erp-backup.sql | docker compose exec -T postgres psql -U erp -d erp
+docker compose exec postgres pg_dump -U clavis -d clavis --schema=clavis > /tmp/clavis-backup.sql
+cat /tmp/clavis-backup.sql | docker compose exec -T postgres psql -U clavis -d clavis
 ```
 
 ---
@@ -262,10 +262,10 @@ Useful commands inside the session (or with `docker compose exec valkey valkey-c
 ```bash
 PING                                    # PONG
 DBSIZE                                  # number of keys
-SCAN 0 MATCH 'erp:*' COUNT 100          # walk the keys without blocking the server
-KEYS 'erp:v*:todos:*'                   # convenient in development, avoid it in production
-TTL  'erp:v3:todos:<sub>:mine:_:_:1:20' # seconds left (= CACHE_TTL_SECONDS when created)
-GET  'erp:v3:todos:<sub>:mine:_:_:1:20' # the cached JSON
+SCAN 0 MATCH 'clavis:*' COUNT 100          # walk the keys without blocking the server
+KEYS 'clavis:v*:todos:*'                   # convenient in development, avoid it in production
+TTL  'clavis:v3:todos:<sub>:mine:_:_:1:20' # seconds left (= CACHE_TTL_SECONDS when created)
+GET  'clavis:v3:todos:<sub>:mine:_:_:1:20' # the cached JSON
 INFO keyspace
 MONITOR                                 # watch every command live (Ctrl-C to quit)
 FLUSHALL                                # empty the whole cache
@@ -275,7 +275,7 @@ Version-based invalidation, demonstrated step by step:
 
 ```bash
 # 1. Look at the current version of the 'todos' namespace and the existing keys
-docker compose exec valkey valkey-cli --scan --pattern 'erp:*'
+docker compose exec valkey valkey-cli --scan --pattern 'clavis:*'
 
 # 2. In another terminal, watch what the API does, live
 docker compose exec valkey valkey-cli MONITOR
@@ -336,8 +336,8 @@ for await (const b of c.listBlobsFlat({ prefix: 'todos/' + process.argv[1] + '/'
 Cross-check it against what the database says (they must match one to one):
 
 ```bash
-docker compose exec postgres psql -U erp -d erp -Atc \
-  "SELECT blob_name FROM erp.todo_attachments ORDER BY blob_name;"
+docker compose exec postgres psql -U clavis -d clavis -Atc \
+  "SELECT blob_name FROM clavis.todo_attachments ORDER BY blob_name;"
 ```
 
 With the **Azure CLI** installed on the host it also works, replacing the internal host `azurite`
@@ -359,7 +359,7 @@ Azurite data persists in the `azurite-data` volume; to throw it away, delete tha
 ## 7. Adding a migration
 
 Migrations live in `packages/api/migrations/` following the `NNNN_name.sql` pattern and are applied
-**in lexicographic order** when the API starts. Each one is recorded in `erp.schema_migrations`
+**in lexicographic order** when the API starts. Each one is recorded in `clavis.schema_migrations`
 with its **checksum**.
 
 ### Procedure
@@ -370,14 +370,14 @@ with its **checksum**.
    packages/api/migrations/0003_add_todo_tags.sql
    ```
 
-2. Write SQL that is **idempotent where it makes sense**, and always inside the `erp` schema:
+2. Write SQL that is **idempotent where it makes sense**, and always inside the `clavis` schema:
 
    ```sql
    -- 0003: free-form tags for tasks
-   ALTER TABLE erp.todos
+   ALTER TABLE clavis.todos
      ADD COLUMN IF NOT EXISTS tags text[] NOT NULL DEFAULT '{}';
 
-   CREATE INDEX IF NOT EXISTS todos_tags_idx ON erp.todos USING gin (tags);
+   CREATE INDEX IF NOT EXISTS todos_tags_idx ON clavis.todos USING gin (tags);
    ```
 
 3. Apply it by restarting the API (the migrator runs at startup):
@@ -387,27 +387,27 @@ with its **checksum**.
    docker compose logs --tail=50 api | grep -i migration
    ```
 
-   Or, if you develop outside Docker, just relaunch `pnpm --filter @erp/api dev`.
+   Or, if you develop outside Docker, just relaunch `pnpm --filter @clavis/api dev`.
 
 4. Verify the record:
 
    ```bash
-   docker compose exec postgres psql -U erp -d erp -c \
-     "SELECT version, applied_at FROM erp.schema_migrations ORDER BY version;"
+   docker compose exec postgres psql -U clavis -d clavis -c \
+     "SELECT version, applied_at FROM clavis.schema_migrations ORDER BY version;"
    ```
 
 ### Rules
 
 - **Never edit a migration that has already been applied.** The checksum would stop matching and
   startup would fail with a "migration modified" error. Always fix things with a new file.
-- **Do not create `erp.schema_migrations`** in a migration: the migrator creates it itself.
+- **Do not create `clavis.schema_migrations`** in a migration: the migrator creates it itself.
 - **Do not add extensions** for UUIDs: `gen_random_uuid()` is native in PostgreSQL 17.
 - If you get the migration wrong while still in development, the clean way out is
   `docker compose down -v && docker compose up -d --build`. As a last resort, delete the row:
 
   ```bash
-  docker compose exec postgres psql -U erp -d erp -c \
-    "DELETE FROM erp.schema_migrations WHERE version = '0003_add_todo_tags';"
+  docker compose exec postgres psql -U clavis -d clavis -c \
+    "DELETE FROM clavis.schema_migrations WHERE version = '0003_add_todo_tags';"
   ```
 
   …but remember to also undo by hand whatever the migration had already applied.
@@ -418,12 +418,12 @@ with its **checksum**.
 
 ## 8. Login theme
 
-The realm's sign-in screen uses a custom Freemarker theme called **`erp`**.
+The realm's sign-in screen uses a custom Freemarker theme called **`clavis`**.
 
 ### Where it lives and how it reaches the container
 
 ```
-infra/keycloak/themes/erp/
+infra/keycloak/themes/clavis/
 ├── theme.properties            # types=login
 └── login/
     ├── theme.properties        # parent=base, styles, scripts, locales and kc* class mapping
@@ -433,8 +433,8 @@ infra/keycloak/themes/erp/
     ├── login-page-expired.ftl  logout-confirm.ftl
     ├── messages/               # messages_en.properties + messages_es.properties
     └── resources/
-        ├── css/erp-login.css
-        └── js/erp-login.js
+        ├── css/clavis-login.css
+        └── js/clavis-login.js
 ```
 
 The `keycloak` service in `docker-compose.yml` mounts it read-only:
@@ -447,21 +447,21 @@ volumes:
 
 Mounting over `/opt/keycloak/themes` breaks nothing: in the official image that directory
 **contains only a README**; the built-in themes (`base`, `keycloak`, `keycloak.v2`) travel inside
-the server JARs. That is why `parent=base` still resolves, and the pages the `erp` theme does not
+the server JARs. That is why `parent=base` still resolves, and the pages the `clavis` theme does not
 override (OTP, update password, verify email…) are served by `base` with the `kc*` class mapping
 declared in `login/theme.properties`.
 
 Checking that the mount is there:
 
 ```bash
-docker compose exec keycloak ls /opt/keycloak/themes/erp/login
+docker compose exec keycloak ls /opt/keycloak/themes/clavis/login
 # error.ftl  footer.ftl  info.ftl  login.ftl  login-page-expired.ftl
 # logout-confirm.ftl  messages  resources  template.ftl  theme.properties
 ```
 
 What selects the theme: the realm's `loginTheme` field, which comes from
-`infra/keycloak/realm-erp.template.json` (`"loginTheme": "__KEYCLOAK_LOGIN_THEME__"`) and which
-`render-realm.mjs` replaces with the `KEYCLOAK_LOGIN_THEME` variable (`.env`, `erp` by default).
+`infra/keycloak/realm-clavis.template.json` (`"loginTheme": "__KEYCLOAK_LOGIN_THEME__"`) and which
+`render-realm.mjs` replaces with the `KEYCLOAK_LOGIN_THEME` variable (`.env`, `clavis` by default).
 The same block enables the languages: `internationalizationEnabled: true`,
 `supportedLocales: ["en", "es"]`, `defaultLocale: "en"`.
 
@@ -471,13 +471,13 @@ Keycloak starts with `start-dev`, and in that mode **themes are not cached**:
 
 | What you touch | What is needed |
 |---|---|
-| A `.ftl`, `resources/css/erp-login.css`, `resources/js/erp-login.js` | Nothing. Save and reload the browser with `Ctrl+Shift+R` |
+| A `.ftl`, `resources/css/clavis-login.css`, `resources/js/clavis-login.js` | Nothing. Save and reload the browser with `Ctrl+Shift+R` |
 | A `messages_*.properties` | Nothing, reload the page |
 | Either of the two `theme.properties` | `docker compose restart keycloak` |
 | Adding a new file or directory | `docker compose restart keycloak` |
 | Adding or changing the mount in `docker-compose.yml` | `docker compose up -d --force-recreate keycloak` (a `restart` does **not** apply new volumes) |
 
-To see the screen without starting the SPA, open <http://localhost:8080/realms/erp/account> in a
+To see the screen without starting the SPA, open <http://localhost:8080/realms/clavis/account> in a
 private window: the realm's account console requires a login and uses the same theme.
 
 <a id="change-the-theme-of-an-existing-realm"></a>
@@ -487,7 +487,7 @@ private window: the realm's account console requires a login and uses the same t
 In `.env`:
 
 ```dotenv
-KEYCLOAK_LOGIN_THEME=erp          # the custom theme
+KEYCLOAK_LOGIN_THEME=clavis          # the custom theme
 # KEYCLOAK_LOGIN_THEME=keycloak   # the classic built-in theme
 # KEYCLOAK_LOGIN_THEME=keycloak.v2
 ```
@@ -516,7 +516,7 @@ docker compose exec keycloak /opt/keycloak/bin/kcadm.sh config credentials \
   --user "$KC_BOOTSTRAP_ADMIN_USERNAME" \
   --password "$KC_BOOTSTRAP_ADMIN_PASSWORD"
 
-# 2. Apply theme and languages to the erp realm (touching nothing else)
+# 2. Apply theme and languages to the clavis realm (touching nothing else)
 docker compose exec keycloak /opt/keycloak/bin/kcadm.sh update "realms/$KEYCLOAK_REALM" \
   --config /tmp/kcadm.config \
   -s "loginTheme=$KEYCLOAK_LOGIN_THEME" \
@@ -529,8 +529,8 @@ docker compose exec keycloak /opt/keycloak/bin/kcadm.sh get "realms/$KEYCLOAK_RE
   --config /tmp/kcadm.config \
   --fields realm,loginTheme,internationalizationEnabled,supportedLocales,defaultLocale
 # {
-#   "realm" : "erp",
-#   "loginTheme" : "erp",
+#   "realm" : "clavis",
+#   "loginTheme" : "clavis",
 #   "internationalizationEnabled" : true,
 #   "supportedLocales" : [ "en", "es" ],
 #   "defaultLocale" : "en"
@@ -541,13 +541,13 @@ The change takes effect the next time the login screen loads; no restart needed.
 
 Notes:
 
-- This is the console admin (`KC_BOOTSTRAP_ADMIN_*`), not a demo user of the `erp` realm.
+- This is the console admin (`KC_BOOTSTRAP_ADMIN_*`), not a demo user of the `clavis` realm.
 - The `kcadm` token lives in `/tmp/kcadm.config` **inside** the container: it is lost when the
   container is recreated, and then you have to repeat step 1.
-- The same thing can be done from the console: <http://localhost:8080/admin> → realm `erp` →
+- The same thing can be done from the console: <http://localhost:8080/admin> → realm `clavis` →
   *Realm settings* → *Themes* → *Login theme*.
 - A change applied with `kcadm` or through the console **is not versioned**. Mirror it in `.env` /
-  `realm-erp.template.json` so the next clean start keeps it.
+  `realm-clavis.template.json` so the next clean start keeps it.
 
 ---
 
@@ -567,13 +567,13 @@ the source of truth, `es.ts` is typed against it) plus a small provider that exp
 | Order | Source | Notes |
 |---|---|---|
 | 1 | `?lang=` in the URL | `?lang=es` forces Spanish, `?lang=en` forces English. This is how you share a link in a given language, and how the app comes back from Keycloak still speaking it. |
-| 2 | `localStorage['erp.locale']` | The last explicit choice made in the selector. |
+| 2 | `localStorage['clavis.locale']` | The last explicit choice made in the selector. |
 | 3 | `navigator.languages` / `navigator.language` | Region subtags are ignored: `es-CO` matches `es`. |
 | 4 | `DEFAULT_LOCALE` | `en`. |
 
 The selector is a native `<select>` in the application header, next to the user menu, so it is
 reachable by keyboard with no extra wiring. Choosing a language applies it immediately (no reload),
-writes it to `localStorage` under **`erp.locale`** and updates `document.documentElement.lang`.
+writes it to `localStorage` under **`clavis.locale`** and updates `document.documentElement.lang`.
 
 Signing in and out carries the choice over to Keycloak: `keycloak.login({ locale })` becomes the
 OIDC `ui_locales` parameter, and the return URL keeps `?lang=`, so the login screen and the
@@ -589,8 +589,8 @@ http://localhost:5173/?lang=en      # force English
 From the browser console:
 
 ```js
-localStorage.getItem('erp.locale')     // what is remembered
-localStorage.removeItem('erp.locale')  // forget it and fall back to the browser language
+localStorage.getItem('clavis.locale')     // what is remembered
+localStorage.removeItem('clavis.locale')  // forget it and fall back to the browser language
 ```
 
 Adding a string: add the key to `packages/app/src/i18n/en.ts` first, then to `es.ts`. Forgetting the
@@ -610,7 +610,7 @@ the theme catalogs `messages_en.properties` / `messages_es.properties`, covered 
 
 | Who sends it | How | What it sends |
 |---|---|---|
-| The API (`@erp/api`) | Resend's **HTTP** API | Task notifications |
+| The API (`@clavis/api`) | Resend's **HTTP** API | Task notifications |
 | **Keycloak** | **SMTP** | Password reset, email verification |
 
 Keycloak does not speak Resend's HTTP API, only SMTP. That is why the realm points at
@@ -624,7 +624,7 @@ password: one secret for both paths.
 | `KEYCLOAK_SMTP_HOST` / `_PORT` | SMTP server (`smtp.resend.com` / `587`) |
 | `KEYCLOAK_SMTP_USER` | Always `resend` on the Resend relay |
 | `KEYCLOAK_SMTP_FROM` | Sender; it **must** belong to a verified domain |
-| `KEYCLOAK_EMAIL_THEME` | Theme for the emails (`erp` = the custom one) |
+| `KEYCLOAK_EMAIL_THEME` | Theme for the emails (`clavis` = the custom one) |
 | `DEMO_ADMIN_EMAIL` | Must be a real address for the flow to be testable |
 
 The SMTP password is not in `.env`: it comes from `RESEND_API_KEY`.
@@ -654,22 +654,22 @@ docker compose exec keycloak /opt/keycloak/bin/kcadm.sh config credentials \
   --user "$KC_BOOTSTRAP_ADMIN_USERNAME" --password "$KC_BOOTSTRAP_ADMIN_PASSWORD"
 
 # Reset flow + email theme + link lifetime (30 min)
-docker compose exec keycloak /opt/keycloak/bin/kcadm.sh update realms/erp \
+docker compose exec keycloak /opt/keycloak/bin/kcadm.sh update realms/clavis \
   -s resetPasswordAllowed=true \
-  -s emailTheme=erp \
+  -s emailTheme=clavis \
   -s actionTokenGeneratedByUserLifespan=1800
 
 # SMTP (careful: it is a JSON object, not individual fields)
-docker compose exec keycloak /opt/keycloak/bin/kcadm.sh update realms/erp \
+docker compose exec keycloak /opt/keycloak/bin/kcadm.sh update realms/clavis \
   -s "smtpServer={\"host\":\"$KEYCLOAK_SMTP_HOST\",\"port\":\"$KEYCLOAK_SMTP_PORT\",\"from\":\"$KEYCLOAK_SMTP_FROM\",\"fromDisplayName\":\"$KEYCLOAK_SMTP_FROM_DISPLAY_NAME\",\"ssl\":\"false\",\"starttls\":\"true\",\"auth\":\"true\",\"user\":\"$KEYCLOAK_SMTP_USER\",\"password\":\"$RESEND_API_KEY\"}"
 ```
 
 Changing a user's email address:
 
 ```bash
-UID=$(docker compose exec -T keycloak /opt/keycloak/bin/kcadm.sh get users -r erp \
+UID=$(docker compose exec -T keycloak /opt/keycloak/bin/kcadm.sh get users -r clavis \
         -q username=admin --fields id | grep -o '"id" : "[^"]*"' | cut -d'"' -f4)
-docker compose exec keycloak /opt/keycloak/bin/kcadm.sh update "users/$UID" -r erp \
+docker compose exec keycloak /opt/keycloak/bin/kcadm.sh update "users/$UID" -r clavis \
   -s 'email=you@example.com' -s 'emailVerified=true'
 ```
 
@@ -679,11 +679,11 @@ with `-s attributes.actionToken…` it is not applied and nothing warns you.
 ### Where the screens and the email live
 
 ```
-infra/keycloak/themes/erp/login/login-reset-password.ftl   ← request the link
-infra/keycloak/themes/erp/login/login-update-password.ftl  ← set the new password
-infra/keycloak/themes/erp/email/html/password-reset.ftl    ← the email body
-infra/keycloak/themes/erp/email/html/template.ftl          ← shared layout
-infra/keycloak/themes/erp/email/messages/                  ← subject and copy
+infra/keycloak/themes/clavis/login/login-reset-password.ftl   ← request the link
+infra/keycloak/themes/clavis/login/login-update-password.ftl  ← set the new password
+infra/keycloak/themes/clavis/email/html/password-reset.ftl    ← the email body
+infra/keycloak/themes/clavis/email/html/template.ftl          ← shared layout
+infra/keycloak/themes/clavis/email/messages/                  ← subject and copy
 ```
 
 The email is laid out with tables and inline CSS on purpose: email clients drop `<style>` blocks
@@ -709,7 +709,7 @@ is expected, more on the first image pull.
 
 ```bash
 docker compose ps                      # STATUS column: (health: starting) → (healthy)
-docker compose logs -f keycloak        # look for "Listening on" and "Imported realm erp"
+docker compose logs -f keycloak        # look for "Listening on" and "Imported realm clavis"
 ```
 
 If it stays in `starting` forever:
@@ -723,7 +723,7 @@ If it stays in `starting` forever:
 Active wait from the host:
 
 ```bash
-until curl -sf http://localhost:8080/realms/erp/.well-known/openid-configuration >/dev/null; do
+until curl -sf http://localhost:8080/realms/clavis/.well-known/openid-configuration >/dev/null; do
   sleep 2
 done; echo ready
 ```
@@ -742,9 +742,9 @@ Symptom: login works, but every call to `/api/*` returns `401`.
    " "$TOKEN"
    ```
 
-2. `aud` **must contain `erp-api`**. If it does not, the `oidc-audience-mapper` protocol mapper is
-   missing on the `erp-app` client, or it was lost because the realm was not re-imported. Fix:
-   review `infra/keycloak/realm-erp.template.json` and run
+2. `aud` **must contain `clavis-api`**. If it does not, the `oidc-audience-mapper` protocol mapper is
+   missing on the `clavis-app` client, or it was lost because the realm was not re-imported. Fix:
+   review `infra/keycloak/realm-clavis.template.json` and run
    `docker compose down -v && docker compose up -d --build`.
 3. Check what the API sees:
 
@@ -752,7 +752,7 @@ Symptom: login works, but every call to `/api/*` returns `401`.
    docker compose config | grep -E 'KEYCLOAK_(ISSUER|INTERNAL_ISSUER|AUDIENCE)'
    ```
 
-   `KEYCLOAK_AUDIENCE` must be `erp-api`, and `KEYCLOAK_ISSUER` must match the token's `iss`
+   `KEYCLOAK_AUDIENCE` must be `clavis-api`, and `KEYCLOAK_ISSUER` must match the token's `iss`
    **character for character** (watch out for `127.0.0.1` versus `localhost`, and for the trailing
    slash).
 
@@ -764,7 +764,7 @@ There are **two** CORS layers and you have to look at both:
 
 | Blocked request | Who decides | Where it is fixed |
 |---|---|---|
-| Towards `localhost:8080` (Keycloak) | *Web origins* of the `erp-app` client | `realm-erp.template.json`, derived from `APP_DEV_URL` / `APP_PROD_URL`; requires `down -v` |
+| Towards `localhost:8080` (Keycloak) | *Web origins* of the `clavis-app` client | `realm-clavis.template.json`, derived from `APP_DEV_URL` / `APP_PROD_URL`; requires `down -v` |
 | Towards `localhost:3000` (API) | `@fastify/cors` with `CORS_ORIGINS` | `.env` (`APP_DEV_URL`, `APP_PROD_URL`) + `docker compose up -d --force-recreate api` |
 
 ```bash
@@ -808,7 +808,7 @@ docker compose down --remove-orphans
 
 ### The realm is not re-imported because the volume already exists
 
-Symptom: you change `realm-erp.template.json` (or a `DEMO_*` variable), restart, and **nothing
+Symptom: you change `realm-clavis.template.json` (or a `DEMO_*` variable), restart, and **nothing
 happens**: the new user does not exist, the new permission does not appear in the token.
 
 Cause: Keycloak only imports a realm that does **not** already exist in its database, and that
@@ -835,14 +835,14 @@ clean start keeps it.
 Work through this in order; each step rules out a different cause.
 
 **1. Browser cache.** The server does not cache themes under `start-dev`, but the browser does
-cache `erp-login.css` and `erp-login.js` by URL. Reload with `Ctrl+Shift+R`, or open dev tools →
-*Network* tab → *Disable cache*, or use a private window. In *Network*, `erp-login.css` must answer
+cache `clavis-login.css` and `clavis-login.js` by URL. Reload with `Ctrl+Shift+R`, or open dev tools →
+*Network* tab → *Disable cache*, or use a private window. In *Network*, `clavis-login.css` must answer
 **200**; a **404** means the file is not where `styles=` in `login/theme.properties` says it is.
 
 **2. Did the mount reach the container?**
 
 ```bash
-docker compose exec keycloak ls /opt/keycloak/themes/erp/login
+docker compose exec keycloak ls /opt/keycloak/themes/clavis/login
 ```
 
 It must list `template.ftl`, `login.ftl`, `theme.properties`, `messages` and `resources`. If it
@@ -867,7 +867,7 @@ docker compose exec keycloak /opt/keycloak/bin/kcadm.sh get "realms/$KEYCLOAK_RE
 (If you have not authenticated yet, run step 1 of
 [section 8](#change-the-theme-of-an-existing-realm) first.)
 
-If `loginTheme` is not `erp`, the cause is almost always this: **an already-imported realm does not
+If `loginTheme` is not `clavis`, the cause is almost always this: **an already-imported realm does not
 change theme just because you edited the template**. Keycloak only imports a realm that does not
 exist yet in its database, and that database lives in the `pg-data` volume. Two ways out:
 
@@ -890,8 +890,8 @@ A Freemarker error in a template shows up in that log and makes the page render 
 message instead of the form.
 
 **5. Half-styled pages that are not the login page** (OTP, update password, verify email). Those
-templates are served by the `base` theme and only pick up the ERP look through the `kc*` mapping in
-`infra/keycloak/themes/erp/login/theme.properties`. If a property is missing, that element renders
+templates are served by the `base` theme and only pick up Clavis look through the `kc*` mapping in
+`infra/keycloak/themes/clavis/login/theme.properties`. If a property is missing, that element renders
 without a class. Add it there and restart the container.
 
 ### `render-realm.mjs` fails with "unsubstituted marker"
@@ -941,7 +941,7 @@ Typical causes, in order of frequency:
    > from scratch. If you need to keep the data, update the stored checksum by hand instead:
    >
    > ```sql
-   > SELECT version, checksum FROM erp.schema_migrations;
+   > SELECT version, checksum FROM clavis.schema_migrations;
    > ```
 
 4. **Unhealthy dependency** — `docker compose ps` will show which service is `unhealthy`.

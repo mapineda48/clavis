@@ -119,7 +119,7 @@ function priorityLabel(key: string): string {
 
 /**
  * Accepts both `[{ status, count }]` and `{ todo: 3, done: 1 }`, the two natural
- * ways of serialising the `erp.v_todo_stats` view.
+ * ways of serialising the `clavis.v_todo_stats` view.
  */
 function toCountEntries(raw: unknown, labelFor: (key: string) => string): CountEntry[] {
   const entries: CountEntry[] = []

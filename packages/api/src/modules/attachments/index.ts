@@ -110,7 +110,7 @@ function toIso(value: Date | string): string {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString()
 }
 
-/** Maps a row of `erp.todo_attachments` to the public DTO. */
+/** Maps a row of `clavis.todo_attachments` to the public DTO. */
 function mapAttachment(row: AttachmentRow): AttachmentDto {
   return {
     id: row.id,
@@ -148,8 +148,8 @@ async function findAttachmentWithTodo(
             a.created_at,
             t.owner_id,
             t.assignee_id
-     FROM erp.todo_attachments a
-     JOIN erp.todos t ON t.id = a.todo_id
+     FROM clavis.todo_attachments a
+     JOIN clavis.todos t ON t.id = a.todo_id
      WHERE a.id = $1`,
     [id],
   )
@@ -230,7 +230,7 @@ export const attachmentsRoutes: FastifyPluginAsync = async (app) => {
       let attachment: AttachmentDto
       try {
         const inserted = await app.db.query<AttachmentRow>(
-          `INSERT INTO erp.todo_attachments (todo_id, blob_name, file_name, content_type, size_bytes, uploaded_by)
+          `INSERT INTO clavis.todo_attachments (todo_id, blob_name, file_name, content_type, size_bytes, uploaded_by)
            VALUES ($1, $2, $3, $4, $5, $6)
            RETURNING id, todo_id, file_name, content_type, size_bytes, uploaded_by, created_at`,
           [todo.id, uploaded.blobName, fileName, contentType, buffer.byteLength, auth.sub],
@@ -297,7 +297,7 @@ export const attachmentsRoutes: FastifyPluginAsync = async (app) => {
 
       const result = await app.db.query<AttachmentRow>(
         `SELECT id, todo_id, file_name, content_type, size_bytes, uploaded_by, created_at
-         FROM erp.todo_attachments
+         FROM clavis.todo_attachments
          WHERE todo_id = $1
          ORDER BY created_at DESC`,
         [todo.id],
@@ -375,7 +375,7 @@ export const attachmentsRoutes: FastifyPluginAsync = async (app) => {
         app.log.warn({ err, blobName: row.blob_name }, 'Could not delete the attachment blob')
       }
 
-      const removed = await app.db.query('DELETE FROM erp.todo_attachments WHERE id = $1', [row.id])
+      const removed = await app.db.query('DELETE FROM clavis.todo_attachments WHERE id = $1', [row.id])
 
       await invalidateListCache(app)
       await recordAudit(

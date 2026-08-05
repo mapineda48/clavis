@@ -1,9 +1,0 @@
-[Unit]
-Description=Copy the Traefik ACME state to Azure Blob Storage
-Requires=erp-blobfuse2.service
-After=erp-blobfuse2.service
-
-[Service]
-Type=oneshot
-UMask=0077
-ExecStart=/opt/erp/bin/acme-backup.sh

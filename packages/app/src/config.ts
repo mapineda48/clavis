@@ -1,9 +1,9 @@
 // SPA configuration, resolved in this order:
-//   1. window.__ERP_CONFIG__  (injected by nginx in the `full` profile)
+//   1. window.__CLAVIS_CONFIG__  (injected by nginx in the `full` profile)
 //   2. import.meta.env.VITE_* (injected by Vite from the .env at the root)
 //   3. development defaults
 
-export interface ErpConfig {
+export interface ClavisConfig {
   /** Public Keycloak URL, the one the browser sees. */
   keycloakUrl: string
   /** Realm that owns the users, roles and clients. */
@@ -18,15 +18,15 @@ export interface ErpConfig {
 
 declare global {
   interface Window {
-    __ERP_CONFIG__?: Record<string, string | undefined>
+    __CLAVIS_CONFIG__?: Record<string, string | undefined>
   }
 }
 
-const DEFAULTS: ErpConfig = {
+const DEFAULTS: ClavisConfig = {
   keycloakUrl: 'http://localhost:8080',
-  keycloakRealm: 'erp',
-  keycloakClientId: 'erp-app',
-  apiClientId: 'erp-api',
+  keycloakRealm: 'clavis',
+  keycloakClientId: 'clavis-app',
+  apiClientId: 'clavis-api',
   apiUrl: 'http://localhost:3000',
 }
 
@@ -35,7 +35,7 @@ const DEFAULTS: ErpConfig = {
  * accepted so we do not depend on how the nginx script spells the global object.
  */
 function fromRuntime(...keys: readonly string[]): string | undefined {
-  const source = window.__ERP_CONFIG__
+  const source = window.__CLAVIS_CONFIG__
   if (source === undefined) return undefined
   for (const key of keys) {
     const value = source[key]
@@ -55,7 +55,7 @@ function stripTrailingSlash(value: string): string {
   return value.endsWith('/') ? value.replace(/\/+$/, '') : value
 }
 
-export const config: ErpConfig = {
+export const config: ClavisConfig = {
   keycloakUrl: stripTrailingSlash(
     fromRuntime('keycloakUrl', 'KEYCLOAK_URL', 'VITE_KEYCLOAK_URL') ??
       fromEnv(import.meta.env.VITE_KEYCLOAK_URL) ??

@@ -4,7 +4,7 @@ The full identity model of the demo: who you are (Keycloak), what you are allowe
 (permissions that travel inside the token) and which data you are allowed to see (the visibility
 rule in the API).
 
-Realm: **`erp`**. Public issuer: `http://localhost:8080/realms/erp`.
+Realm: **`clavis`**. Public issuer: `http://localhost:8080/realms/clavis`.
 
 ---
 
@@ -16,23 +16,23 @@ levels**, and that separation is the heart of the demo.
 ### Realm roles — the job title
 
 ```
-erp-user      erp-manager      erp-admin
+clavis-user      clavis-manager      clavis-admin
 ```
 
 These are **business roles**. They are the only thing assigned to people. They read well in a user
 list and they travel in the token under `realm_access.roles`. The application **does not make
-authorization decisions with them**: it only displays them in the UI ("Manager Demo · erp-manager").
+authorization decisions with them**: it only displays them in the UI ("Manager Demo · clavis-manager").
 
-### Permissions — *client roles* of the `erp-api` client
+### Permissions — *client roles* of the `clavis-api` client
 
 ```
 todos:read      todos:read:all      todos:write
 todos:delete    users:read          admin:manage
 ```
 
-These are **technical capabilities**, defined inside the `erp-api` client rather than on the realm.
+These are **technical capabilities**, defined inside the `clavis-api` client rather than on the realm.
 They are never assigned directly to a user: they are acquired **through** a realm role. In the
-token they travel under `resource_access["erp-api"].roles`, and they are the only thing the API
+token they travel under `resource_access["clavis-api"].roles`, and they are the only thing the API
 checks (`requirePermissions`) and the only thing the SPA uses to show or hide
 (`<Can perm="…">`).
 
@@ -42,7 +42,7 @@ checks (`requirePermissions`) and the only thing the SPA uses to show or hide
 |---|---|
 | Every new endpoint forces you to decide which roles may use it and to repeat that list in code: `if (roles.includes('manager') \|\| roles.includes('admin'))`. | The endpoint declares **one capability**: `requirePermissions('todos:delete')`. It does not care which roles carry it. |
 | Adding an intermediate role ("supervisor") forces you to revisit every `if` in the backend. | Adding a role means defining a new composite in the realm. **Zero code changes.** |
-| A user's permissions are scattered across the code. | They live in one place: the realm composition, versioned in `realm-erp.template.json`. |
+| A user's permissions are scattered across the code. | They live in one place: the realm composition, versioned in `realm-clavis.template.json`. |
 | The token tells you the job title, not what can be done. | The token carries the literal list of capabilities: you can see at a glance why something returned 403. |
 
 The price is one more concept to explain. It is exactly the model cloud providers use
@@ -54,20 +54,20 @@ The price is one more concept to explain. It is exactly the model cloud provider
 
 Realm roles are **composite**: they aggregate permissions and also other realm roles.
 
-| Realm role | Composes | Effective permissions (`resource_access.erp-api.roles`) |
+| Realm role | Composes | Effective permissions (`resource_access.clavis-api.roles`) |
 |---|---|---|
-| `erp-user` | `todos:read`, `todos:write` | `todos:read`, `todos:write` |
-| `erp-manager` | **`erp-user`** + `todos:read:all`, `todos:delete`, `users:read` | `todos:read`, `todos:write`, `todos:read:all`, `todos:delete`, `users:read` |
-| `erp-admin` | **`erp-manager`** + `admin:manage` | the five above + `admin:manage` |
+| `clavis-user` | `todos:read`, `todos:write` | `todos:read`, `todos:write` |
+| `clavis-manager` | **`clavis-user`** + `todos:read:all`, `todos:delete`, `users:read` | `todos:read`, `todos:write`, `todos:read:all`, `todos:delete`, `users:read` |
+| `clavis-admin` | **`clavis-manager`** + `admin:manage` | the five above + `admin:manage` |
 
 ```mermaid
 flowchart LR
     subgraph realm["Realm roles (assigned to people)"]
-        U["erp-user"]
-        M["erp-manager"]
-        A["erp-admin"]
+        U["clavis-user"]
+        M["clavis-manager"]
+        A["clavis-admin"]
     end
-    subgraph perms["Permissions = client roles of erp-api"]
+    subgraph perms["Permissions = client roles of clavis-api"]
         P1["todos:read"]
         P2["todos:write"]
         P3["todos:read:all"]
@@ -86,20 +86,20 @@ flowchart LR
     A --> P6
 ```
 
-Inheritance is **transitive**: `erp-admin` does not repeat the permissions of `erp-user`, it
-receives them through `erp-manager`. Keycloak expands the whole chain when it issues the token, so
+Inheritance is **transitive**: `clavis-admin` does not repeat the permissions of `clavis-user`, it
+receives them through `clavis-manager`. Keycloak expands the whole chain when it issues the token, so
 the application never has to resolve hierarchies.
 
-**`default-roles-erp` includes `erp-user`**: any new user in the realm (even one created by hand by
+**`default-roles-clavis` includes `clavis-user`**: any new user in the realm (even one created by hand by
 an administrator) is born with the basic permissions and the application works for them.
 
 ### Demo users
 
 | User | Assigned role | Password |
 |---|---|---|
-| `admin` | `erp-admin` | `DEMO_ADMIN_PASSWORD` in `.env.example` |
-| `manager` | `erp-manager` | `DEMO_MANAGER_PASSWORD` in `.env.example` |
-| `worker` | `erp-user` | `DEMO_USER_PASSWORD` in `.env.example` |
+| `admin` | `clavis-admin` | `DEMO_ADMIN_PASSWORD` in `.env.example` |
+| `manager` | `clavis-manager` | `DEMO_MANAGER_PASSWORD` in `.env.example` |
+| `worker` | `clavis-user` | `DEMO_USER_PASSWORD` in `.env.example` |
 
 All three are imported with the realm: `enabled: true`, `emailVerified: true` and a `password`
 credential that is **not temporary**.
@@ -110,17 +110,17 @@ credential that is **not temporary**.
 
 | Client | Type | Configuration | What for |
 |---|---|---|---|
-| `erp-app` | **Public** (SPA) | PKCE `S256`, *standard flow* ON, *direct access grants* ON, **no secret** | This is what requests tokens from the browser. Being public it cannot keep a secret, which is why PKCE is mandatory. |
-| `erp-api` | **Confidential** | *standard flow* OFF, no *service accounts* | It starts no sessions for anybody. It exists for two reasons: to **hold the client roles** (the permissions) and to **be the audience** of the tokens. |
+| `clavis-app` | **Public** (SPA) | PKCE `S256`, *standard flow* ON, *direct access grants* ON, **no secret** | This is what requests tokens from the browser. Being public it cannot keep a secret, which is why PKCE is mandatory. |
+| `clavis-api` | **Confidential** | *standard flow* OFF, no *service accounts* | It starts no sessions for anybody. It exists for two reasons: to **hold the client roles** (the permissions) and to **be the audience** of the tokens. |
 
-- **Redirect URIs for `erp-app`**: `http://localhost:5173/*` and `http://localhost:8081/*`
+- **Redirect URIs for `clavis-app`**: `http://localhost:5173/*` and `http://localhost:8081/*`
   (development and the `full` profile). *Web origins*: the same ones **without** the path wildcard.
   `postLogoutRedirectUris`: `+` (meaning "the same as the redirect URIs").
 - **Direct access grants ON** is enabled on purpose so tokens can be requested from
   `curl`/CI with `grant_type=password` (see [section 7](#7-getting-a-token-and-calling-the-api-with-curl)).
   In a real production deployment you would turn it off.
-- **`aud` must contain `erp-api`**: that comes from an `oidc-audience-mapper` protocol mapper
-  declared on `erp-app`. Without it the token would not carry `erp-api` in `aud` and the API would
+- **`aud` must contain `clavis-api`**: that comes from an `oidc-audience-mapper` protocol mapper
+  declared on `clavis-app`. Without it the token would not carry `clavis-api` in `aud` and the API would
   reject it.
 
 ---
@@ -129,12 +129,12 @@ credential that is **not temporary**.
 
 ```mermaid
 flowchart LR
-    U["User 'manager'"] -->|"direct<br/>assignment"| RR["Realm role<br/>erp-manager"]
-    RR -->|"composite"| RU["Realm role<br/>erp-user"]
-    RR -->|"composite"| CR["Client roles of erp-api"]
+    U["User 'manager'"] -->|"direct<br/>assignment"| RR["Realm role<br/>clavis-manager"]
+    RR -->|"composite"| RU["Realm role<br/>clavis-user"]
+    RR -->|"composite"| CR["Client roles of clavis-api"]
     RU -->|"composite"| CR
     RR -->|"realm roles<br/>mapper"| T1["realm_access.roles"]
-    CR -->|"client roles<br/>mapper"| T2["resource_access['erp-api'].roles"]
+    CR -->|"client roles<br/>mapper"| T2["resource_access['clavis-api'].roles"]
     T1 --> JWT["access_token signed with RS256"]
     T2 --> JWT
 ```
@@ -143,12 +143,12 @@ Mandatory contents of the access token (guaranteed by the imported realm):
 
 | Claim | Use |
 |---|---|
-| `sub` | Identity. It is **the primary key** of `erp.users`. |
+| `sub` | Identity. It is **the primary key** of `clavis.users`. |
 | `preferred_username`, `email`, `name` | JIT provisioning and the SPA header. |
 | `realm_access.roles` | Business roles, for display. |
-| `resource_access["erp-api"].roles` | **Permissions**, for authorization. |
-| `aud` | Must contain `erp-api`; otherwise the API rejects the token. |
-| `iss` | Must be exactly `http://localhost:8080/realms/erp`. |
+| `resource_access["clavis-api"].roles` | **Permissions**, for authorization. |
+| `aud` | Must contain `clavis-api`; otherwise the API rejects the token. |
+| `iss` | Must be exactly `http://localhost:8080/realms/clavis`. |
 
 ### Example of a decoded access token (user `manager`)
 
@@ -157,11 +157,11 @@ Mandatory contents of the access token (guaranteed by the imported realm):
   "exp": 1753960800,
   "iat": 1753960500,
   "jti": "7c2f5a1e-9d43-4b8a-93ef-1d0c2b6a5f10",
-  "iss": "http://localhost:8080/realms/erp",
-  "aud": ["erp-api", "account"],
+  "iss": "http://localhost:8080/realms/clavis",
+  "aud": ["clavis-api", "account"],
   "sub": "3f1c8a52-6e77-4a19-9c0b-2f5d7e8a1b34",
   "typ": "Bearer",
-  "azp": "erp-app",
+  "azp": "clavis-app",
   "sid": "b0d9a4e7-53c1-4f2a-8a6d-91e3c7b5f204",
   "acr": "1",
   "allowed-origins": [
@@ -170,15 +170,15 @@ Mandatory contents of the access token (guaranteed by the imported realm):
   ],
   "realm_access": {
     "roles": [
-      "default-roles-erp",
-      "erp-manager",
-      "erp-user",
+      "default-roles-clavis",
+      "clavis-manager",
+      "clavis-user",
       "offline_access",
       "uma_authorization"
     ]
   },
   "resource_access": {
-    "erp-api": {
+    "clavis-api": {
       "roles": [
         "todos:read",
         "todos:write",
@@ -195,21 +195,21 @@ Mandatory contents of the access token (guaranteed by the imported realm):
   "email_verified": true,
   "name": "Manager Demo",
   "preferred_username": "manager",
-  "email": "manager@erp.local"
+  "email": "manager@clavis.local"
 }
 ```
 
 Things worth reading in that payload:
 
-- `realm_access.roles` carries **both `erp-manager` and `erp-user`**: the composition is already
+- `realm_access.roles` carries **both `clavis-manager` and `clavis-user`**: the composition is already
   expanded.
-- `resource_access["erp-api"].roles` carries the five effective permissions, including the ones
-  inherited from `erp-user`. The application resolves no hierarchies: it just reads this list.
-- `aud` includes `erp-api` (thanks to the *audience mapper*) and `account` (default realm roles).
+- `resource_access["clavis-api"].roles` carries the five effective permissions, including the ones
+  inherited from `clavis-user`. The application resolves no hierarchies: it just reads this list.
+- `aud` includes `clavis-api` (thanks to the *audience mapper*) and `account` (default realm roles).
   It is enough that it **contains** the expected value.
-- `azp` is `erp-app`: who asked for the token. It is not used for authorization.
+- `azp` is `clavis-app`: who asked for the token. It is not used for authorization.
 - The `offline_access`, `uma_authorization`, `manage-account` and `view-profile` roles belong to
-  Keycloak, not to the ERP; the application ignores them.
+  Keycloak, not to Clavis; the application ignores them.
 
 ---
 
@@ -225,8 +225,8 @@ const jwks = createRemoteJWKSet(
 )
 
 const { payload } = await jwtVerify(token, jwks, {
-  issuer:   env.KEYCLOAK_ISSUER,     // http://localhost:8080/realms/erp
-  audience: env.KEYCLOAK_AUDIENCE,   // erp-api
+  issuer:   env.KEYCLOAK_ISSUER,     // http://localhost:8080/realms/clavis
+  audience: env.KEYCLOAK_AUDIENCE,   // clavis-api
 })
 ```
 
@@ -237,10 +237,10 @@ The checks, in order:
    **over the internal Docker network** (`http://keycloak:8080/...`, derived from
    `KEYCLOAK_INTERNAL_ISSUER`) and `jose` caches them and refreshes them by itself when an unknown
    `kid` shows up — so a key rotation does not force an API restart.
-3. **`iss` identical to `KEYCLOAK_ISSUER`** (`http://localhost:8080/realms/erp`, the **public**
+3. **`iss` identical to `KEYCLOAK_ISSUER`** (`http://localhost:8080/realms/clavis`, the **public**
    issuer, which is the one tokens carry). Why the public and internal issuers differ is explained
    in [`architecture.md`](architecture.md#public-issuer-vs-internal-issuer).
-4. **`aud` contains `KEYCLOAK_AUDIENCE`** (`erp-api`). Without this check, a token issued for
+4. **`aud` contains `KEYCLOAK_AUDIENCE`** (`clavis-api`). Without this check, a token issued for
    *another* application in the same realm would be good enough to call this API.
 5. **`exp`/`nbf`** within tolerance (handled by `jwtVerify`).
 6. The `AuthContext` is built:
@@ -252,14 +252,14 @@ The checks, in order:
      email: string | null
      name: string | null
      realmRoles: string[]      // realm_access.roles
-     permissions: Permission[] // resource_access['erp-api'].roles ∩ PERMISSIONS
+     permissions: Permission[] // resource_access['clavis-api'].roles ∩ PERMISSIONS
      token: string
    }
    ```
 
    Permissions are **filtered** against the `PERMISSIONS` constant: any client role that is not in
    the known list is dropped, so the `Permission` type stays true at runtime.
-7. **JIT provisioning**: `INSERT … ON CONFLICT (id) DO UPDATE` into `erp.users` with `id = sub`,
+7. **JIT provisioning**: `INSERT … ON CONFLICT (id) DO UPDATE` into `clavis.users` with `id = sub`,
    refreshing `username`, `email`, `display_name` and `last_seen_at`.
 
 From there, each route declares what it demands:
@@ -315,7 +315,7 @@ Concrete consequences:
   without `todos:read:all` cannot even count how many other people's tasks exist.
 - It applies to reads by id too: `GET /api/todos/:id` for somebody else's task returns **`404`**,
   not `403`. A `403` would confirm that the resource exists.
-- `worker` (only `erp-user`) **does have `todos:write`** and can therefore edit… but only their own
+- `worker` (only `clavis-user`) **does have `todos:write`** and can therefore edit… but only their own
   tasks or the ones assigned to them. The two mechanisms compose.
 - The **effective `scope`** (already resolved after checking permissions) and the `sub` are part of
   the cache key, so two different users never share an entry.
@@ -324,7 +324,7 @@ Concrete consequences:
 
 ## 7. Getting a token and calling the API with curl
 
-`erp-app` has *direct access grants* enabled, so a token can be requested without a browser.
+`clavis-app` has *direct access grants* enabled, so a token can be requested without a browser.
 Passwords are read from `.env` so they never have to be typed into a terminal or into a document.
 
 ```bash
@@ -337,10 +337,10 @@ set -a; source .env; set +a
 ```bash
 get_token() {
   # usage: get_token <username> <password>
-  curl -s -X POST "http://localhost:8080/realms/erp/protocol/openid-connect/token" \
+  curl -s -X POST "http://localhost:8080/realms/clavis/protocol/openid-connect/token" \
     -H 'Content-Type: application/x-www-form-urlencoded' \
     -d 'grant_type=password' \
-    -d 'client_id=erp-app' \
+    -d 'client_id=clavis-app' \
     -d 'scope=openid profile email' \
     --data-urlencode "username=$1" \
     --data-urlencode "password=$2" \
@@ -358,8 +358,8 @@ Without `jq` installed, replace the last line of the `curl` with:
 | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.parse(s).access_token))"
 ```
 
-`client_id=erp-app` carries no `client_secret` because it is a **public client**. If you use
-`erp-api` by mistake, Keycloak answers `unauthorized_client`: that client has the *standard flow*
+`client_id=clavis-app` carries no `client_secret` because it is a **public client**. If you use
+`clavis-api` by mistake, Keycloak answers `unauthorized_client`: that client has the *standard flow*
 disabled and is not meant to start sessions.
 
 ### Inspecting the token payload
@@ -448,13 +448,13 @@ curl -s -o /dev/null -w '%{http_code}\n' http://localhost:3000/api/todos \
 
 ## 8. Adding a new permission end to end
 
-Example: **`reports:export`**, granted only to `erp-manager` and `erp-admin`.
+Example: **`reports:export`**, granted only to `clavis-manager` and `clavis-admin`.
 
 ### Step 1 — Declare it in the realm template
 
-`infra/keycloak/realm-erp.template.json`. Two edits:
+`infra/keycloak/realm-clavis.template.json`. Two edits:
 
-**a) The client role inside `erp-api`**, in `clientRoles` (or in the client roles array):
+**a) The client role inside `clavis-api`**, in `clientRoles` (or in the client roles array):
 
 ```json
 {
@@ -464,18 +464,18 @@ Example: **`reports:export`**, granted only to `erp-manager` and `erp-admin`.
 ```
 
 **b) Add it to the composite of the realm role** that should carry it. In the `composites` block
-of `erp-manager`:
+of `clavis-manager`:
 
 ```json
 "composites": {
-  "realm": ["erp-user"],
+  "realm": ["clavis-user"],
   "client": {
-    "erp-api": ["todos:read:all", "todos:delete", "users:read", "reports:export"]
+    "clavis-api": ["todos:read:all", "todos:delete", "users:read", "reports:export"]
   }
 }
 ```
 
-`erp-admin` inherits it automatically because it composes `erp-manager`. **No user has to be
+`clavis-admin` inherits it automatically because it composes `clavis-manager`. **No user has to be
 touched**: that is exactly the point of the model.
 
 ### Step 2 — Declare it in the API
@@ -537,7 +537,7 @@ TOKEN=$(get_token "$DEMO_MANAGER_USERNAME" "$DEMO_MANAGER_PASSWORD")
 node -e "
   const [,,t]=process.argv;
   const p=JSON.parse(Buffer.from(t.split('.')[1].replace(/-/g,'+').replace(/_/g,'/'),'base64').toString());
-  console.log(p.resource_access['erp-api'].roles);
+  console.log(p.resource_access['clavis-api'].roles);
 " "$TOKEN"
 # [... , 'reports:export']
 
@@ -548,7 +548,7 @@ curl -s http://localhost:3000/api/me -H "Authorization: Bearer $TOKEN" | jq '.pe
 
 ```mermaid
 flowchart LR
-    A["1. realm-erp.template.json<br/>client role + composite"] --> B["2. PERMISSIONS<br/>packages/api/src/lib/permissions.ts"]
+    A["1. realm-clavis.template.json<br/>client role + composite"] --> B["2. PERMISSIONS<br/>packages/api/src/lib/permissions.ts"]
     B --> C["3. requirePermissions()<br/>on the API route"]
     C --> D["4. &lt;Can perm=…&gt;<br/>in the SPA"]
     D --> E["5. docker compose down -v<br/>+ up -d --build"]
@@ -562,10 +562,10 @@ flowchart LR
 | Symptom | Usual cause | Fix |
 |---|---|---|
 | `401` with a freshly issued token | The `iss` claim does not match `KEYCLOAK_ISSUER` (trailing slash, `127.0.0.1` instead of `localhost`, or `KC_HOSTNAME` different from `KEYCLOAK_PUBLIC_URL`) | Make `KEYCLOAK_PUBLIC_URL` in `.env` match the URL the browser uses to request the token |
-| `401` with a message about the audience | The *audience mapper* is missing on `erp-app`, or `KEYCLOAK_AUDIENCE` is not `erp-api` | Check the mapper in the realm template and re-import (`down -v`) |
+| `401` with a message about the audience | The *audience mapper* is missing on `clavis-app`, or `KEYCLOAK_AUDIENCE` is not `clavis-api` | Check the mapper in the realm template and re-import (`down -v`) |
 | `403` on `scope=all` | `todos:read:all` is missing | Use `manager`/`admin`, or add the permission to the composite |
 | The new permission does not appear in the token | The realm was not re-imported (the volume already existed) | `docker compose down -v && docker compose up -d --build` |
-| CORS error in the browser | The origin is not in *web origins* of `erp-app` nor in `CORS_ORIGINS` of the API | Review `APP_DEV_URL`/`APP_PROD_URL` in `.env` |
+| CORS error in the browser | The origin is not in *web origins* of `clavis-app` nor in `CORS_ORIGINS` of the API | Review `APP_DEV_URL`/`APP_PROD_URL` in `.env` |
 | `Keycloak instance already initialized` in the SPA console | `keycloak.init()` was called twice (StrictMode) | The init promise must be memoised at module level in `src/auth/keycloak.ts` |
 
 More cases, including infrastructure ones, in

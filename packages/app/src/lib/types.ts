@@ -13,7 +13,7 @@ import { getActiveLocale } from '../i18n'
 import type { Locale, TranslationKey } from '../i18n'
 
 /* ------------------------------------------------------------------ */
-/* Permissions (client roles of `erp-api`)                             */
+/* Permissions (client roles of `clavis-api`)                             */
 /* ------------------------------------------------------------------ */
 
 export const PERMISSIONS = [
@@ -47,9 +47,9 @@ export const PERMISSION_LABEL_KEYS: Record<Permission, TranslationKey> = {
 /* ------------------------------------------------------------------ */
 
 export const REALM_ROLE_LABEL_KEYS: Record<string, TranslationKey> = {
-  'erp-admin': 'auth.roleAdmin',
-  'erp-manager': 'auth.roleManager',
-  'erp-user': 'auth.roleUser',
+  'clavis-admin': 'auth.roleAdmin',
+  'clavis-manager': 'auth.roleManager',
+  'clavis-user': 'auth.roleUser',
 }
 
 /** Technical Keycloak roles that mean nothing to the end user. */

@@ -1,7 +1,7 @@
 /**
- * Permission catalogue of the ERP. They map one to one to the *client roles* of
- * the `erp-api` client in Keycloak and arrive in the token under
- * `resource_access["erp-api"].roles`.
+ * Permission catalogue of Clavis. They map one to one to the *client roles* of
+ * the `clavis-api` client in Keycloak and arrive in the token under
+ * `resource_access["clavis-api"].roles`.
  */
 export const PERMISSIONS = [
   'todos:read',

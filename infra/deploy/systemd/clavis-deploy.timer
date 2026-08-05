@@ -1,0 +1,16 @@
+[Unit]
+Description=Poll the published desired state
+
+# This is the whole deployment trigger. The pipeline never connects to the
+# droplet: it writes current.json to a private blob container and this timer
+# notices. No inbound port, no SSH key stored in GitHub, and rolling back is
+# rewriting one small file.
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=60s
+AccuracySec=5s
+Unit=clavis-deploy.service
+
+[Install]
+WantedBy=timers.target

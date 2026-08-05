@@ -49,14 +49,14 @@ const envSchema = z.object({
   DATABASE_URL: z
     .string()
     .min(1)
-    .default('postgres://erp:erp_dev_password@localhost:5432/erp'),
+    .default('postgres://clavis:clavis_dev_password@localhost:5432/clavis'),
 
   // --- keycloak
   // Public issuer: the one carried inside the token (`iss`).
-  KEYCLOAK_ISSUER: z.string().min(1).default('http://localhost:8080/realms/erp'),
+  KEYCLOAK_ISSUER: z.string().min(1).default('http://localhost:8080/realms/clavis'),
   // Internal issuer: where the API downloads the JWKS from (docker network).
-  KEYCLOAK_INTERNAL_ISSUER: z.string().min(1).default('http://localhost:8080/realms/erp'),
-  KEYCLOAK_AUDIENCE: z.string().min(1).default('erp-api'),
+  KEYCLOAK_INTERNAL_ISSUER: z.string().min(1).default('http://localhost:8080/realms/clavis'),
+  KEYCLOAK_AUDIENCE: z.string().min(1).default('clavis-api'),
 
   // --- valkey
   VALKEY_URL: z.string().min(1).default('redis://localhost:6379'),
@@ -68,7 +68,7 @@ const envSchema = z.object({
     .default(
       'DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://localhost:10000/devstoreaccount1;QueueEndpoint=http://localhost:10001/devstoreaccount1;TableEndpoint=http://localhost:10002/devstoreaccount1;',
     ),
-  AZURE_STORAGE_CONTAINER: z.string().min(1).default('erp-attachments'),
+  AZURE_STORAGE_CONTAINER: z.string().min(1).default('clavis-attachments'),
 
   // --- cache and uploads
   CACHE_TTL_SECONDS: z.coerce.number().int().min(1).max(86400).default(60),
@@ -76,7 +76,7 @@ const envSchema = z.object({
 
   // --- email (Resend)
   RESEND_API_KEY: optionalText,
-  MAIL_FROM: z.string().min(1).default('ERP Demo <onboarding@resend.dev>'),
+  MAIL_FROM: z.string().min(1).default('Clavis <onboarding@resend.dev>'),
   MAIL_REPLY_TO: optionalText,
   MAIL_ENABLED: booleanFromText.default(true),
 })
@@ -116,7 +116,7 @@ if (!parsed.success) {
     .join('\n')
 
   console.error(
-    ['', '[@erp/api] Invalid environment configuration:', details, ''].join('\n'),
+    ['', '[@clavis/api] Invalid environment configuration:', details, ''].join('\n'),
   )
   process.exit(1)
 }

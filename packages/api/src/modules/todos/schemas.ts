@@ -11,7 +11,7 @@ export const DATE_PATTERN = '^\\d{4}-\\d{2}-\\d{2}$'
 /** Email pattern, strict enough for a demo. */
 export const EMAIL_PATTERN = '^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$'
 
-/** Statuses accepted by `erp.todos.status`. */
+/** Statuses accepted by `clavis.todos.status`. */
 export const TODO_STATUSES = ['todo', 'in_progress', 'done']
 
 /** Global API error envelope: `{ error: { code, message, statusCode } }`. */
@@ -41,7 +41,7 @@ export const IdParams = {
 /** Public representation of a todo (camelCase DTO). */
 export const TodoSchema = {
   type: 'object',
-  description: 'ERP task',
+  description: 'Clavis task',
   properties: {
     id: { type: 'string' },
     title: { type: 'string' },

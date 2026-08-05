@@ -1,7 +1,8 @@
 # Deployment
 
-The lab runs on demand at <https://erp-keycloak.mapineda48.com>, with Keycloak at
-<https://auth.erp-keycloak.mapineda48.com>. It is brought up when it is needed
+The lab runs on demand at <https://app.clavis.mapineda48.com>, with the API at
+<https://api.clavis.mapineda48.com> and Keycloak at
+<https://auth.clavis.mapineda48.com>. It is brought up when it is needed
 and destroyed afterwards; nothing but the certificates and the database survives
 in between.
 
@@ -19,25 +20,25 @@ GitHub Actions
     Azure OIDC ---------+  (federated, no client secret stored anywhere)
                         v
    Azure Blob  sti0bagdhl / data-ay4o7m96  (private)
-     erp-keycloak/current.json          desired state: commit + bundle name
-     erp-keycloak/bundles/<sha>.tar.gz  compose + traefik conf + rendered realm + .env
-     erp-keycloak/traefik/*.json        persisted ACME stores, one per resolver
+     clavis/current.json          desired state: commit + bundle name
+     clavis/bundles/<sha>.tar.gz  compose + traefik conf + rendered realm + .env
+     clavis/traefik/*.json        persisted ACME stores, one per resolver
                         |
         blobfuse2, container-scoped SAS
                         v
    DigitalOcean droplet   ubuntu-24-04-x64 - s-2vcpu-4gb - nyc3
-     systemd: erp-blobfuse2 -> erp-acme-restore -> docker -> erp-deploy.timer (60 s)
+     systemd: clavis-blobfuse2 -> clavis-acme-restore -> docker -> clavis-deploy.timer (60 s)
      docker compose:
        traefik    :80 :443        the only published ports
-       app        nginx SPA       erp-keycloak.mapineda48.com/
-       api        fastify         erp-keycloak.mapineda48.com/api
-       keycloak   26.4.0          auth.erp-keycloak.mapineda48.com
+       app        nginx SPA       app.clavis.mapineda48.com
+       api        fastify         api.clavis.mapineda48.com (routes under /api)
+       keycloak   26.4.0          auth.clavis.mapineda48.com
        valkey     cache, no persistence
                         |
         +---------------+----------------+
         v                v               v
    Neon Postgres    Azure Blob        Resend
-   erp + keycloak   erp-attachments   HTTP API (app) - SMTP relay (Keycloak)
+   clavis + keycloak   clavis-attachments   HTTP API (app) - SMTP relay (Keycloak)
 ```
 
 **The pipeline never connects to the droplet.** It writes a bundle and a pointer
@@ -55,7 +56,7 @@ Everything is manual, from the Actions tab:
 
 | Workflow | Input | What happens |
 |---|---|---|
-| **Infra** | `apply` | Creates the droplet, the firewall and both DNS records. ~2 min, plus ~3 min of cloud-init. |
+| **Infra** | `apply` | Creates the droplet, the firewall and the three DNS records. ~2 min, plus ~3 min of cloud-init. |
 | **Deploy** | — | Publishes a bundle and waits for the host to serve it, then runs the smoke test. Runs automatically after **Images**. |
 | **Infra** | `destroy` | Removes the droplet and the records. The certificates and the database survive. |
 
@@ -128,7 +129,7 @@ It cannot live *on* the blob mount, which is what the obvious design would do:
 - `allow-other: true`, which the containers need, forces every entry to 0777 and
   overrides `default-permission` outright.
 
-So the store lives on local ext4 at 0600, `erp-acme-restore.service` copies it
+So the store lives on local ext4 at 0600, `clavis-acme-restore.service` copies it
 in before `docker.service`, and a `.path` unit plus a timer copy it back.
 
 Two resolvers are declared, `staging` and `production`, **each with its own
@@ -136,7 +137,7 @@ store**. Sharing one file does not work: Traefik loads every certificate it
 finds into a single store and serves by SNI, so a staging certificate satisfies
 the request and the production resolver never orders anything.
 
-Switch with the `ERP_CERT_RESOLVER` environment variable. Use `staging` while
+Switch with the `CLAVIS_CERT_RESOLVER` environment variable. Use `staging` while
 changing anything about the edge.
 
 ---
@@ -224,9 +225,9 @@ realm would freeze at whatever the first droplet produced while every later
 deploy reported success. A one-shot `import --override` runs before the stack
 comes up. The cost, stated plainly: realm state created at runtime is discarded
 on every deploy. The demo users carry **fixed ids** so that re-importing does
-not mint new subjects and orphan the `erp.users` rows keyed by them.
+not mint new subjects and orphan the `clavis.users` rows keyed by them.
 
-**Do not set frame-options at the edge at all.** It applies to both hostnames,
+**Do not set frame-options at the edge at all.** It applies to every hostname,
 and Keycloak serves endpoints that MUST be framable from the application's
 origin — `/protocol/openid-connect/3p-cookies/step1.html` above all, which
 keycloak-js loads on startup. Any value, `DENY` or even `SAMEORIGIN`, makes the
@@ -255,7 +256,7 @@ instead.
 - **The records are DNS-only**, so the droplet's address is public and the
   Traefik rate limits plus the DigitalOcean firewall are the only protection
   against L7 traffic. Cloudflare's free Universal SSL does not cover a
-  fourth-level name like `auth.erp-keycloak.mapineda48.com`, and proxying it
+  fourth-level name like `auth.clavis.mapineda48.com`, and proxying it
   would need Advanced Certificate Manager at $10/month per zone.
 - **HSTS is deliberately short** (300 s). This host is destroyed and rebuilt
   regularly, and a year-long policy would turn one bad deploy into a lockout

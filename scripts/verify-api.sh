@@ -36,8 +36,8 @@ c = json.loads(base64.urlsafe_b64decode(p))
 aud = c.get('aud'); aud = aud if isinstance(aud, list) else [aud]
 print("  aud            :", aud)
 print("  iss            :", c.get('iss'))
-print("  realm_access   :", sorted(r for r in c.get('realm_access', {}).get('roles', []) if r.startswith('erp')))
-print("  resource_access:", sorted(c.get('resource_access', {}).get('erp-api', {}).get('roles', [])))
+print("  realm_access   :", sorted(r for r in c.get('realm_access', {}).get('roles', []) if r.startswith('clavis')))
+print("  resource_access:", sorted(c.get('resource_access', {}).get('clavis-api', {}).get('roles', [])))
 PY
 
 echo
@@ -91,8 +91,8 @@ chk "$(curl -s -o /dev/null -w '%{http_code}' -X DELETE -H "Authorization: Beare
 
 echo
 echo "=== 10. Attachments in Azurite ==="
-TMPF=$(mktemp "${TMPDIR:-/tmp}/erp-attachment-XXXXXX.txt")
-echo "ERP test document - $(date +%s)-$$" >"$TMPF"
+TMPF=$(mktemp "${TMPDIR:-/tmp}/clavis-attachment-XXXXXX.txt")
+echo "Clavis test document - $(date +%s)-$$" >"$TMPF"
 UP=$(curl -s -X POST -H "Authorization: Bearer $T_USR" -F "file=@$TMPF;type=text/plain" "$API/api/todos/$TID/attachments")
 AID=$(echo "$UP" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("id",""))' 2>/dev/null)
 [ -n "$AID" ] && ok "attachment uploaded" || bad "the upload failed: ${UP:0:200}"

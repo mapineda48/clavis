@@ -16,8 +16,8 @@ require_tools curl python3
 require_env
 require_up "$KC/realms/$REALM/.well-known/openid-configuration" "Keycloak"
 
-JAR=$(mktemp "${TMPDIR:-/tmp}/erp-cookies-XXXXXX")
-HTML=$(mktemp "${TMPDIR:-/tmp}/erp-login-XXXXXX.html")
+JAR=$(mktemp "${TMPDIR:-/tmp}/clavis-cookies-XXXXXX")
+HTML=$(mktemp "${TMPDIR:-/tmp}/clavis-login-XXXXXX.html")
 trap 'rm -f "$JAR" "$HTML"' EXIT
 
 pkce_pair
@@ -38,10 +38,10 @@ chk "$CODE" 200 "GET /auth"
 
 echo
 echo "=== 2. It is the custom theme, not Keycloak's ==="
-grep -q 'erp-layout' "$HTML" && ok "custom layout (.erp-layout) present" || bad ".erp-layout is missing"
-grep -q 'erp-brand' "$HTML" && ok "brand panel (.erp-brand) present" || bad ".erp-brand is missing"
-grep -q 'erp-login.css' "$HTML" && ok "custom stylesheet linked" || bad "erp-login.css is not linked"
-grep -q 'data-erp-username' "$HTML" && ok "demo user cheat sheet present" || bad "no data-erp-username buttons"
+grep -q 'clavis-layout' "$HTML" && ok "custom layout (.clavis-layout) present" || bad ".clavis-layout is missing"
+grep -q 'clavis-brand' "$HTML" && ok "brand panel (.clavis-brand) present" || bad ".clavis-brand is missing"
+grep -q 'clavis-login.css' "$HTML" && ok "custom stylesheet linked" || bad "clavis-login.css is not linked"
+grep -q 'data-clavis-username' "$HTML" && ok "demo user cheat sheet present" || bad "no data-clavis-username buttons"
 grep -qi 'patternfly' "$HTML" && bad "still pulling in PatternFly CSS" || ok "no leftovers from the default theme"
 
 echo
@@ -61,7 +61,7 @@ fi
 
 echo
 echo "=== 4. Static resources ==="
-for r in "erp-login.css" "erp-login.js"; do
+for r in "clavis-login.css" "clavis-login.js"; do
   U=$(grep -o "[^\"']*${r}[^\"']*" "$HTML" | head -1)
   if [ -n "$U" ]; then
     chk "$(curl -s -o /dev/null -w '%{http_code}' "$KC$U")" 200 "$r is served"
@@ -106,7 +106,7 @@ import sys, json, base64
 p = sys.argv[1].split('.')[1]; p += '=' * (-len(p) % 4)
 c = json.loads(base64.urlsafe_b64decode(p))
 print('     user:', c.get('preferred_username'), '| aud:', c.get('aud'))
-print('     permissions:', sorted(c.get('resource_access', {}).get('erp-api', {}).get('roles', [])))" "$TOK"
+print('     permissions:', sorted(c.get('resource_access', {}).get('clavis-api', {}).get('roles', [])))" "$TOK"
           ;;
       esac
       ;;
@@ -119,15 +119,15 @@ echo
 echo "=== 6. Invalid credentials → error inside the theme ==="
 # Keycloak suppresses the global alert when the failure is username/password
 # (displayMessage=!messagesPerField.existsError) and shows it next to the field.
-ERRHTML=$(mktemp "${TMPDIR:-/tmp}/erp-err-XXXXXX.html")
-JAR2=$(mktemp "${TMPDIR:-/tmp}/erp-cookies2-XXXXXX")
-H2=$(mktemp "${TMPDIR:-/tmp}/erp-login2-XXXXXX.html")
+ERRHTML=$(mktemp "${TMPDIR:-/tmp}/clavis-err-XXXXXX.html")
+JAR2=$(mktemp "${TMPDIR:-/tmp}/clavis-cookies2-XXXXXX")
+H2=$(mktemp "${TMPDIR:-/tmp}/clavis-login2-XXXXXX.html")
 curl -s -c "$JAR2" -o "$H2" "$AUTH"
 ACTION2=$(form_action "$H2" "kc-form-login")
 if [ -n "$ACTION2" ]; then
   curl -s -b "$JAR2" -c "$JAR2" -o "$ERRHTML" -d "username=worker" -d "password=wrong-password" -X POST "$ACTION2"
-  grep -q 'erp-layout' "$ERRHTML" && ok "the error is shown inside the custom theme" || bad "the error page does not use the theme"
-  grep -q 'erp-field-error' "$ERRHTML" && ok "field-level error (.erp-field-error)" || bad "the field error is missing"
+  grep -q 'clavis-layout' "$ERRHTML" && ok "the error is shown inside the custom theme" || bad "the error page does not use the theme"
+  grep -q 'clavis-field-error' "$ERRHTML" && ok "field-level error (.clavis-field-error)" || bad "the field error is missing"
   grep -q 'aria-invalid="true"' "$ERRHTML" && ok "the field is marked aria-invalid" || bad "aria-invalid is missing on the field"
   grep -qi 'username or password' "$ERRHTML" && ok "the message comes from the theme catalogue" || bad "the message is not the translated one"
 else
@@ -137,9 +137,9 @@ rm -f "$ERRHTML" "$JAR2" "$H2"
 
 echo
 echo "=== 7. Localisation: the page answers in English with ui_locales=en ==="
-H3=$(mktemp "${TMPDIR:-/tmp}/erp-en-XXXXXX.html")
+H3=$(mktemp "${TMPDIR:-/tmp}/clavis-en-XXXXXX.html")
 curl -s -o "$H3" "${AUTH}&ui_locales=en"
-grep -q 'erp-layout' "$H3" && ok "the English version also uses the theme" || bad "the English version fails"
+grep -q 'clavis-layout' "$H3" && ok "the English version also uses the theme" || bad "the English version fails"
 rm -f "$H3"
 
 summary "LOGIN THEME"

@@ -3,8 +3,8 @@
 -- =============================================================================
 
 -- A single row with the global counts per status and per priority.
--- Meant for GET /api/admin/stats: `SELECT * FROM erp.v_todo_stats`.
-CREATE OR REPLACE VIEW erp.v_todo_stats AS
+-- Meant for GET /api/admin/stats: `SELECT * FROM clavis.v_todo_stats`.
+CREATE OR REPLACE VIEW clavis.v_todo_stats AS
 SELECT
   count(*)::bigint                                                      AS total,
   count(*) FILTER (WHERE status = 'todo')::bigint                       AS status_todo,
@@ -20,7 +20,7 @@ SELECT
       AND due_date < current_date
       AND status <> 'done'
   )::bigint                                                             AS overdue
-FROM erp.todos;
+FROM clavis.todos;
 
-COMMENT ON VIEW erp.v_todo_stats IS
+COMMENT ON VIEW clavis.v_todo_stats IS
   'Single row with the task counts per status and per priority, plus the unassigned and overdue ones.';

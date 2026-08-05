@@ -45,7 +45,7 @@ export const dbPlugin = fp(
     const pool = new Pool({
       connectionString: env.DATABASE_URL,
       max: 10,
-      application_name: 'erp-api',
+      application_name: 'clavis-api',
     })
 
     // The pool emits errors coming from idle clients: they are logged so that a
@@ -98,7 +98,7 @@ export const dbPlugin = fp(
       app.log.info('PostgreSQL pool closed')
     })
   },
-  { name: 'erp-db' },
+  { name: 'clavis-db' },
 )
 
 export default dbPlugin

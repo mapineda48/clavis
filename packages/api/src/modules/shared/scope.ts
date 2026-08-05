@@ -27,7 +27,7 @@ export interface ScopeFilter {
 
 /** Options to build the SQL fragment. */
 export interface BuildScopeOptions {
-  /** Alias of the `erp.todos` table in the query (`t` by default). */
+  /** Alias of the `clavis.todos` table in the query (`t` by default). */
   alias?: string
   /** Index of the first parameter ($n) the fragment may use. */
   startIndex?: number

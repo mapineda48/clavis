@@ -127,7 +127,7 @@ function buildNotificationHtml(todo: TodoDto, actorName: string): string {
     <table role="presentation" style="max-width:560px;margin:0 auto;background:#ffffff;border-radius:8px;padding:24px;">
       <tr>
         <td>
-          <p style="margin:0 0 8px;color:#777;font-size:13px;">ERP Demo &middot; task notification</p>
+          <p style="margin:0 0 8px;color:#777;font-size:13px;">Clavis &middot; task notification</p>
           <h1 style="margin:0 0 4px;font-size:20px;color:#111;">${escapeHtml(todo.title)}</h1>
           <p style="margin:0;color:#777;font-size:13px;">Sent by ${escapeHtml(actorName)}</p>
           ${description}
@@ -135,7 +135,7 @@ function buildNotificationHtml(todo: TodoDto, actorName: string): string {
             ${rowsHtml}
           </table>
           <p style="margin:24px 0 0;color:#999;font-size:12px;">
-            Automated message from the ERP with Keycloak demo. Do not reply to this email.
+            Automated message from Clavis with Keycloak demo. Do not reply to this email.
           </p>
         </td>
       </tr>
@@ -172,7 +172,7 @@ async function assertAssigneeExists(app: FastifyInstance, assigneeId: string | n
   if (!assigneeId) return
   const user = await repository.findUserById(app.db, assigneeId)
   if (!user) {
-    throw badRequest('The assigned user does not exist in the ERP')
+    throw badRequest('The assigned user does not exist in Clavis')
   }
 }
 
@@ -213,7 +213,7 @@ export const todosRoutes: FastifyPluginAsync = async (app) => {
       let cacheKey: string | null = null
       try {
         const version = await app.cache.version(CACHE_NAMESPACE)
-        cacheKey = `erp:v${version}:todos:${auth.sub}:${scope.effectiveScope}:${status ?? '_'}:${
+        cacheKey = `clavis:v${version}:todos:${auth.sub}:${scope.effectiveScope}:${status ?? '_'}:${
           q ? encodeURIComponent(q) : '_'
         }:${page}:${pageSize}`
       } catch (err) {
@@ -429,7 +429,7 @@ export const todosRoutes: FastifyPluginAsync = async (app) => {
         tags: ['todos'],
         summary: 'Create sample tasks',
         description:
-          'Generates six realistic ERP tasks for the authenticated user. ' +
+          'Generates six realistic sample tasks for the authenticated user. ' +
           'It is idempotent: if the user already owns tasks it returns created = 0.',
         security: [{ bearerAuth: [] }],
         response: {
@@ -503,7 +503,7 @@ export const todosRoutes: FastifyPluginAsync = async (app) => {
       }
 
       const actorName = auth.name ?? auth.username
-      const subject = `[ERP] ${todo.title}`
+      const subject = `[Clavis] ${todo.title}`
       const sent = await app.mailer.send({
         to: recipient,
         subject,

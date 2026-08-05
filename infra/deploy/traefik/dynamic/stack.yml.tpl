@@ -93,7 +93,7 @@ http:
     # deliberately, never by forgetting to close it.
     admin-allowlist:
       ipAllowList:
-        sourceRange: [${ERP_ADMIN_ALLOWLIST}]
+        sourceRange: [${CLAVIS_ADMIN_ALLOWLIST}]
 
     compress:
       compress:
@@ -103,58 +103,57 @@ http:
           - image/webp
 
   routers:
-    # --- erp-keycloak.mapineda48.com -----------------------------------------
-    # Everything the API owns is under /api, health and OpenAPI included, so
-    # this one rule needs no exceptions.
+    # --- api.clavis.mapineda48.com -------------------------------------------
+    # The API owns its whole hostname; its routes still live under /api, health
+    # and OpenAPI included, so the SPA client keeps prepending /api itself.
     api:
-      rule: "Host(`${ERP_APP_FQDN}`) && PathPrefix(`/api`)"
+      rule: "Host(`${CLAVIS_API_FQDN}`)"
       entryPoints: [websecure]
-      service: erp-api
-      priority: 100
+      service: clavis-api
 
+    # --- app.clavis.mapineda48.com -------------------------------------------
     spa:
-      rule: "Host(`${ERP_APP_FQDN}`)"
+      rule: "Host(`${CLAVIS_APP_FQDN}`)"
       entryPoints: [websecure]
-      service: erp-app
+      service: clavis-app
       middlewares: [compress]
-      priority: 10
 
-    # --- auth.erp-keycloak.mapineda48.com ------------------------------------
+    # --- auth.clavis.mapineda48.com ------------------------------------
     keycloak-admin:
-      rule: "Host(`${ERP_AUTH_FQDN}`) && (PathPrefix(`/admin`) || PathPrefix(`/realms/master`))"
+      rule: "Host(`${CLAVIS_AUTH_FQDN}`) && (PathPrefix(`/admin`) || PathPrefix(`/realms/master`))"
       entryPoints: [websecure]
-      service: erp-keycloak
+      service: clavis-keycloak
       middlewares: [admin-allowlist, auth-rate-limit]
       priority: 200
 
     keycloak-reset:
-      rule: "Host(`${ERP_AUTH_FQDN}`) && PathPrefix(`/realms/${ERP_REALM}/login-actions/reset-credentials`)"
+      rule: "Host(`${CLAVIS_AUTH_FQDN}`) && PathPrefix(`/realms/${CLAVIS_REALM}/login-actions/reset-credentials`)"
       entryPoints: [websecure]
-      service: erp-keycloak
+      service: clavis-keycloak
       middlewares: [reset-rate-limit]
       priority: 150
 
     keycloak:
-      rule: "Host(`${ERP_AUTH_FQDN}`)"
+      rule: "Host(`${CLAVIS_AUTH_FQDN}`)"
       entryPoints: [websecure]
-      service: erp-keycloak
+      service: clavis-keycloak
       middlewares: [auth-rate-limit]
       priority: 10
 
   services:
-    erp-api:
+    clavis-api:
       loadBalancer:
         passHostHeader: true
         servers:
           - url: "http://api:3000"
 
-    erp-app:
+    clavis-app:
       loadBalancer:
         passHostHeader: true
         servers:
           - url: "http://app:80"
 
-    erp-keycloak:
+    clavis-keycloak:
       loadBalancer:
         passHostHeader: true
         servers:

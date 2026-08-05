@@ -31,11 +31,12 @@
 # =============================================================================
 set -uo pipefail
 
-: "${ERP_APP_FQDN:?}"
-: "${ERP_AUTH_FQDN:?}"
-REALM="${ERP_REALM:-erp}"
-RESOLVER="${ERP_CERT_RESOLVER:-staging}"
-CLIENT="${KEYCLOAK_APP_CLIENT_ID:-erp-app}"
+: "${CLAVIS_APP_FQDN:?}"
+: "${CLAVIS_API_FQDN:?}"
+: "${CLAVIS_AUTH_FQDN:?}"
+REALM="${CLAVIS_REALM:-clavis}"
+RESOLVER="${CLAVIS_CERT_RESOLVER:-staging}"
+CLIENT="${KEYCLOAK_APP_CLIENT_ID:-clavis-app}"
 
 INSECURE=""
 [ "$RESOLVER" = "staging" ] && INSECURE="-k"
@@ -45,7 +46,7 @@ ok()  { echo "  PASS  $1"; pass=$((pass+1)); }
 bad() { echo "  FAIL  $1"; fail=$((fail+1)); }
 
 echo "=== 1. TLS certificate ==="
-issuer=$(echo | openssl s_client -connect "${ERP_APP_FQDN}:443" -servername "${ERP_APP_FQDN}" 2>/dev/null \
+issuer=$(echo | openssl s_client -connect "${CLAVIS_APP_FQDN}:443" -servername "${CLAVIS_APP_FQDN}" 2>/dev/null \
   | openssl x509 -noout -issuer 2>/dev/null)
 echo "  issuer: ${issuer:-<none>}"
 if [ -z "$issuer" ]; then
@@ -62,16 +63,18 @@ else
     || bad "expected a Let's Encrypt certificate, got: $issuer"
 fi
 
-# The same certificate must cover the Keycloak hostname: both names are one SAN
-# set precisely so they share a single rate-limit bucket.
-sans=$(echo | openssl s_client -connect "${ERP_AUTH_FQDN}:443" -servername "${ERP_AUTH_FQDN}" 2>/dev/null \
-  | openssl x509 -noout -ext subjectAltName 2>/dev/null | tr -d ' ')
-printf '%s' "$sans" | grep -q "DNS:${ERP_AUTH_FQDN}" \
-  && ok "the certificate covers ${ERP_AUTH_FQDN}" \
-  || bad "the certificate does not cover ${ERP_AUTH_FQDN} (SANs: ${sans:-<none>})"
+# The same certificate must cover the API and Keycloak hostnames: the three
+# names are one SAN set precisely so they share a single rate-limit bucket.
+for host in "${CLAVIS_API_FQDN}" "${CLAVIS_AUTH_FQDN}"; do
+  sans=$(echo | openssl s_client -connect "${host}:443" -servername "${host}" 2>/dev/null \
+    | openssl x509 -noout -ext subjectAltName 2>/dev/null | tr -d ' ')
+  printf '%s' "$sans" | grep -q "DNS:${host}" \
+    && ok "the certificate covers ${host}" \
+    || bad "the certificate does not cover ${host} (SANs: ${sans:-<none>})"
+done
 
 echo "=== 2. API readiness ==="
-ready=$(curl -s $INSECURE --max-time 15 "https://${ERP_APP_FQDN}/api/health/ready")
+ready=$(curl -s $INSECURE --max-time 15 "https://${CLAVIS_API_FQDN}/api/health/ready")
 if printf '%s' "$ready" | jq -e . >/dev/null 2>&1; then
   ok "/api/health/ready returned JSON, not the SPA's HTML"
   echo "  checks: $(printf '%s' "$ready" | jq -c '.checks')"
@@ -88,19 +91,19 @@ echo "=== 3. Runtime configuration served to the SPA ==="
 # shipped: the client prepends /api to every path itself, so the first request
 # after login went to /api/api/todos and 404'd while everything here stayed
 # green.
-cfg=$(curl -s $INSECURE --max-time 15 "https://${ERP_APP_FQDN}/config.js")
+cfg=$(curl -s $INSECURE --max-time 15 "https://${CLAVIS_APP_FQDN}/config.js")
 cfg_val() { printf '%s' "$cfg" | sed -n "s/.*$1: *'\([^']*\)'.*/\1/p"; }
 api_url=$(cfg_val apiUrl)
 kc_url=$(cfg_val keycloakUrl)
-[ "$api_url" = "https://${ERP_APP_FQDN}" ] \
-  && ok "apiUrl is the bare origin (${api_url})" \
-  || bad "apiUrl is '${api_url}', expected 'https://${ERP_APP_FQDN}' with no path — the client adds /api itself"
-[ "$kc_url" = "https://${ERP_AUTH_FQDN}" ] \
+[ "$api_url" = "https://${CLAVIS_API_FQDN}" ] \
+  && ok "apiUrl is the bare API origin (${api_url})" \
+  || bad "apiUrl is '${api_url}', expected 'https://${CLAVIS_API_FQDN}' with no path — the client adds /api itself"
+[ "$kc_url" = "https://${CLAVIS_AUTH_FQDN}" ] \
   && ok "keycloakUrl is ${kc_url}" \
-  || bad "keycloakUrl is '${kc_url}', expected 'https://${ERP_AUTH_FQDN}'"
+  || bad "keycloakUrl is '${kc_url}', expected 'https://${CLAVIS_AUTH_FQDN}'"
 
 echo "=== 4. OIDC discovery ==="
-expected="https://${ERP_AUTH_FQDN}/realms/${REALM}"
+expected="https://${CLAVIS_AUTH_FQDN}/realms/${REALM}"
 issuer_claim=$(curl -s $INSECURE --max-time 15 \
   "${expected}/.well-known/openid-configuration" | jq -r '.issuer // empty')
 [ "$issuer_claim" = "$expected" ] \
@@ -119,7 +122,7 @@ if [ -z "$T_USER" ]; then
 else
   ok "token granted"
   code=$(curl -s $INSECURE -o /tmp/me.json -w '%{http_code}' --max-time 15 \
-    -H "Authorization: Bearer $T_USER" "https://${ERP_APP_FQDN}/api/me")
+    -H "Authorization: Bearer $T_USER" "https://${CLAVIS_API_FQDN}/api/me")
   if [ "$code" = "200" ]; then
     ok "GET /api/me accepted the token (roles: $(jq -c '.permissions // .roles // empty' /tmp/me.json 2>/dev/null))"
   else
@@ -127,7 +130,7 @@ else
   fi
   # Anonymous access must still be refused: proves the route is genuinely
   # protected rather than merely reachable.
-  anon=$(curl -s $INSECURE -o /dev/null -w '%{http_code}' --max-time 15 "https://${ERP_APP_FQDN}/api/me")
+  anon=$(curl -s $INSECURE -o /dev/null -w '%{http_code}' --max-time 15 "https://${CLAVIS_API_FQDN}/api/me")
   [ "$anon" = "401" ] && ok "GET /api/me without a token is rejected (401)" \
                       || bad "GET /api/me without a token returned ${anon}, expected 401"
 fi

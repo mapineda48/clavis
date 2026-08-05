@@ -6,7 +6,7 @@ import { Redis } from 'ioredis'
 import { env } from '../config/env.js'
 
 /** Prefix of the keys that hold the version of each namespace. */
-const VERSION_PREFIX = 'erp:ver:'
+const VERSION_PREFIX = 'clavis:ver:'
 
 /**
  * Cache plugin backed by Valkey (Redis protocol).
@@ -25,7 +25,7 @@ export const cachePlugin = fp(
     const client = new Redis(env.VALKEY_URL, {
       lazyConnect: false,
       maxRetriesPerRequest: 3,
-      connectionName: 'erp-api',
+      connectionName: 'clavis-api',
       enableReadyCheck: true,
       // Retry with growing backoff, capped at 3 seconds.
       retryStrategy: (times: number) => Math.min(times * 200, 3000),
@@ -115,7 +115,7 @@ export const cachePlugin = fp(
       app.log.info('Valkey connection closed')
     })
   },
-  { name: 'erp-cache' },
+  { name: 'clavis-cache' },
 )
 
 export default cachePlugin

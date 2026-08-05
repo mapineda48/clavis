@@ -1,9 +1,9 @@
 {
-  "name": "@erp/app",
+  "name": "@clavis/app",
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Demo ERP SPA (React 19 + Vite 7 + keycloak-js)",
+  "description": "Clavis SPA (React 19 + Vite 7 + keycloak-js)",
   "scripts": {
     "dev": "vite",
     "build": "tsc -p tsconfig.json --noEmit && vite build",

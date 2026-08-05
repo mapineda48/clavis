@@ -90,8 +90,8 @@ export const es: Record<TranslationKey, string> = {
   'auth.tokenPermissions': 'Permisos del access token:',
   'auth.tokenPermissionsEmpty': 'sin permisos',
 
-  'common.appName': 'ERP Demo',
-  'common.brandMark': 'ERP',
+  'common.appName': 'Clavis',
+  'common.brandMark': 'CLV',
   'common.brandTagline': 'Keycloak · los permisos viajan en el token',
   'common.clear': 'Limpiar',
   'common.creating': 'Creando…',

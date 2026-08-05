@@ -22,24 +22,24 @@ Managed with **pnpm workspaces**. `pnpm-workspace.yaml` declares a single patter
 ├── docs/
 ├── infra/
 │   ├── keycloak/
-│   │   ├── realm-erp.template.json   # declarative realm with __VARIABLE__ markers
+│   │   ├── realm-clavis.template.json   # declarative realm with __VARIABLE__ markers
 │   │   ├── render-realm.mjs          # replaces the markers with process.env
-│   │   └── themes/erp/               # custom Freemarker login and email theme
+│   │   └── themes/clavis/               # custom Freemarker login and email theme
 │   ├── nginx/
 │   │   ├── app.conf                  # SPA fallback try_files … /index.html
-│   │   └── 40-erp-runtime-config.sh  # writes window.__ERP_CONFIG__ at startup
+│   │   └── 40-clavis-runtime-config.sh  # writes window.__CLAVIS_CONFIG__ at startup
 │   └── postgres/
 │       └── 00-init-databases.sh      # creates Keycloak's role and database
 └── packages/
-    ├── api/   → @erp/api
-    └── app/   → @erp/app
+    ├── api/   → @clavis/api
+    └── app/   → @clavis/app
 ```
 
 There is no `shared` package: the two packages talk **only over HTTP** and through the contract
 published in Swagger. That is deliberate — it keeps the frontend from depending on backend types
 and keeps the demo understandable by reading one package at a time.
 
-### `@erp/api`
+### `@clavis/api`
 
 HTTP backend. **Strict ESM** (`"type": "module"`, `module`/`moduleResolution` = `NodeNext`),
 which forces **every relative import to carry the `.js` extension** even though the source is
@@ -71,7 +71,7 @@ fastify.storage                            // Azure Blob: upload/download/remove
 fastify.mailer                             // Resend or dry-run: send()
 ```
 
-### `@erp/app`
+### `@clavis/app`
 
 React 19 SPA served by Vite 7 in development and by nginx under the `full` profile.
 **No CSS framework and no extra dependencies**: `src/index.css` with CSS variables and light/dark
@@ -79,7 +79,7 @@ support through `prefers-color-scheme`.
 
 | Area | Responsibility |
 |---|---|
-| `src/config.ts` | Resolves configuration at runtime: `window.__ERP_CONFIG__` → `import.meta.env.VITE_*` → development defaults. |
+| `src/config.ts` | Resolves configuration at runtime: `window.__CLAVIS_CONFIG__` → `import.meta.env.VITE_*` → development defaults. |
 | `src/auth/keycloak.ts` | **Singleton** `keycloak-js` instance and an `init()` promise **memoised at module level**. |
 | `src/auth/AuthProvider.tsx` | Context + `useAuth()`: `{ ready, authenticated, profile, realmRoles, permissions, has(perm), login(), logout(), token() }`. |
 | `src/auth/Can.tsx` | `<Can perm="todos:delete">…</Can>`, with an optional `fallback`. |
@@ -116,10 +116,10 @@ drift apart. Compose also **derives** values that are never written by hand:
 ```mermaid
 flowchart TB
     subgraph client["Client"]
-        SPA["@erp/app<br/>React 19 · keycloak-js · React Query"]
+        SPA["@clavis/app<br/>React 19 · keycloak-js · React Query"]
     end
 
-    subgraph api["@erp/api — Fastify 5"]
+    subgraph api["@clavis/api — Fastify 5"]
         AUTH["auth plugin<br/>jose + remote JWKS<br/>authenticate / requirePermissions"]
         MOD["modules<br/>health · me · todos · attachments · admin"]
         DB["db plugin<br/>pg.Pool · query · tx"]
@@ -130,10 +130,10 @@ flowchart TB
     end
 
     subgraph infra["Infrastructure"]
-        KC["Keycloak 26.4<br/>realm erp"]
-        PG[("PostgreSQL 17.6<br/>schema erp")]
+        KC["Keycloak 26.4<br/>realm clavis"]
+        PG[("PostgreSQL 17.6<br/>schema clavis")]
         VK[("Valkey 8.1")]
-        AZ[("Azurite 3.35<br/>erp-attachments")]
+        AZ[("Azurite 3.35<br/>clavis-attachments")]
     end
 
     RS["Resend<br/>(external, optional)"]
@@ -142,7 +142,7 @@ flowchart TB
     SPA -->|"Bearer JWT"| AUTH
     AUTH --> MOD
     AUTH -->|"internal JWKS"| KC
-    AUTH -->|"JIT provisioning into erp.users"| DB
+    AUTH -->|"JIT provisioning into clavis.users"| DB
     MOD --> DB
     MOD --> CACHE
     MOD --> STO
@@ -160,8 +160,8 @@ flowchart TB
 1. `authenticate` pulls the `Bearer` out of the `Authorization` header.
 2. `jose` verifies the signature (JWKS), `iss`, `aud` and `exp`.
 3. The `AuthContext` is built from `sub`, `preferred_username`, `email`, `name`,
-   `realm_access.roles` and `resource_access['erp-api'].roles`.
-4. **JIT provisioning**: `INSERT … ON CONFLICT (id) DO UPDATE` into `erp.users`, refreshing
+   `realm_access.roles` and `resource_access['clavis-api'].roles`.
+4. **JIT provisioning**: `INSERT … ON CONFLICT (id) DO UPDATE` into `clavis.users`, refreshing
    `username`, `email`, `display_name` and `last_seen_at`. The application never has an "unknown"
    user behind its foreign keys and needs no periodic sync with Keycloak.
 5. `requirePermissions(...)` checks the AND of the permissions the route demands; on failure it
@@ -172,7 +172,7 @@ flowchart TB
 
 ## 3. Database
 
-Schema `erp` in the `erp` database. Keycloak uses a **separate** database (`keycloak`) on the same
+Schema `clavis` in the `clavis` database. Keycloak uses a **separate** database (`keycloak`) on the same
 PostgreSQL instance, created idempotently by `infra/postgres/00-init-databases.sh`. They share a
 server but **not** a schema: identity and business data do not mix.
 
@@ -228,7 +228,7 @@ erDiagram
 
 ### Modelling decisions
 
-- **`erp.users.id` is the Keycloak `sub`.** There is no parallel internal ID and no mapping table:
+- **`clavis.users.id` is the Keycloak `sub`.** There is no parallel internal ID and no mapping table:
   the identity identifier *is* the user identifier in the business domain. That makes an ownership
   check as simple as `owner_id = auth.sub`, with no translation in between.
 - **`owner_id` with `ON DELETE CASCADE`, `assignee_id` with `ON DELETE SET NULL`.** If a user
@@ -243,15 +243,15 @@ erDiagram
   patterns of the filtered listing, the attachments panel and the audit log paginated by date
   descending.
 - **`updated_at` is maintained by the database**, not by the application: the
-  `erp.set_updated_at()` function plus `BEFORE UPDATE` triggers on `erp.users` and `erp.todos`.
+  `clavis.set_updated_at()` function plus `BEFORE UPDATE` triggers on `clavis.users` and `clavis.todos`.
 
 ### Migrations
 
 - Files under `packages/api/migrations/NNNN_name.sql`, applied in **lexicographic order**.
   - `0001_init.sql` — schema, tables, indexes, function and triggers.
-  - `0002_views.sql` — the `erp.v_todo_stats` view with counts by status and priority, which feeds
+  - `0002_views.sql` — the `clavis.v_todo_stats` view with counts by status and priority, which feeds
     `GET /api/admin/stats`.
-- The `erp.schema_migrations (version, checksum, applied_at)` registry **is created by the migrator
+- The `clavis.schema_migrations (version, checksum, applied_at)` registry **is created by the migrator
   itself**, not by a migration; that way the migrator can start against an empty database.
 - Each migration is applied exactly once and its **checksum** is stored. Editing a file that has
   already been applied fails at startup instead of silently diverging between environments. To
@@ -269,7 +269,7 @@ than key deletion.
 **List key:**
 
 ```
-erp:v<version>:todos:<sub>:<effectiveScope>:<status|_>:<q|_>:<page>:<pageSize>
+clavis:v<version>:todos:<sub>:<effectiveScope>:<status|_>:<q|_>:<page>:<pageSize>
 ```
 
 - `<version>` — integer counter for the `todos` namespace, obtained with `cache.version('todos')`
@@ -294,7 +294,7 @@ sequenceDiagram
 
     C->>A: GET /api/todos?status=todo
     A->>V: version('todos') → 7
-    A->>V: GET erp:v7:todos:[sub]:mine:todo:_:1:20
+    A->>V: GET clavis:v7:todos:[sub]:mine:todo:_:1:20
     V-->>A: null
     A->>A: query PostgreSQL
     A->>V: SET key (TTL 60 s)
@@ -305,7 +305,7 @@ sequenceDiagram
 
     C->>A: GET /api/todos?status=todo
     A->>V: version('todos') → 8
-    A->>V: GET erp:v8:… → null
+    A->>V: GET clavis:v8:… → null
     A-->>C: 200 · X-Cache MISS (fresh data)
 ```
 
@@ -330,7 +330,7 @@ standard development connection string (`AZURE_STORAGE_CONNECTION_STRING`), whos
 `.env.example`. Swapping Azurite for a real Azure Storage account means changing that string and
 nothing else.
 
-Container: `AZURE_STORAGE_CONTAINER` = `erp-attachments`, created by the `storage` plugin at
+Container: `AZURE_STORAGE_CONTAINER` = `clavis-attachments`, created by the `storage` plugin at
 startup if it does not exist (idempotent).
 
 ### Blob naming convention
@@ -350,7 +350,7 @@ The reason for each part:
 - **Sanitised name** — normalised to `[A-Za-z0-9._-]` so nothing depends on the character set of
   the storage backend.
 
-The exact value is stored in `erp.todo_attachments.blob_name` with a **UNIQUE** constraint: the
+The exact value is stored in `clavis.todo_attachments.blob_name` with a **UNIQUE** constraint: the
 database is the source of truth for the blob inventory, and the name is never recomputed on
 download. The download path (`GET /api/attachments/:id`) resolves the row first, checks visibility
 on the parent task and **then** asks for the blob: the blob identifier is never exposed to the
@@ -372,10 +372,10 @@ The browser and the API **see Keycloak at different addresses**:
 | Who | How it reaches Keycloak |
 |---|---|
 | Browser (outside Docker) | `http://localhost:8080` |
-| API (inside `erp-net`) | `http://keycloak:8080` — `localhost` would be the API container itself |
+| API (inside `clavis-net`) | `http://keycloak:8080` — `localhost` would be the API container itself |
 
 The catch is that the token carries **a single** `iss`, the one Keycloak considers its public
-hostname: `http://localhost:8080/realms/erp`. If the API validated `iss` against the URL it uses to
+hostname: `http://localhost:8080/realms/clavis`. If the API validated `iss` against the URL it uses to
 talk to Keycloak (`http://keycloak:8080/...`), **every token would be rejected** even though they
 are perfectly valid. And the other way round: if it tried to download the JWKS from
 `http://localhost:8080`, inside the container that resolves to nothing.
@@ -384,13 +384,13 @@ The solution is two variables with two separate uses:
 
 | Variable | Value | Used for |
 |---|---|---|
-| `KEYCLOAK_ISSUER` | `http://localhost:8080/realms/erp` | Comparing against the token's `iss` claim (it must match **exactly**, no extra trailing slash) |
-| `KEYCLOAK_INTERNAL_ISSUER` | `http://keycloak:8080/realms/erp` | Deriving the JWKS URL: `<internal>/protocol/openid-connect/certs` |
+| `KEYCLOAK_ISSUER` | `http://localhost:8080/realms/clavis` | Comparing against the token's `iss` claim (it must match **exactly**, no extra trailing slash) |
+| `KEYCLOAK_INTERNAL_ISSUER` | `http://keycloak:8080/realms/clavis` | Deriving the JWKS URL: `<internal>/protocol/openid-connect/certs` |
 
 ```mermaid
 flowchart LR
     B["Browser"] -->|"gets a token from<br/>http://localhost:8080"| KC["Keycloak"]
-    B -->|"Bearer with<br/>iss = http://localhost:8080/realms/erp"| API["API"]
+    B -->|"Bearer with<br/>iss = http://localhost:8080/realms/clavis"| API["API"]
     API -->|"downloads JWKS from<br/>http://keycloak:8080"| KC
     API -->|"compares iss against<br/>KEYCLOAK_ISSUER"| API
 ```
@@ -414,8 +414,8 @@ The realm is not configured by hand: it is **rendered and imported** on every cl
 ```mermaid
 flowchart LR
     ENV[".env"] --> R["keycloak-realm (one-shot)<br/>node:22.23.1-alpine<br/>render-realm.mjs"]
-    T["realm-erp.template.json<br/>__VARIABLE__ markers"] --> R
-    R -->|"writes /import/realm-erp.json"| VOL[("keycloak-import<br/>volume")]
+    T["realm-clavis.template.json<br/>__VARIABLE__ markers"] --> R
+    R -->|"writes /import/realm-clavis.json"| VOL[("keycloak-import<br/>volume")]
     VOL --> KC["keycloak<br/>start-dev --import-realm"]
     PG[("healthy postgres")] --> KC
 ```
@@ -449,7 +449,7 @@ it:
 1. It copies `pnpm-workspace.yaml`, `pnpm-lock.yaml`, `package.json`, `tsconfig.base.json` and
    **the `package.json` of both packages**. If one is missing, `--frozen-lockfile` fails: the
    lockfile describes the whole workspace, not a single package.
-2. It installs with `--filter @erp/api...` (only the API and its workspace dependencies).
+2. It installs with `--filter @clavis/api...` (only the API and its workspace dependencies).
 3. It builds with `tsc`.
 4. It reinstalls with `--prod` to drop the development dependencies.
 5. The final stage copies **all of `/repo`**: the symlinks pnpm creates in `node_modules` are

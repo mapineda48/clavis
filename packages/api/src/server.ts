@@ -65,7 +65,7 @@ export async function buildServer(): Promise<FastifyInstance> {
     openapi: {
       openapi: '3.1.0',
       info: {
-        title: 'Demo ERP API',
+        title: 'Clavis API',
         description:
           'Task API with Keycloak authentication and permissions, Valkey cache, ' +
           'attachments on Azure Blob Storage and email notifications.',
@@ -85,7 +85,7 @@ export async function buildServer(): Promise<FastifyInstance> {
             type: 'http',
             scheme: 'bearer',
             bearerFormat: 'JWT',
-            description: 'Access token issued by Keycloak for the erp-api audience.',
+            description: 'Access token issued by Keycloak for the clavis-api audience.',
           },
         },
       },

@@ -12,12 +12,12 @@
 set -euo pipefail
 
 # shellcheck disable=SC1091
-. /etc/erp/deploy.env
+. /etc/clavis/deploy.env
 
 MOUNT=/mnt/deploy
-BASE="${MOUNT}/${ERP_DEPLOY_PREFIX}"
-STACK=/opt/erp/stack
-STATE=/var/lib/erp/deployed-commit
+BASE="${MOUNT}/${CLAVIS_DEPLOY_PREFIX}"
+STACK=/opt/clavis/stack
+STATE=/var/lib/clavis/deployed-commit
 
 log() { echo "reconcile: $*"; }
 
@@ -56,7 +56,7 @@ trap cleanup EXIT
 
 SAS=$(sed -n 's/^[[:space:]]*sas:[[:space:]]*"\(.*\)"[[:space:]]*$/\1/p' /etc/blobfuse2.yaml)
 if [ -n "$SAS" ]; then
-  POINTER_URL="https://${ERP_STORAGE_ACCOUNT}.blob.core.windows.net/${ERP_DEPLOY_CONTAINER}/${ERP_DEPLOY_PREFIX}/current.json?${SAS#\?}"
+  POINTER_URL="https://${CLAVIS_STORAGE_ACCOUNT}.blob.core.windows.net/${CLAVIS_DEPLOY_CONTAINER}/${CLAVIS_DEPLOY_PREFIX}/current.json?${SAS#\?}"
   curl -fsS --max-time 30 -H 'Cache-Control: no-cache' -o "$CURRENT_JSON" "$POINTER_URL" || : > "$CURRENT_JSON"
 fi
 
@@ -90,11 +90,11 @@ BUNDLE_PATH="${BASE}/bundles/${bundle}"
 # The bundle carries the rendered realm and the .env: every secret this stack
 # needs. Nothing here may become world-readable.
 umask 077
-work="$(mktemp -d /opt/erp/.stage.XXXXXX)"
+work="$(mktemp -d /opt/clavis/.stage.XXXXXX)"
 
 tar -xzf "$BUNDLE_PATH" -C "$work"
 
-for required in docker-compose.yml .env traefik/traefik.yml traefik/dynamic/stack.yml realm/realm-erp.json; do
+for required in docker-compose.yml .env traefik/traefik.yml traefik/dynamic/stack.yml realm/realm-clavis.json; do
   [ -e "${work}/${required}" ] || { echo "reconcile: bundle is missing ${required}" >&2; exit 1; }
 done
 
