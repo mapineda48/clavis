@@ -29,10 +29,10 @@ if ! resend whoami --json >/dev/null 2>&1; then
   exit 2
 fi
 
-JAR=$(mktemp "${TMPDIR:-/tmp}/erp-cookies-XXXXXX")
-HTML=$(mktemp "${TMPDIR:-/tmp}/erp-login-XXXXXX.html")
-RESETP=$(mktemp "${TMPDIR:-/tmp}/erp-reset-XXXXXX.html")
-OUT=$(mktemp "${TMPDIR:-/tmp}/erp-out-XXXXXX")
+JAR=$(mktemp "${TMPDIR:-/tmp}/clavis-cookies-XXXXXX")
+HTML=$(mktemp "${TMPDIR:-/tmp}/clavis-login-XXXXXX.html")
+RESETP=$(mktemp "${TMPDIR:-/tmp}/clavis-reset-XXXXXX.html")
+OUT=$(mktemp "${TMPDIR:-/tmp}/clavis-out-XXXXXX")
 trap 'rm -f "$JAR" "$HTML" "$RESETP" "$OUT"' EXIT
 
 pkce_pair
@@ -58,9 +58,9 @@ print(html.unescape(m.group(1)) if m else '')" "$HTML")
 echo
 echo "=== 2. Recovery screen uses the custom theme ==="
 curl -s -b "$JAR" -c "$JAR" -o "$RESETP" "$KC$RESET"
-grep -q 'erp-layout' "$RESETP" && ok "uses the erp theme" || bad "does not use the erp theme"
+grep -q 'clavis-layout' "$RESETP" && ok "uses the clavis theme" || bad "does not use the clavis theme"
 grep -q 'id="kc-reset-password-form"' "$RESETP" && ok "recovery form intact" || bad "#kc-reset-password-form is missing"
-grep -q 'erp-card__subtitle' "$RESETP" && ok "theme's own subtitle" || bad "no custom subtitle"
+grep -q 'clavis-card__subtitle' "$RESETP" && ok "theme's own subtitle" || bad "no custom subtitle"
 grep -qi 'freemarker template error' "$RESETP" && bad "Freemarker error on the page" || ok "no Freemarker errors"
 if grep -o '??[a-zA-Z][a-zA-Z0-9_.-]*??' "$RESETP" | sort -u | grep -q .; then
   bad "unresolved keys:"; grep -o '??[a-zA-Z][a-zA-Z0-9_.-]*??' "$RESETP" | sort -u | head -3
@@ -72,8 +72,8 @@ echo
 echo "=== 3. Reset request for 'admin' ==="
 BEFORE=$(last_email_id)
 curl -s -b "$JAR" -c "$JAR" -o "$OUT" -d "username=$(envval DEMO_ADMIN_USERNAME)" -X POST "$(form_action "$RESETP" "kc-reset-password-form")"
-grep -q 'erp-alert' "$OUT" && ok "Keycloak confirms the send inside the theme" || bad "no visible confirmation"
-grep -q 'erp-alert--error' "$OUT" && bad "Keycloak reports a delivery error" || ok "no delivery error"
+grep -q 'clavis-alert' "$OUT" && ok "Keycloak confirms the send inside the theme" || bad "no visible confirmation"
+grep -q 'clavis-alert--error' "$OUT" && bad "Keycloak reports a delivery error" || ok "no delivery error"
 
 echo
 echo "=== 4. The email reaches Resend ==="
@@ -104,7 +104,7 @@ HTMLBODY=$(python3 -c "import sys,json;print(json.load(open(sys.argv[1])).get('h
 echo "$HTMLBODY" | grep -q 'role="presentation"' && ok "table-based layout (works in email clients)" || bad "no layout tables"
 echo "$HTMLBODY" | grep -qi '<style' && bad "it carries a <style> block (clients strip it)" || ok "CSS is fully inline"
 echo "$HTMLBODY" | grep -qiE '<img[^>]+src="https?://|fonts\.(googleapis|gstatic)' && bad "it loads remote resources" || ok "no remote images or fonts"
-echo "$HTMLBODY" | grep -qi 'ERP Demo' && ok "carries the ERP branding" || bad "the branding is missing"
+echo "$HTMLBODY" | grep -qi 'Clavis' && ok "carries Clavis branding" || bad "the branding is missing"
 
 echo
 echo "=== 6. The email link opens the new-password screen ==="
@@ -118,10 +118,10 @@ if [ -z "$LINK" ]; then
   summary "PASSWORD RESET"; exit 1
 fi
 ok "action link found"
-JAR2=$(mktemp "${TMPDIR:-/tmp}/erp-cookies2-XXXXXX")
-UPD=$(mktemp "${TMPDIR:-/tmp}/erp-upd-XXXXXX.html")
+JAR2=$(mktemp "${TMPDIR:-/tmp}/clavis-cookies2-XXXXXX")
+UPD=$(mktemp "${TMPDIR:-/tmp}/clavis-upd-XXXXXX.html")
 curl -s -L -c "$JAR2" -b "$JAR2" -o "$UPD" "$LINK"
-grep -q 'erp-layout' "$UPD" && ok "the screen uses the erp theme" || bad "does not use the erp theme"
+grep -q 'clavis-layout' "$UPD" && ok "the screen uses the clavis theme" || bad "does not use the clavis theme"
 grep -q 'name="password-new"' "$UPD" && ok "new password field present" || bad "password-new is missing"
 grep -q 'name="password-confirm"' "$UPD" && ok "confirmation field present" || bad "password-confirm is missing"
 grep -q 'logout-sessions' "$UPD" && ok "option to sign out other sessions" || bad "logout-sessions is missing"

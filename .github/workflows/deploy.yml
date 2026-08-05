@@ -46,13 +46,14 @@ jobs:
       ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
       ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
       ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-      ERP_APP_FQDN: ${{ vars.ERP_APP_FQDN }}
-      ERP_AUTH_FQDN: ${{ vars.ERP_AUTH_FQDN }}
-      ERP_REALM: ${{ vars.ERP_REALM || 'erp' }}
-      ERP_CERT_RESOLVER: ${{ vars.ERP_CERT_RESOLVER || 'staging' }}
+      CLAVIS_APP_FQDN: ${{ vars.CLAVIS_APP_FQDN }}
+      CLAVIS_API_FQDN: ${{ vars.CLAVIS_API_FQDN }}
+      CLAVIS_AUTH_FQDN: ${{ vars.CLAVIS_AUTH_FQDN }}
+      CLAVIS_REALM: ${{ vars.CLAVIS_REALM || 'clavis' }}
+      CLAVIS_CERT_RESOLVER: ${{ vars.CLAVIS_CERT_RESOLVER || 'staging' }}
       # A secret rather than a variable: it is a personal address, and this way
       # it is masked if anything ever echoes it.
-      ERP_ACME_EMAIL: ${{ secrets.ERP_ACME_EMAIL }}
+      CLAVIS_ACME_EMAIL: ${{ secrets.CLAVIS_ACME_EMAIL }}
 
     steps:
       - name: Checkout
@@ -88,13 +89,13 @@ jobs:
         run: |
           terraform init -lockfile=readonly >/dev/null
           {
-            echo "ERP_STORAGE_ACCOUNT=$(terraform output -raw storage_account_name)"
-            echo "ERP_DEPLOY_CONTAINER=$(terraform output -raw deploy_container)"
-            echo "ERP_DEPLOY_PREFIX=$(terraform output -raw deploy_prefix)"
-            echo "ERP_ATTACHMENTS_CONTAINER=$(terraform output -raw attachments_container)"
+            echo "CLAVIS_STORAGE_ACCOUNT=$(terraform output -raw storage_account_name)"
+            echo "CLAVIS_DEPLOY_CONTAINER=$(terraform output -raw deploy_container)"
+            echo "CLAVIS_DEPLOY_PREFIX=$(terraform output -raw deploy_prefix)"
+            echo "CLAVIS_ATTACHMENTS_CONTAINER=$(terraform output -raw attachments_container)"
           } >> "$GITHUB_ENV"
           echo "::add-mask::$(terraform output -raw attachments_connection_string)"
-          echo "ERP_STORAGE_CONNECTION_STRING=$(terraform output -raw attachments_connection_string)" >> "$GITHUB_ENV"
+          echo "CLAVIS_STORAGE_CONNECTION_STRING=$(terraform output -raw attachments_connection_string)" >> "$GITHUB_ENV"
 
       # `outputs.imageid` from the build is a LOCAL config id and is not
       # pullable. Resolving the tag here gives the registry digest, which is.
@@ -107,12 +108,12 @@ jobs:
             [ -n "$digest" ] || { echo "no digest for $ref"; exit 1; }
             echo "resolved ${image} -> ${digest}"
             var=$(echo "$image" | tr '[:lower:]' '[:upper:]')
-            echo "ERP_${var}_IMAGE=ghcr.io/${repo}/${image}@${digest}" >> "$GITHUB_ENV"
+            echo "CLAVIS_${var}_IMAGE=ghcr.io/${repo}/${image}@${digest}" >> "$GITHUB_ENV"
           done
 
       - name: Build the bundle
         env:
-          ERP_DATABASE_URL: ${{ secrets.ERP_DATABASE_URL }}
+          CLAVIS_DATABASE_URL: ${{ secrets.CLAVIS_DATABASE_URL }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           KC_BOOTSTRAP_ADMIN_USERNAME: ${{ secrets.KC_BOOTSTRAP_ADMIN_USERNAME }}
           KC_BOOTSTRAP_ADMIN_PASSWORD: ${{ secrets.KC_BOOTSTRAP_ADMIN_PASSWORD }}
@@ -123,19 +124,19 @@ jobs:
           DEMO_USER_PASSWORD: ${{ secrets.DEMO_USER_PASSWORD }}
           MAIL_FROM: ${{ vars.MAIL_FROM }}
           KEYCLOAK_SMTP_FROM: ${{ vars.KEYCLOAK_SMTP_FROM }}
-          ERP_ADMIN_ALLOWLIST_RAW: ${{ vars.ADMIN_ALLOWED_CIDRS }}
+          CLAVIS_ADMIN_ALLOWLIST_RAW: ${{ vars.ADMIN_ALLOWED_CIDRS }}
         run: bash scripts/build-deploy-bundle.sh
 
       - name: Publish to blob storage
         run: |
-          base="${ERP_DEPLOY_PREFIX}"
+          base="${CLAVIS_DEPLOY_PREFIX}"
           az storage blob upload --auth-mode login --overwrite \
-            --account-name "$ERP_STORAGE_ACCOUNT" --container-name "$ERP_DEPLOY_CONTAINER" \
+            --account-name "$CLAVIS_STORAGE_ACCOUNT" --container-name "$CLAVIS_DEPLOY_CONTAINER" \
             --name "${base}/bundles/${DEPLOY_SHA}.tar.gz" --file dist/bundle.tar.gz -o none
           # current.json LAST: until it points at the new bundle, nothing on the
           # host changes, so a failed upload above leaves the running stack alone.
           az storage blob upload --auth-mode login --overwrite \
-            --account-name "$ERP_STORAGE_ACCOUNT" --container-name "$ERP_DEPLOY_CONTAINER" \
+            --account-name "$CLAVIS_STORAGE_ACCOUNT" --container-name "$CLAVIS_DEPLOY_CONTAINER" \
             --name "${base}/current.json" --file dist/current.json -o none
           echo "published ${DEPLOY_SHA}"
 
@@ -158,7 +159,8 @@ jobs:
             echo "| | |"
             echo "|---|---|"
             echo "| Commit | \`${DEPLOY_SHA}\` |"
-            echo "| App | https://${ERP_APP_FQDN} |"
-            echo "| Auth | https://${ERP_AUTH_FQDN} |"
-            echo "| Certificate | \`${ERP_CERT_RESOLVER}\` |"
+            echo "| App | https://${CLAVIS_APP_FQDN} |"
+            echo "| API | https://${CLAVIS_API_FQDN} |"
+            echo "| Auth | https://${CLAVIS_AUTH_FQDN} |"
+            echo "| Certificate | \`${CLAVIS_CERT_RESOLVER}\` |"
           } >> "$GITHUB_STEP_SUMMARY"

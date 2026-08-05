@@ -25,7 +25,7 @@ export const LOCALE_LABELS: Record<Locale, string> = {
 }
 
 /** Where the choice is remembered between visits. */
-export const LOCALE_STORAGE_KEY = 'erp.locale'
+export const LOCALE_STORAGE_KEY = 'clavis.locale'
 
 export type TranslationKey = keyof typeof en
 

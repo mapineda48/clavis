@@ -4,8 +4,13 @@ output "droplet_ipv4" {
 }
 
 output "app_url" {
-  description = "Public URL of the SPA; the API hangs off /api on the same origin"
+  description = "Public URL of the SPA"
   value       = "https://${local.app_fqdn}"
+}
+
+output "api_url" {
+  description = "Public URL of the API; its routes hang off /api on this origin"
+  value       = "https://${local.api_fqdn}"
 }
 
 output "auth_url" {
@@ -15,7 +20,7 @@ output "auth_url" {
 
 output "issuer" {
   description = "Expected OIDC issuer. The smoke test asserts the discovery document reports exactly this."
-  value       = "https://${local.auth_fqdn}/realms/erp"
+  value       = "https://${local.auth_fqdn}/realms/clavis"
 }
 
 output "storage_account_name" {

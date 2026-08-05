@@ -15,12 +15,12 @@ const MeResponse = {
     realmRoles: {
       type: 'array',
       items: { type: 'string' },
-      description: 'Realm roles (erp-user, erp-manager, erp-admin)',
+      description: 'Realm roles (clavis-user, clavis-manager, clavis-admin)',
     },
     permissions: {
       type: 'array',
       items: { type: 'string' },
-      description: 'erp-api client roles granted to the user',
+      description: 'clavis-api client roles granted to the user',
     },
     requestedAt: { type: 'string', description: 'ISO 8601 instant when the request was served' },
   },

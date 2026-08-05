@@ -75,9 +75,9 @@ export async function runMigrations(pool: Pool, logger: MigrationLogger): Promis
     await client.query('SELECT pg_advisory_lock($1::bigint)', [MIGRATION_LOCK_ID])
     lockAcquired = true
 
-    await client.query('CREATE SCHEMA IF NOT EXISTS erp')
+    await client.query('CREATE SCHEMA IF NOT EXISTS clavis')
     await client.query(`
-      CREATE TABLE IF NOT EXISTS erp.schema_migrations (
+      CREATE TABLE IF NOT EXISTS clavis.schema_migrations (
         version    text PRIMARY KEY,
         checksum   text NOT NULL,
         applied_at timestamptz NOT NULL DEFAULT now()
@@ -85,7 +85,7 @@ export async function runMigrations(pool: Pool, logger: MigrationLogger): Promis
     `)
 
     const { rows } = await client.query<{ version: string; checksum: string }>(
-      'SELECT version, checksum FROM erp.schema_migrations',
+      'SELECT version, checksum FROM clavis.schema_migrations',
     )
     const applied = new Map(rows.map((row) => [row.version, row.checksum]))
 
@@ -110,7 +110,7 @@ export async function runMigrations(pool: Pool, logger: MigrationLogger): Promis
       try {
         await client.query(file.sql)
         await client.query(
-          'INSERT INTO erp.schema_migrations (version, checksum) VALUES ($1, $2)',
+          'INSERT INTO clavis.schema_migrations (version, checksum) VALUES ($1, $2)',
           [file.version, file.checksum],
         )
         await client.query('COMMIT')

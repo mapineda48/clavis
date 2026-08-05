@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 #
-# Image for @erp/app (the SPA built with Vite and served by nginx).
+# Image for @clavis/app (the SPA built with Vite and served by nginx).
 # IMPORTANT: the build context is the ROOT of the monorepo, not this folder.
 #   docker build -f packages/app/Dockerfile .
 # Only built under the `full` docker compose profile.
@@ -24,14 +24,14 @@ COPY pnpm-workspace.yaml pnpm-lock.yaml package.json tsconfig.base.json ./
 COPY packages/api/package.json packages/api/package.json
 COPY packages/app/package.json packages/app/package.json
 
-RUN pnpm install --frozen-lockfile --filter @erp/app...
+RUN pnpm install --frozen-lockfile --filter @clavis/app...
 
 COPY packages/app packages/app
 
 # `build` runs typecheck + vite build and leaves the output in packages/app/dist.
 # The Keycloak and API configuration is NOT baked in here: it arrives at runtime
-# through /config.js (window.__ERP_CONFIG__).
-RUN pnpm --filter @erp/app build
+# through /config.js (window.__CLAVIS_CONFIG__).
+RUN pnpm --filter @clavis/app build
 
 # ------------------------------------------------------------------------------
 # Stage 2: static server.
@@ -43,8 +43,8 @@ COPY infra/nginx/app.conf /etc/nginx/conf.d/default.conf
 
 # The nginx entrypoint runs the scripts in /docker-entrypoint.d in alphabetical
 # order, and only if they are executable.
-COPY infra/nginx/40-erp-runtime-config.sh /docker-entrypoint.d/40-erp-runtime-config.sh
-RUN chmod +x /docker-entrypoint.d/40-erp-runtime-config.sh
+COPY infra/nginx/40-clavis-runtime-config.sh /docker-entrypoint.d/40-clavis-runtime-config.sh
+RUN chmod +x /docker-entrypoint.d/40-clavis-runtime-config.sh
 
 EXPOSE 80
 

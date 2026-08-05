@@ -16,13 +16,13 @@ interface DemoUser {
  * live in the DEMO_*_PASSWORD variables of the `.env` at the root.
  */
 const DEMO_USERS: DemoUser[] = [
-  { username: 'admin', role: 'erp-admin', permissions: [...PERMISSIONS] },
+  { username: 'admin', role: 'clavis-admin', permissions: [...PERMISSIONS] },
   {
     username: 'manager',
-    role: 'erp-manager',
+    role: 'clavis-manager',
     permissions: ['todos:read', 'todos:read:all', 'todos:write', 'todos:delete', 'users:read'],
   },
-  { username: 'worker', role: 'erp-user', permissions: ['todos:read', 'todos:write'] },
+  { username: 'worker', role: 'clavis-user', permissions: ['todos:read', 'todos:write'] },
 ]
 
 /**

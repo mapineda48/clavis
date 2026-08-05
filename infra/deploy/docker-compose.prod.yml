@@ -1,4 +1,4 @@
-# Production stack. Shipped inside the deploy bundle and run from /opt/erp/stack.
+# Production stack. Shipped inside the deploy bundle and run from /opt/clavis/stack.
 #
 # Differences from the development compose that matter:
 #
@@ -12,10 +12,10 @@
 #     ${VAR} substitutes an empty string with nothing but a warning, and
 #     `image: ""` fails later with an error that points nowhere useful.
 
-name: erp
+name: clavis
 
 networks:
-  erp-net:
+  clavis-net:
     driver: bridge
 
 services:
@@ -24,7 +24,7 @@ services:
   # ---------------------------------------------------------------------------
   traefik:
     image: traefik:v3.7.10
-    container_name: erp-traefik
+    container_name: clavis-traefik
     restart: unless-stopped
     ports:
       # 80 is not only the HTTPS redirect: it is also where the ACME HTTP-01
@@ -49,7 +49,7 @@ services:
     cap_drop: [ALL]
     cap_add: [NET_BIND_SERVICE]
     security_opt: ["no-new-privileges:true"]
-    networks: [erp-net]
+    networks: [clavis-net]
     healthcheck:
       test: ["CMD", "traefik", "healthcheck", "--ping", "--ping.entrypoint=ping"]
       interval: 10s
@@ -65,24 +65,25 @@ services:
   # unchanged in development and here.
   # ---------------------------------------------------------------------------
   app:
-    image: ${ERP_APP_IMAGE:?the SPA image digest is required}
-    container_name: erp-app
+    image: ${CLAVIS_APP_IMAGE:?the SPA image digest is required}
+    container_name: clavis-app
     restart: unless-stopped
     environment:
-      ERP_KEYCLOAK_URL: https://${ERP_AUTH_FQDN:?}
-      ERP_KEYCLOAK_REALM: ${KEYCLOAK_REALM:-erp}
-      ERP_KEYCLOAK_CLIENT_ID: ${KEYCLOAK_APP_CLIENT_ID:-erp-app}
-      ERP_KEYCLOAK_API_CLIENT_ID: ${KEYCLOAK_API_CLIENT_ID:-erp-api}
+      CLAVIS_KEYCLOAK_URL: https://${CLAVIS_AUTH_FQDN:?}
+      CLAVIS_KEYCLOAK_REALM: ${KEYCLOAK_REALM:-clavis}
+      CLAVIS_KEYCLOAK_CLIENT_ID: ${KEYCLOAK_APP_CLIENT_ID:-clavis-app}
+      CLAVIS_KEYCLOAK_API_CLIENT_ID: ${KEYCLOAK_API_CLIENT_ID:-clavis-api}
       # The ORIGIN only — no /api suffix. The SPA's client already prepends
       # /api to every path it requests (src/api/client.ts builds
       # `${config.apiUrl}${path}` and every path starts with /api), so adding it
       # here produces /api/api/todos and a 404 on the first call after login.
       # Development gets this right by accident: VITE_API_URL is a bare origin.
-      # Same origin as the SPA, so no call the app makes is ever cross-origin.
-      ERP_API_URL: https://${ERP_APP_FQDN:?}
+      # The API lives on its own hostname, so every call the SPA makes is
+      # cross-origin: CORS_ORIGINS on the api service is what allows it.
+      CLAVIS_API_URL: https://${CLAVIS_API_FQDN:?}
       # Published in /config.js so the pipeline can tell a host that has
       # converged from one that merely answers.
-      ERP_COMMIT: ${ERP_COMMIT:-unknown}
+      CLAVIS_COMMIT: ${CLAVIS_COMMIT:-unknown}
     read_only: true
     tmpfs:
       - /run
@@ -92,7 +93,7 @@ services:
     # needs exactly these four and nothing more.
     cap_add: [CHOWN, SETUID, SETGID, NET_BIND_SERVICE]
     security_opt: ["no-new-privileges:true"]
-    networks: [erp-net]
+    networks: [clavis-net]
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/healthz || exit 1"]
       interval: 10s
@@ -107,8 +108,8 @@ services:
   # API.
   # ---------------------------------------------------------------------------
   api:
-    image: ${ERP_API_IMAGE:?the API image digest is required}
-    container_name: erp-api
+    image: ${CLAVIS_API_IMAGE:?the API image digest is required}
+    container_name: clavis-api
     restart: unless-stopped
     depends_on:
       valkey:
@@ -121,25 +122,25 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       CACHE_TTL_SECONDS: ${CACHE_TTL_SECONDS:-60}
       MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-10485760}
-      DATABASE_URL: ${ERP_DATABASE_URL:?the Neon connection string is required}
+      DATABASE_URL: ${CLAVIS_DATABASE_URL:?the Neon connection string is required}
       VALKEY_URL: redis://valkey:6379
       # Public issuer: what the token carries and what is validated.
-      KEYCLOAK_ISSUER: https://${ERP_AUTH_FQDN:?}/realms/${KEYCLOAK_REALM:-erp}
+      KEYCLOAK_ISSUER: https://${CLAVIS_AUTH_FQDN:?}/realms/${KEYCLOAK_REALM:-clavis}
       # Internal issuer: where JWKS is fetched, over the compose network.
-      KEYCLOAK_INTERNAL_ISSUER: http://keycloak:8080/realms/${KEYCLOAK_REALM:-erp}
-      KEYCLOAK_AUDIENCE: ${KEYCLOAK_API_CLIENT_ID:-erp-api}
-      CORS_ORIGINS: https://${ERP_APP_FQDN:?}
-      AZURE_STORAGE_CONNECTION_STRING: ${ERP_STORAGE_CONNECTION_STRING:?}
-      AZURE_STORAGE_CONTAINER: ${ERP_ATTACHMENTS_CONTAINER:-erp-attachments}
+      KEYCLOAK_INTERNAL_ISSUER: http://keycloak:8080/realms/${KEYCLOAK_REALM:-clavis}
+      KEYCLOAK_AUDIENCE: ${KEYCLOAK_API_CLIENT_ID:-clavis-api}
+      CORS_ORIGINS: https://${CLAVIS_APP_FQDN:?}
+      AZURE_STORAGE_CONNECTION_STRING: ${CLAVIS_STORAGE_CONNECTION_STRING:?}
+      AZURE_STORAGE_CONTAINER: ${CLAVIS_ATTACHMENTS_CONTAINER:-clavis-attachments}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
-      MAIL_FROM: ${MAIL_FROM:-ERP Demo <onboarding@resend.dev>}
+      MAIL_FROM: ${MAIL_FROM:-Clavis <onboarding@resend.dev>}
       MAIL_ENABLED: ${MAIL_ENABLED:-true}
     read_only: true
     tmpfs:
       - /tmp
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
-    networks: [erp-net]
+    networks: [clavis-net]
     healthcheck:
       test:
         - CMD
@@ -158,17 +159,17 @@ services:
   # Keycloak.
   # ---------------------------------------------------------------------------
   keycloak:
-    image: ${ERP_KEYCLOAK_IMAGE:?the Keycloak image digest is required}
-    container_name: erp-keycloak
+    image: ${CLAVIS_KEYCLOAK_IMAGE:?the Keycloak image digest is required}
+    container_name: clavis-keycloak
     restart: unless-stopped
     command: ["start", "--optimized"]
     environment:
       # Only sslmode: pgjdbc tolerates Neon's channel_binding parameter but does
       # not implement it, and carrying a flag the driver ignores reads as a
       # guarantee that is not there.
-      KC_DB_URL: jdbc:postgresql://${ERP_DB_HOST:?}/${ERP_KC_DB_NAME:-keycloak}?sslmode=require
-      KC_DB_USERNAME: ${ERP_DB_USER:?}
-      KC_DB_PASSWORD: ${ERP_DB_PASSWORD:?}
+      KC_DB_URL: jdbc:postgresql://${CLAVIS_DB_HOST:?}/${CLAVIS_KC_DB_NAME:-keycloak}?sslmode=require
+      KC_DB_USERNAME: ${CLAVIS_DB_USER:?}
+      KC_DB_PASSWORD: ${CLAVIS_DB_PASSWORD:?}
       # Neon suspends an idle compute after five minutes and drops the
       # connections with it. Keycloak has no supported connection-validation
       # option, so never holding an idle one is the only supported equivalent.
@@ -179,7 +180,7 @@ services:
       # Absolute public URL. KC_HOSTNAME_STRICT is deliberately absent: it is
       # ignored whenever KC_HOSTNAME is set, so setting it reads like a control
       # that does nothing.
-      KC_HOSTNAME: https://${ERP_AUTH_FQDN:?}
+      KC_HOSTNAME: https://${CLAVIS_AUTH_FQDN:?}
       KC_HTTP_ENABLED: "true"
       KC_HTTP_HOST: 0.0.0.0
       KC_PROXY_HEADERS: xforwarded
@@ -195,7 +196,7 @@ services:
     # server refuses to start without them.
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
-    networks: [erp-net]
+    networks: [clavis-net]
     healthcheck:
       # Health lives on the management port, and the image ships neither curl
       # nor wget.
@@ -228,32 +229,32 @@ services:
   # ---------------------------------------------------------------------------
   keycloak-import:
     profiles: ["import"]
-    image: ${ERP_KEYCLOAK_IMAGE:?}
-    container_name: erp-keycloak-import
+    image: ${CLAVIS_KEYCLOAK_IMAGE:?}
+    container_name: clavis-keycloak-import
     restart: "no"
     # --optimized is required, not an optimisation. Without it kc.sh re-augments
     # the image at startup, the baked KC_DB=postgres is not applied to that run,
     # and it fails with "Driver does not support the provided URL" followed by a
-    # thoroughly misleading "/import/realm-erp.json (No such file or directory)"
+    # thoroughly misleading "/import/realm-clavis.json (No such file or directory)"
     # — the file is there and readable; the re-augmentation is what breaks.
-    command: ["import", "--file=/import/realm-erp.json", "--override=true", "--optimized"]
+    command: ["import", "--file=/import/realm-clavis.json", "--override=true", "--optimized"]
     environment:
-      KC_DB_URL: jdbc:postgresql://${ERP_DB_HOST:?}/${ERP_KC_DB_NAME:-keycloak}?sslmode=require
-      KC_DB_USERNAME: ${ERP_DB_USER:?}
-      KC_DB_PASSWORD: ${ERP_DB_PASSWORD:?}
-      KC_HOSTNAME: https://${ERP_AUTH_FQDN:?}
+      KC_DB_URL: jdbc:postgresql://${CLAVIS_DB_HOST:?}/${CLAVIS_KC_DB_NAME:-keycloak}?sslmode=require
+      KC_DB_USERNAME: ${CLAVIS_DB_USER:?}
+      KC_DB_PASSWORD: ${CLAVIS_DB_PASSWORD:?}
+      KC_HOSTNAME: https://${CLAVIS_AUTH_FQDN:?}
       KC_HTTP_ENABLED: "true"
       KC_CACHE: local
     volumes:
       - ./realm:/import:ro
-    networks: [erp-net]
+    networks: [clavis-net]
 
   # ---------------------------------------------------------------------------
   # Cache. Genuinely disposable: no persistence, no volume.
   # ---------------------------------------------------------------------------
   valkey:
     image: valkey/valkey:8.1.3-alpine
-    container_name: erp-valkey
+    container_name: clavis-valkey
     restart: unless-stopped
     # The development stack keeps an append-only file; here the cache holds
     # nothing worth surviving a restart, and the API invalidates by namespace
@@ -271,7 +272,7 @@ services:
       - /data
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
-    networks: [erp-net]
+    networks: [clavis-net]
     healthcheck:
       test: ["CMD-SHELL", "valkey-cli ping | grep -q PONG"]
       interval: 10s

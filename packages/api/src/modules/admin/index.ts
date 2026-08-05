@@ -77,7 +77,7 @@ const StatsResponse = {
     },
     statsView: {
       type: 'array',
-      description: 'Rows exactly as the erp.v_todo_stats view exposes them',
+      description: 'Rows exactly as the clavis.v_todo_stats view exposes them',
       items: { type: 'object', additionalProperties: true },
     },
     users: {
@@ -203,9 +203,9 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
       preHandler: [app.authenticate, app.requirePermissions('admin:manage')],
       schema: {
         tags: ['administration'],
-        summary: 'Global ERP statistics',
+        summary: 'Global statistics',
         description:
-          'Task counts per status and priority (including the erp.v_todo_stats view), ' +
+          'Task counts per status and priority (including the clavis.v_todo_stats view), ' +
           'user and attachment totals, and the state of the cache.',
         security: [{ bearerAuth: [] }],
         response: {
@@ -219,26 +219,26 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
       const [byStatus, priorities, users, attachments] = await Promise.all([
         countByStatus(app.db),
         app.db.query<PriorityRow>(
-          'SELECT t.priority, count(*)::int AS total FROM erp.todos t GROUP BY t.priority',
+          'SELECT t.priority, count(*)::int AS total FROM clavis.todos t GROUP BY t.priority',
         ),
         app.db.query<UserStatsRow>(
           `SELECT count(*)::int AS total,
                   (count(*) FILTER (WHERE last_seen_at > now() - interval '7 days'))::int AS active_last_7_days
-           FROM erp.users`,
+           FROM clavis.users`,
         ),
         app.db.query<AttachmentStatsRow>(
           `SELECT count(*)::int AS total, coalesce(sum(size_bytes), 0)::bigint AS total_bytes
-           FROM erp.todo_attachments`,
+           FROM clavis.todo_attachments`,
         ),
       ])
 
       // The view is informative: if it does not exist yet the admin panel still works.
       let statsView: Array<Record<string, unknown>> = []
       try {
-        const view = await app.db.query<Record<string, unknown>>('SELECT * FROM erp.v_todo_stats')
+        const view = await app.db.query<Record<string, unknown>>('SELECT * FROM clavis.v_todo_stats')
         statsView = view.rows.map(normalizeRow)
       } catch (err) {
-        app.log.warn({ err }, 'Could not query the erp.v_todo_stats view')
+        app.log.warn({ err }, 'Could not query the clavis.v_todo_stats view')
       }
 
       const byPriority: Record<string, number> = { '1': 0, '2': 0, '3': 0, '4': 0 }
@@ -285,7 +285,7 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
       preHandler: [app.authenticate, app.requirePermissions('users:read')],
       schema: {
         tags: ['administration'],
-        summary: 'Users provisioned in the ERP',
+        summary: 'Users provisioned in Clavis',
         description:
           'Lists the users created by the JIT provisioning that runs when a token is validated, ' +
           'with their last access and the number of tasks they own.',
@@ -307,8 +307,8 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
                 u.display_name,
                 u.created_at,
                 u.last_seen_at,
-                (SELECT count(*)::int FROM erp.todos t WHERE t.owner_id = u.id) AS todo_count
-         FROM erp.users u
+                (SELECT count(*)::int FROM clavis.todos t WHERE t.owner_id = u.id) AS todo_count
+         FROM clavis.users u
          ORDER BY u.last_seen_at DESC NULLS LAST, u.username ASC
          LIMIT $1`,
         [limit],
@@ -335,7 +335,7 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
       schema: {
         tags: ['administration'],
         summary: 'Audit trail',
-        description: 'Returns the latest entries recorded in erp.audit_log, newest first.',
+        description: 'Returns the latest entries recorded in clavis.audit_log, newest first.',
         security: [{ bearerAuth: [] }],
         querystring: LimitQuery(50, 200),
         response: {
@@ -356,8 +356,8 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
                 l.entity_id,
                 l.payload,
                 l.created_at
-         FROM erp.audit_log l
-         LEFT JOIN erp.users u ON u.id = l.actor_id
+         FROM clavis.audit_log l
+         LEFT JOIN clavis.users u ON u.id = l.actor_id
          ORDER BY l.created_at DESC, l.id DESC
          LIMIT $1`,
         [limit],

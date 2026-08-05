@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 #
-# Image for @erp/api.
+# Image for @clavis/api.
 # IMPORTANT: the build context is the ROOT of the monorepo, not this folder.
 #   docker build -f packages/api/Dockerfile .
 # (docker-compose.yml already does it this way: context "." + dockerfile
@@ -29,16 +29,16 @@ COPY packages/api/package.json packages/api/package.json
 COPY packages/app/package.json packages/app/package.json
 
 # Install only the dependency subtree the API needs.
-RUN pnpm install --frozen-lockfile --filter @erp/api...
+RUN pnpm install --frozen-lockfile --filter @clavis/api...
 
 # Now the package source (including migrations/, which must ship in the image
 # because the migrator reads them at runtime).
 COPY packages/api packages/api
 
-RUN pnpm --filter @erp/api build
+RUN pnpm --filter @clavis/api build
 
 # Production reinstall: drops the devDependencies from node_modules.
-RUN pnpm install --frozen-lockfile --prod --filter @erp/api...
+RUN pnpm install --frozen-lockfile --prod --filter @clavis/api...
 
 # ------------------------------------------------------------------------------
 # Stage 2: final image.

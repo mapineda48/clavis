@@ -1,8 +1,8 @@
 {
-  "name": "@erp/api",
+  "name": "@clavis/api",
   "version": "1.0.0",
   "private": true,
-  "description": "Demo ERP API: Fastify + PostgreSQL + Valkey + Azure Blob + Keycloak",
+  "description": "Clavis API: Fastify + PostgreSQL + Valkey + Azure Blob + Keycloak",
   "type": "module",
   "main": "dist/main.js",
   "engines": {

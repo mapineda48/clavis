@@ -1,0 +1,9 @@
+[Unit]
+Description=Copy the Traefik ACME state to Azure Blob Storage
+Requires=clavis-blobfuse2.service
+After=clavis-blobfuse2.service
+
+[Service]
+Type=oneshot
+UMask=0077
+ExecStart=/opt/clavis/bin/acme-backup.sh

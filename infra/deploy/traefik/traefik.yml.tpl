@@ -64,14 +64,15 @@ entryPoints:
       # router declares its own: two sources of truth for TLS is how a stack
       # ends up quietly serving Traefik's self-signed default certificate.
       tls:
-        certResolver: ${ERP_CERT_RESOLVER}
+        certResolver: ${CLAVIS_CERT_RESOLVER}
         domains:
-          # ONE certificate covering both names. Issued separately they would
-          # occupy two independent "5 duplicate certificates per week" buckets;
-          # as a single identifier set they share one.
-          - main: "${ERP_APP_FQDN}"
+          # ONE certificate covering the three names. Issued separately they
+          # would occupy three independent "5 duplicate certificates per week"
+          # buckets; as a single identifier set they share one.
+          - main: "${CLAVIS_APP_FQDN}"
             sans:
-              - "${ERP_AUTH_FQDN}"
+              - "${CLAVIS_API_FQDN}"
+              - "${CLAVIS_AUTH_FQDN}"
     transport:
       respondingTimeouts:
         readTimeout: 60s
@@ -86,7 +87,7 @@ providers:
 certificatesResolvers:
   staging:
     acme:
-      email: "${ERP_ACME_EMAIL}"
+      email: "${CLAVIS_ACME_EMAIL}"
       # One store PER RESOLVER, not one shared file. Traefik loads every
       # certificate it finds into a single store and serves by SNI match, so a
       # staging certificate sitting in the same file satisfies the request and
@@ -109,7 +110,7 @@ certificatesResolvers:
 
   production:
     acme:
-      email: "${ERP_ACME_EMAIL}"
+      email: "${CLAVIS_ACME_EMAIL}"
       storage: /acme/production.json
       caServer: https://acme-v02.api.letsencrypt.org/directory
       keyType: EC256

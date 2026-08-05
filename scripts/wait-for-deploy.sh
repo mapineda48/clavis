@@ -7,7 +7,8 @@
 # =============================================================================
 set -uo pipefail
 
-: "${ERP_APP_FQDN:?}"
+: "${CLAVIS_APP_FQDN:?}"
+: "${CLAVIS_API_FQDN:?}"
 : "${DEPLOY_SHA:?}"
 
 TIMEOUT_SECONDS="${DEPLOY_TIMEOUT_SECONDS:-900}"
@@ -17,9 +18,9 @@ INTERVAL=10
 # is not in any trust store. Certificate VALIDITY is asserted separately, by
 # smoke-production.sh; here we only need to reach the service.
 INSECURE=""
-[ "${ERP_CERT_RESOLVER:-staging}" = "staging" ] && INSECURE="-k"
+[ "${CLAVIS_CERT_RESOLVER:-staging}" = "staging" ] && INSECURE="-k"
 
-echo "Waiting for https://${ERP_APP_FQDN} to serve ${DEPLOY_SHA} (up to ${TIMEOUT_SECONDS}s)"
+echo "Waiting for https://${CLAVIS_APP_FQDN} to serve ${DEPLOY_SHA} (up to ${TIMEOUT_SECONDS}s)"
 
 deadline=$(( SECONDS + TIMEOUT_SECONDS ))
 last=""
@@ -31,11 +32,11 @@ while [ "$SECONDS" -lt "$deadline" ]; do
   # PREVIOUS deployment answers /api/health perfectly well, so the wait returned
   # immediately and the smoke suite ran against the old stack — passing, or
   # failing, for reasons that had nothing to do with what was just published.
-  served=$(curl -s $INSECURE --max-time 10 "https://${ERP_APP_FQDN}/config.js" 2>/dev/null \
+  served=$(curl -s $INSECURE --max-time 10 "https://${CLAVIS_APP_FQDN}/config.js" 2>/dev/null \
     | sed -n "s/.*commit: *'\([^']*\)'.*/\1/p")
 
   if [ "$served" = "$DEPLOY_SHA" ]; then
-    ready=$(curl -s $INSECURE --max-time 10 "https://${ERP_APP_FQDN}/api/health/ready" 2>/dev/null)
+    ready=$(curl -s $INSECURE --max-time 10 "https://${CLAVIS_API_FQDN}/api/health/ready" 2>/dev/null)
     status=$(printf '%s' "$ready" | jq -r '.status // empty' 2>/dev/null)
     if [ "$status" = "ok" ]; then
       echo "Converged after $((SECONDS))s: serving ${served}, readiness ok."
@@ -55,5 +56,5 @@ done
 
 echo "The deployment never became ready within ${TIMEOUT_SECONDS}s." >&2
 echo "The host polls every 60s, so a bundle published moments ago may simply" >&2
-echo "not have been picked up; check the droplet's erp-deploy.service." >&2
+echo "not have been picked up; check the droplet's clavis-deploy.service." >&2
 exit 1

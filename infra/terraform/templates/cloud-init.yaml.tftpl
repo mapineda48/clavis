@@ -38,7 +38,7 @@ runcmd:
   # script on the `set` line itself, so every command below silently never runs
   # and the only symptom is `cloud-init status: error`.
   - set -eux
-  - install -d -m 0755 /opt/erp /opt/erp/stack /var/lib/erp /etc/erp
+  - install -d -m 0755 /opt/clavis /opt/clavis/stack /var/lib/clavis /etc/clavis
   - install -d -m 0700 /var/lib/traefik
   - install -d -m 0755 /mnt/deploy /var/cache/blobfuse2
 
@@ -55,7 +55,7 @@ runcmd:
   - dpkg -i /tmp/ms-prod.deb
   - apt-get update
   - apt-get install -y blobfuse2=2.5.4 || apt-get install -y blobfuse2
-  - blobfuse2 version | tee /etc/erp/versions
+  - blobfuse2 version | tee /etc/clavis/versions
 
   # --- docker ---------------------------------------------------------------
   - install -m 0755 -d /etc/apt/keyrings
@@ -64,26 +64,26 @@ runcmd:
   - echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu noble stable" > /etc/apt/sources.list.d/docker.list
   - apt-get update
   - apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-  - docker --version | tee -a /etc/erp/versions
-  - docker compose version | tee -a /etc/erp/versions
+  - docker --version | tee -a /etc/clavis/versions
+  - docker compose version | tee -a /etc/clavis/versions
 
   # --- mount, then restore the certificates, then let docker start ----------
   # The drop-in in /etc/systemd/system/docker.service.d makes docker.service
   # require both units, so this ordering is enforced by systemd and not merely
   # by the order of the lines below.
   - systemctl daemon-reload
-  - systemctl enable --now erp-blobfuse2.service
-  - systemctl enable --now erp-acme-restore.service
+  - systemctl enable --now clavis-blobfuse2.service
+  - systemctl enable --now clavis-acme-restore.service
   - systemctl restart docker
 
   # --- stop containers reaching the metadata service ------------------------
   # Must run after dockerd, because the DOCKER-USER chain does not exist until
   # then. A rule in FORWARD or in ufw would be silently bypassed.
-  - systemctl enable --now erp-metadata-guard.service
+  - systemctl enable --now clavis-metadata-guard.service
 
   # --- converge on the published desired state ------------------------------
-  - systemctl enable erp-acme-backup.path erp-acme-backup.timer erp-deploy.timer
-  - systemctl start erp-acme-backup.path erp-acme-backup.timer erp-deploy.timer
-  - systemctl start erp-deploy.service || true
+  - systemctl enable clavis-acme-backup.path clavis-acme-backup.timer clavis-deploy.timer
+  - systemctl start clavis-acme-backup.path clavis-acme-backup.timer clavis-deploy.timer
+  - systemctl start clavis-deploy.service || true
 
-final_message: "erp-keycloak host ready after $UPTIME seconds"
+final_message: "clavis host ready after $UPTIME seconds"

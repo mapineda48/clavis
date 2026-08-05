@@ -16,7 +16,7 @@ terraform {
     resource_group_name  = "rg-mapineda48-tfstate"
     storage_account_name = "sttfstate2jk6opjz"
     container_name       = "tfstate"
-    key                  = "erp-keycloak.tfstate"
+    key                  = "clavis.tfstate"
     use_azuread_auth     = true
   }
 }

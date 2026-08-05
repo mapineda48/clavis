@@ -3,7 +3,7 @@
 variable "project" {
   description = "Prefix for every resource this state owns"
   type        = string
-  default     = "erp-keycloak"
+  default     = "clavis"
 }
 
 # --- hostnames ----------------------------------------------------------------
@@ -15,15 +15,21 @@ variable "zone_name" {
 }
 
 variable "app_subdomain" {
-  description = "Record for the SPA and the API, relative to the zone"
+  description = "Record for the SPA, relative to the zone"
   type        = string
-  default     = "erp-keycloak"
+  default     = "app.clavis"
+}
+
+variable "api_subdomain" {
+  description = "Record for the API, relative to the zone"
+  type        = string
+  default     = "api.clavis"
 }
 
 variable "auth_subdomain" {
   description = "Record for Keycloak, relative to the zone"
   type        = string
-  default     = "auth.erp-keycloak"
+  default     = "auth.clavis"
 }
 
 # --- droplet ------------------------------------------------------------------
@@ -107,15 +113,15 @@ variable "core_state_key" {
 # --- storage ------------------------------------------------------------------
 
 variable "attachments_container" {
-  description = "Blob container backing the ERP attachments in production"
+  description = "Blob container backing Clavis attachments in production"
   type        = string
-  default     = "erp-attachments"
+  default     = "clavis-attachments"
 }
 
 variable "deploy_prefix" {
   description = "Prefix inside the deploy container that this stack owns"
   type        = string
-  default     = "erp-keycloak"
+  default     = "clavis"
 }
 
 variable "sas_rotation_days" {

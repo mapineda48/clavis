@@ -2,8 +2,8 @@
 # =============================================================================
 # Copies the local ACME stores back to the blob mount.
 #
-# Triggered by erp-acme-backup.path when Traefik rewrites one of them, and by
-# erp-acme-backup.timer as a safety net, because inotify events coalesce.
+# Triggered by clavis-acme-backup.path when Traefik rewrites one of them, and by
+# clavis-acme-backup.timer as a safety net, because inotify events coalesce.
 #
 # This is what makes an on-demand droplet viable at all: Let's Encrypt grants
 # five certificates per week for the same set of names, so a host that
@@ -12,10 +12,10 @@
 set -euo pipefail
 
 # shellcheck disable=SC1091
-. /etc/erp/deploy.env
+. /etc/clavis/deploy.env
 
 SRC_DIR=/var/lib/traefik
-DEST_DIR="/mnt/deploy/${ERP_DEPLOY_PREFIX}/traefik"
+DEST_DIR="/mnt/deploy/${CLAVIS_DEPLOY_PREFIX}/traefik"
 
 mountpoint -q /mnt/deploy || {
   echo "acme-backup: /mnt/deploy is not mounted; nothing to do" >&2

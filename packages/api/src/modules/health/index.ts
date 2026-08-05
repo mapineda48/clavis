@@ -5,7 +5,7 @@ import type { FastifyPluginAsync } from 'fastify'
 import type {} from '@fastify/swagger'
 
 /** Service name published by /api/health. */
-const SERVICE_NAME = 'erp-api'
+const SERVICE_NAME = 'clavis-api'
 
 /** Response schema of /api/health. */
 const HealthResponse = {

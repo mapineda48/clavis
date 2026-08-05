@@ -1,8 +1,9 @@
-# ERP Demo with Keycloak
+# Clavis
 
-A **working, reproducible** demo of a mini-ERP (task / *todo* management) whose access control
-lives entirely in **Keycloak**: the application stores no passwords, defines no users and decides
-no roles. It only reads the permissions that arrive signed inside the *access token*.
+**Clavis** (Latin for *key*) is a **working, reproducible** access-control lab: a small
+task-management application whose access control lives entirely in **Keycloak**. The application
+stores no passwords, defines no users and decides no roles: it only reads the permissions that
+arrive signed inside the *access token*.
 
 The whole stack comes up with `docker compose` and behaves the same on every machine: pinned
 versions, images with exact tags, a realm imported declaratively and database migrations
@@ -20,7 +21,7 @@ versioned with checksums.
 > [!WARNING]
 > **This is a learning lab, not a production template.**
 >
-> - The credentials in `.env.example` (`Admin123!`, `erp_dev_password`, `erp_api_dev_secret`…)
+> - The credentials in `.env.example` (`Admin123!`, `clavis_dev_password`, `clavis_api_dev_secret`…)
 >   are **local development values in plain sight for everyone**. Never reuse them.
 > - The realm uses `sslRequired: "none"` and Keycloak runs in `start-dev`: no HTTPS, the admin
 >   console wide open on `localhost:8080`, and no theme cache.
@@ -33,10 +34,10 @@ versioned with checksums.
 
 ## What it demonstrates
 
-- **OIDC + PKCE `S256`** from a React SPA against a public client (`erp-app`).
+- **OIDC + PKCE `S256`** from a React SPA against a public client (`clavis-app`).
 - **Business roles kept apart from technical permissions**: the realm roles
-  (`erp-user`, `erp-manager`, `erp-admin`) are *composite* and pull in *client roles* of
-  `erp-api` that act as fine-grained permissions (`todos:read`, `todos:delete`, `admin:manage`,
+  (`clavis-user`, `clavis-manager`, `clavis-admin`) are *composite* and pull in *client roles* of
+  `clavis-api` that act as fine-grained permissions (`todos:read`, `todos:delete`, `admin:manage`,
   …). Adding a permission does not force you to reassign users.
 - **Token validation in the backend without a Keycloak library**: `jose` + remote JWKS, checking
   `iss` and `aud`.
@@ -45,7 +46,7 @@ versioned with checksums.
 - **Row-level visibility rules**: without `todos:read:all` you only see what is yours or what has
   been assigned to you; with that permission you see everything.
 - **JIT user provisioning**: the first authenticated request creates/updates the row in
-  `erp.users` using the token's `sub` as primary key.
+  `clavis.users` using the token's `sub` as primary key.
 - **Custom Freemarker login theme**: split screen with the demo user cheat sheet, inheriting from
   `base` and with no external dependencies ([detail](#custom-login-theme)).
 - **Complete "I forgot my password" flow**: sent by Keycloak over SMTP, with the screens **and
@@ -85,7 +86,7 @@ Ports that must be free on the host: **5432, 6379, 8080, 3000, 5173, 10000, 1000
 
 ```bash
 # 1. Move to the repository root
-cd /home/mapineda48/Repo/mapineda48/KeyCloak-Demo
+cd /path/to/KeycloakMe
 
 # 2. Create your local .env from the versioned example
 cp .env.example .env
@@ -96,14 +97,14 @@ pnpm install
 # 4. Bring up the infrastructure and the API (builds the project's own images)
 docker compose up -d --build
 
-# 5. Wait until Keycloak is healthy and the 'erp' realm has been imported
-until curl -sf http://localhost:8080/realms/erp/.well-known/openid-configuration >/dev/null; do
+# 5. Wait until Keycloak is healthy and the 'clavis' realm has been imported
+until curl -sf http://localhost:8080/realms/clavis/.well-known/openid-configuration >/dev/null; do
   echo "waiting for Keycloak…"; sleep 2
 done
 echo "Keycloak ready"
 
 # 6. Start the SPA in development mode
-pnpm --filter @erp/app dev
+pnpm --filter @clavis/app dev
 ```
 
 7. Open **<http://localhost:5173>** and sign in with any of the [demo users](#demo-users).
@@ -129,7 +130,7 @@ docker compose --profile full up -d --build
 ```
 
 In that mode the frontend configuration does not travel inside the bundle: nginx generates
-`config.js` with `window.__ERP_CONFIG__` at startup from the environment variables.
+`config.js` with `window.__CLAVIS_CONFIG__` at startup from the environment variables.
 
 ---
 
@@ -137,16 +138,16 @@ In that mode the frontend configuration does not travel inside the bundle: nginx
 
 | Service | URL / address | What for |
 |---|---|---|
-| Keycloak | <http://localhost:8080> | OIDC issuer of the `erp` realm |
+| Keycloak | <http://localhost:8080> | OIDC issuer of the `clavis` realm |
 | Keycloak admin console | <http://localhost:8080/admin> | Username/password = `KC_BOOTSTRAP_ADMIN_USERNAME` / `KC_BOOTSTRAP_ADMIN_PASSWORD` from `.env` |
-| Realm OIDC metadata | <http://localhost:8080/realms/erp/.well-known/openid-configuration> | Endpoints and JWKS |
-| API (`@erp/api`) | <http://localhost:3000> | REST under `/api`, health on `/api/health` and `/api/health/ready` |
+| Realm OIDC metadata | <http://localhost:8080/realms/clavis/.well-known/openid-configuration> | Endpoints and JWKS |
+| API (`@clavis/api`) | <http://localhost:3000> | REST under `/api`, health on `/api/health` and `/api/health/ready` |
 | Swagger UI | <http://localhost:3000/api/docs> | Living documentation of every endpoint |
-| SPA in development (Vite) | <http://localhost:5173> | `pnpm --filter @erp/app dev` |
+| SPA in development (Vite) | <http://localhost:5173> | `pnpm --filter @clavis/app dev` |
 | Compiled SPA (nginx, `full` profile) | <http://localhost:8081> | Only with `--profile full` |
-| PostgreSQL | `localhost:5432` | Databases `erp` (application) and `keycloak` (identity) |
+| PostgreSQL | `localhost:5432` | Databases `clavis` (application) and `keycloak` (identity) |
 | Valkey | `localhost:6379` | Cache for todo listings |
-| Azurite — Blob | `http://localhost:10000/devstoreaccount1` | Container `erp-attachments` |
+| Azurite — Blob | `http://localhost:10000/devstoreaccount1` | Container `clavis-attachments` |
 | Azurite — Queue | `localhost:10001` | Unused, exposed for completeness |
 | Azurite — Table | `localhost:10002` | Unused, exposed for completeness |
 
@@ -159,32 +160,32 @@ The three users are created declaratively when the realm is imported. **Their pa
 `DEMO_USER_PASSWORD`); they are deliberately not repeated here, so that the environment file
 stays the only place where they live.
 
-| User | Realm role | Effective permissions (client roles of `erp-api`) | What they can do in the demo |
+| User | Realm role | Effective permissions (client roles of `clavis-api`) | What they can do in the demo |
 |---|---|---|---|
-| `worker` | `erp-user` | `todos:read`, `todos:write` | See and edit **only their own** tasks and the ones assigned to them. Create, upload attachments, send email. **Cannot** delete or use `scope=all`. |
-| `manager` | `erp-manager` | `erp-user` + `todos:read:all`, `todos:delete`, `users:read` | Everything above + see **all** tasks (`scope=all`), delete them and list users. No administration panel. |
-| `admin` | `erp-admin` | `erp-manager` + `admin:manage` | Everything above + statistics and audit log (`/api/admin/*`) and the Administration section of the SPA. |
+| `worker` | `clavis-user` | `todos:read`, `todos:write` | See and edit **only their own** tasks and the ones assigned to them. Create, upload attachments, send email. **Cannot** delete or use `scope=all`. |
+| `manager` | `clavis-manager` | `clavis-user` + `todos:read:all`, `todos:delete`, `users:read` | Everything above + see **all** tasks (`scope=all`), delete them and list users. No administration panel. |
+| `admin` | `clavis-admin` | `clavis-manager` + `admin:manage` | Everything above + statistics and audit log (`/api/admin/*`) and the Administration section of the SPA. |
 
 All three are created with `emailVerified: true`, `enabled: true` and a **non-temporary** password
-(no forced change on first login). The realm's default role (`default-roles-erp`) includes
-`erp-user`, so any new user is born with the basic permissions.
+(no forced change on first login). The realm's default role (`default-roles-clavis`) includes
+`clavis-user`, so any new user is born with the basic permissions.
 
-Emails: `DEMO_*_EMAIL` in `.env.example` (`admin@erp.local`, `manager@erp.local`,
-`worker@erp.local`). They are fictional domains: good enough to exercise the notification flow,
+Emails: `DEMO_*_EMAIL` in `.env.example` (`admin@clavis.local`, `manager@clavis.local`,
+`worker@clavis.local`). They are fictional domains: good enough to exercise the notification flow,
 useless for receiving real mail.
 
 ---
 
 ## Custom login theme
 
-The sign-in screen is **not the one Keycloak ships**: the `erp` realm uses its own Freemarker
-theme called **`erp`**, hand-written and free of external dependencies (no CDNs, no remote fonts).
+The sign-in screen is **not the one Keycloak ships**: the `clavis` realm uses its own Freemarker
+theme called **`clavis`**, hand-written and free of external dependencies (no CDNs, no remote fonts).
 
 ### What you see
 
 A **split screen**:
 
-- **Left** — branding panel with a gradient: inline SVG logo, the *ERP Demo* title, a line
+- **Left** — branding panel with a gradient: inline SVG logo, the *Clavis* title, a line
   reminding you that Keycloak governs access, three bullet points (composite roles, per-resource
   permissions, JWT tokens) and the **demo user cheat sheet**: `admin`, `manager` and `worker`,
   each with its realm role and its permissions as *chips*. Every card carries a button that
@@ -204,13 +205,13 @@ is imported with `internationalizationEnabled: true`, `supportedLocales: ["en", 
 > **The theme contains no passwords.** The cheat sheet only writes the username; the demo users'
 > passwords still live exclusively in `.env.example`.
 
-To see it without going through the SPA, open <http://localhost:8080/realms/erp/account> in a
+To see it without going through the SPA, open <http://localhost:8080/realms/clavis/account> in a
 private window: the realm's account console demands a sign-in and uses this very theme.
 
 ### Where it lives
 
 ```
-infra/keycloak/themes/erp/
+infra/keycloak/themes/clavis/
 ├── theme.properties            # types=login
 ├── email/                      # password reset email (HTML + text) and its messages
 └── login/
@@ -222,8 +223,8 @@ infra/keycloak/themes/erp/
     ├── login-reset-password.ftl  login-update-password.ftl
     ├── messages/               # messages_en.properties + messages_es.properties
     └── resources/
-        ├── css/erp-login.css
-        └── js/erp-login.js
+        ├── css/clavis-login.css
+        └── js/clavis-login.js
 ```
 
 The directory is mounted into the container from `docker-compose.yml`:
@@ -243,8 +244,8 @@ inside the server JARs, so the mount hides nothing.
 listed above. Everything else is still served by Keycloak's `base` theme:
 
 - The pages we do not touch (OTP, update password, verify email, select authenticator…) still
-  look like the rest of the ERP thanks to the **property mapping**
-  (`kcInputClass=erp-input`, `kcButtonClass=erp-btn`, `kcAlertClass=erp-alert`, …) declared in
+  look like the rest of Clavis thanks to the **property mapping**
+  (`kcInputClass=clavis-input`, `kcButtonClass=clavis-btn`, `kcAlertClass=clavis-alert`, …) declared in
   `login/theme.properties`.
 - The server's own JavaScript resources (`authChecker.js` to detect a session started in another
   tab, `menu-button-links.js`, `passwordVisibility.js`) are resolved through the inheritance
@@ -252,8 +253,8 @@ listed above. Everything else is still served by Keycloak's `base` theme:
 - Untranslated texts fall back to the `messages_*.properties` of `base`.
 
 The realm applies the theme with `"loginTheme": "__KEYCLOAK_LOGIN_THEME__"` in
-`infra/keycloak/realm-erp.template.json`; `render-realm.mjs` replaces that placeholder with the
-value of `KEYCLOAK_LOGIN_THEME` (`erp` by default).
+`infra/keycloak/realm-clavis.template.json`; `render-realm.mjs` replaces that placeholder with the
+value of `KEYCLOAK_LOGIN_THEME` (`clavis` by default).
 
 ### How to iterate
 
@@ -261,7 +262,7 @@ Keycloak runs with `start-dev`, and in that mode **themes are not cached**, so t
 
 | What you change | What it takes |
 |---|---|
-| A `.ftl`, `resources/css/erp-login.css` or `resources/js/erp-login.js` | **Nothing**: save and reload the browser (`Ctrl+Shift+R` to skip the browser cache) |
+| A `.ftl`, `resources/css/clavis-login.css` or `resources/js/clavis-login.js` | **Nothing**: save and reload the browser (`Ctrl+Shift+R` to skip the browser cache) |
 | Either of the two `theme.properties` | `docker compose restart keycloak` |
 | Adding a new file or directory to the theme | `docker compose restart keycloak` |
 | The value of `KEYCLOAK_LOGIN_THEME` | Re-import the realm (`docker compose down -v && docker compose up -d --build`) or apply it live with `kcadm.sh` — see [`docs/operations.md`](docs/operations.md#login-theme) |
@@ -269,7 +270,7 @@ Keycloak runs with `start-dev`, and in that mode **themes are not cached**, so t
 Check that the mount reached the container:
 
 ```bash
-docker compose exec keycloak ls /opt/keycloak/themes/erp/login
+docker compose exec keycloak ls /opt/keycloak/themes/clavis/login
 ```
 
 ### Going back to the default theme
@@ -277,7 +278,7 @@ docker compose exec keycloak ls /opt/keycloak/themes/erp/login
 Change the variable in `.env` and re-import:
 
 ```dotenv
-KEYCLOAK_LOGIN_THEME=keycloak      # or keycloak.v2; erp to come back to the custom one
+KEYCLOAK_LOGIN_THEME=keycloak      # or keycloak.v2; clavis to come back to the custom one
 ```
 
 ```bash
@@ -303,7 +304,7 @@ Both front ends speak **English and Spanish**, and **English is the default**.
 - **Login theme** — the same two languages, from `messages_en.properties` and
   `messages_es.properties`, with the realm imported as `defaultLocale: "en"`.
 
-The SPA picks the initial language from `?lang=`, then `localStorage['erp.locale']`, then the
+The SPA picks the initial language from `?lang=`, then `localStorage['clavis.locale']`, then the
 browser language, and it hands the current one to Keycloak when you sign in or out
 (`keycloak.login({ locale })` → `ui_locales`), so the login screen shows up in the language you
 were already reading.
@@ -316,24 +317,24 @@ were already reading.
 sequenceDiagram
     autonumber
     participant U as Browser
-    participant S as SPA @erp/app 5173
-    participant K as Keycloak realm erp 8080
-    participant A as API @erp/api 3000
+    participant S as SPA @clavis/app 5173
+    participant K as Keycloak realm clavis 8080
+    participant A as API @clavis/api 3000
 
     U->>S: Opens http://localhost:5173
-    S->>K: init check-sso + PKCE S256 (client_id=erp-app)
+    S->>K: init check-sso + PKCE S256 (client_id=clavis-app)
     K-->>S: No session
     U->>S: Clicks "Sign in with Keycloak"
     S->>K: /protocol/openid-connect/auth (code + code_challenge)
     U->>K: Demo user credentials
     K-->>S: Redirect with authorization code
     S->>K: /protocol/openid-connect/token (code + code_verifier)
-    K-->>S: access_token (aud=erp-api) + refresh_token
+    K-->>S: access_token (aud=clavis-api) + refresh_token
     S->>A: GET /api/todos with Authorization Bearer
-    A->>K: GET /realms/erp/protocol/openid-connect/certs (JWKS, internal network)
+    A->>K: GET /realms/clavis/protocol/openid-connect/certs (JWKS, internal network)
     K-->>A: Public keys (cached by jose)
     A->>A: Verifies signature, iss, aud, exp
-    A->>A: JIT provisioning in erp.users + permission check
+    A->>A: JIT provisioning in clavis.users + permission check
     A-->>S: 200 with data + X-Cache header
     S-->>U: Board rendered according to their permissions
 ```
@@ -353,13 +354,13 @@ flowchart LR
         VITE["Vite dev server :5173"]
     end
 
-    subgraph net["Docker network erp-net"]
+    subgraph net["Docker network clavis-net"]
         KCR["keycloak-realm (one-shot)<br/>node:22.23.1-alpine<br/>render-realm.mjs"]
         KC["keycloak :8080<br/>quay.io/keycloak/keycloak:26.4.0"]
-        API["api :3000<br/>@erp/api (Fastify)"]
-        PG[("postgres :5432<br/>databases erp + keycloak")]
+        API["api :3000<br/>@clavis/api (Fastify)"]
+        PG[("postgres :5432<br/>databases clavis + keycloak")]
         VK[("valkey :6379")]
-        AZ[("azurite :10000-10002<br/>blob erp-attachments")]
+        AZ[("azurite :10000-10002<br/>blob clavis-attachments")]
         NGX["app :8081 (full profile)<br/>nginx:1.29-alpine"]
     end
 
@@ -370,7 +371,7 @@ flowchart LR
     BROWSER --> VITE
     BROWSER -.->|"full profile"| NGX
     VITE -.->|"serves the SPA"| BROWSER
-    KCR -->|"writes /import/realm-erp.json<br/>keycloak-import volume"| KC
+    KCR -->|"writes /import/realm-clavis.json<br/>keycloak-import volume"| KC
     KC --> PG
     API -->|"internal JWKS"| KC
     API --> PG
@@ -403,7 +404,7 @@ reading the logs.
 2. Create an API key for this project:
 
    ```bash
-   resend api-keys create --name erp-demo
+   resend api-keys create --name clavis
    ```
 
 3. Copy the returned value (it is shown **only once**) into `.env`:
@@ -418,10 +419,10 @@ reading the logs.
    resend domains
    ```
 
-   - If you have not verified any yet, leave `MAIL_FROM=ERP Demo <onboarding@resend.dev>`:
+   - If you have not verified any yet, leave `MAIL_FROM=Clavis <onboarding@resend.dev>`:
      Resend's test domain can only send **to the address you signed up with**.
    - With a verified domain of your own, point `MAIL_FROM` at an address on that domain, for
-     example `MAIL_FROM=ERP Demo <no-reply@mydomain.com>`, and optionally fill in
+     example `MAIL_FROM=Clavis <no-reply@mydomain.com>`, and optionally fill in
      `MAIL_REPLY_TO`.
 
 5. Restart only the API so it picks up the key:
@@ -442,7 +443,7 @@ email paths**, not one.
 
 | Who sends | How | What it sends |
 |---|---|---|
-| The API (`@erp/api`) | Resend's **HTTP** API (`resend` SDK) | Task notifications |
+| The API (`@clavis/api`) | Resend's **HTTP** API (`resend` SDK) | Task notifications |
 | **Keycloak** | **SMTP** | Password reset, email verification, account notices |
 
 Keycloak cannot talk to Resend's HTTP API: it only sends over SMTP. That is why the realm
@@ -460,7 +461,7 @@ KEYCLOAK_SMTP_PASSWORD: ${RESEND_API_KEY:-not-configured}
 2. `KEYCLOAK_SMTP_FROM` with an address on a **verified domain** in Resend (`resend domains`
    tells you). With the `onboarding@resend.dev` test domain you can only write to the address you
    signed up with.
-3. The user needs a **real email address**. The `*@erp.local` ones from `.env.example` receive
+3. The user needs a **real email address**. The `*@clavis.local` ones from `.env.example` receive
    nothing: change `DEMO_ADMIN_EMAIL` in your `.env` to an address of yours before trying it.
 
 ### The walkthrough
@@ -472,14 +473,14 @@ KEYCLOAK_SMTP_PASSWORD: ${RESEND_API_KEY:-not-configured}
 1. On the login screen, the **"Forgot your password?"** link (it shows up because the realm has
    `resetPasswordAllowed: true`).
 2. A form asking for username or email → Keycloak sends the message.
-3. The email arrives styled by the `erp` theme, with an action button.
+3. The email arrives styled by the `clavis` theme, with an action button.
 4. The link opens the **new password** screen (with confirmation and the option to sign out from
    the other devices).
 5. Once saved, the session carries on into the application.
 
 The three screens and the email all use the custom theme: they live in
-`infra/keycloak/themes/erp/login/login-reset-password.ftl`,
-`.../login-update-password.ftl` and `infra/keycloak/themes/erp/email/`.
+`infra/keycloak/themes/clavis/login/login-reset-password.ftl`,
+`.../login-update-password.ftl` and `infra/keycloak/themes/clavis/email/`.
 
 > The realm only reads `smtpServer`, `resetPasswordAllowed` and `emailTheme` **when it is
 > imported**. If your realm already exists, apply them live with `kcadm.sh` (see
@@ -496,7 +497,7 @@ user (or sign out between steps), because Keycloak keeps the SSO session.
 
 1. Go to <http://localhost:5173> and sign in as **`worker`** (password in `.env.example`).
 2. The board comes up empty: press **"Create sample data"** (`POST /api/todos/seed-demo`).
-3. Look at the application header: it shows the `erp-user` role.
+3. Look at the application header: it shows the `clavis-user` role.
 4. **There is no delete button** on any card: the SPA wraps it in `<Can perm="todos:delete">`.
 5. The scope selector does not offer **"Whole team"**, only "My tasks".
 6. Prove that the UI is not the one in charge — try to delete from the terminal and get a **403**:
@@ -573,12 +574,12 @@ This repository is built to produce **exactly the same result** on any machine a
   `valkey/valkey:8.1.3-alpine`, `mcr.microsoft.com/azure-storage/azurite:3.35.0`,
   `node:22.23.1-alpine`, `nginx:1.29-alpine`.
 - **Declarative realm**: the Keycloak configuration (clients, roles, compositions, mappers and
-  demo users) lives in `infra/keycloak/realm-erp.template.json` and is imported at startup.
+  demo users) lives in `infra/keycloak/realm-clavis.template.json` and is imported at startup.
   Nothing is configured by hand in the console; if you change something there, it is gone after
   `docker compose down -v`. The renderer exits with a non-zero code if any `__VARIABLE__`
   placeholder is left unsubstituted, so an incomplete `.env` is caught immediately.
 - **Migrations versioned with checksums**: every file in `packages/api/migrations/` is applied
-  once, in lexicographic order, and its hash is stored in `erp.schema_migrations`. If somebody
+  once, in lexicographic order, and its hash is stored in `clavis.schema_migrations`. If somebody
   edits a migration that has already been applied, startup fails instead of leaving two different
   databases living side by side.
 - **No values generated at build time**: no timestamps, no random IDs, no unpinned downloads.
@@ -597,12 +598,12 @@ This repository is built to produce **exactly the same result** on any machine a
 ├── docs/                       # architecture, authentication and operations
 ├── infra/
 │   ├── keycloak/               # realm template + renderer
-│   │   └── themes/erp/         # custom login theme (Freemarker + CSS/JS, no dependencies)
+│   │   └── themes/clavis/         # custom login theme (Freemarker + CSS/JS, no dependencies)
 │   ├── nginx/                  # SPA config + runtime config injection
 │   └── postgres/               # init of the Keycloak database
 └── packages/
-    ├── api/                    # @erp/api — Fastify 5, strict ESM, SQL migrations
-    └── app/                    # @erp/app — React 19 + Vite 7 + keycloak-js
+    ├── api/                    # @clavis/api — Fastify 5, strict ESM, SQL migrations
+    └── app/                    # @clavis/app — React 19 + Vite 7 + keycloak-js
 ```
 
 ## Most used commands

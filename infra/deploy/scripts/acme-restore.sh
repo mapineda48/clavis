@@ -22,9 +22,9 @@
 set -euo pipefail
 
 # shellcheck disable=SC1091
-. /etc/erp/deploy.env
+. /etc/clavis/deploy.env
 
-SRC_DIR="/mnt/deploy/${ERP_DEPLOY_PREFIX}/traefik"
+SRC_DIR="/mnt/deploy/${CLAVIS_DEPLOY_PREFIX}/traefik"
 DST_DIR=/var/lib/traefik
 
 mountpoint -q /mnt/deploy || {

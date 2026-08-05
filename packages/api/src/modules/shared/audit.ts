@@ -5,7 +5,7 @@ import type { FastifyBaseLogger, FastifyInstance } from 'fastify'
 /** Database access decorated on the Fastify instance. */
 type Database = FastifyInstance['db']
 
-/** Entry persisted into `erp.audit_log`. */
+/** Entry persisted into `clavis.audit_log`. */
 export interface AuditEntry {
   /** `sub` of the user performing the action (null for internal processes). */
   actorId: string | null
@@ -30,7 +30,7 @@ export async function recordAudit(
 ): Promise<void> {
   try {
     await db.query(
-      `INSERT INTO erp.audit_log (actor_id, action, entity, entity_id, payload)
+      `INSERT INTO clavis.audit_log (actor_id, action, entity, entity_id, payload)
        VALUES ($1, $2, $3, $4, $5::jsonb)`,
       [
         entry.actorId,

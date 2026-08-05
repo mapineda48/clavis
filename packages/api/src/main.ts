@@ -53,6 +53,6 @@ async function main(): Promise<void> {
 
 main().catch((error: unknown) => {
   // Failure before a logger is available (configuration, migrations, plugins).
-  console.error('[@erp/api] Fatal failure during startup:', error)
+  console.error('[@clavis/api] Fatal failure during startup:', error)
   process.exit(1)
 })

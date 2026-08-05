@@ -88,8 +88,8 @@ export const en = {
   'auth.tokenPermissions': 'Access token permissions:',
   'auth.tokenPermissionsEmpty': 'no permissions',
 
-  'common.appName': 'ERP Demo',
-  'common.brandMark': 'ERP',
+  'common.appName': 'Clavis',
+  'common.brandMark': 'CLV',
   'common.brandTagline': 'Keycloak · permissions carried in the token',
   'common.clear': 'Clear',
   'common.creating': 'Creating…',

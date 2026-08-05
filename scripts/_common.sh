@@ -7,14 +7,14 @@
 # from any working directory.
 # =============================================================================
 
-ERP_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$ERP_ROOT" || exit 1
+CLAVIS_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$CLAVIS_ROOT" || exit 1
 
 # Can be overridden from the environment to point at another deployment.
 KC="${KC_URL:-http://localhost:8080}"
 API="${API_URL:-http://localhost:3000}"
-REALM="${KEYCLOAK_REALM:-erp}"
-CLIENT="${KEYCLOAK_APP_CLIENT_ID:-erp-app}"
+REALM="${KEYCLOAK_REALM:-clavis}"
+CLIENT="${KEYCLOAK_APP_CLIENT_ID:-clavis-app}"
 REDIRECT_URI="${APP_DEV_URL:-http://localhost:5173}/"
 
 pass=0
@@ -26,7 +26,7 @@ chk() { [ "$1" = "$2" ] && ok "$3 (=$1)" || bad "$3 (expected $2, got $1)"; }
 # Reads a variable from the .env WITHOUT using `source`: MAIL_FROM contains
 # `<...>` and would blow up the shell. Strips the wrapping quotes if present.
 envval() {
-  sed -n "s/^$1=//p" "$ERP_ROOT/.env" 2>/dev/null | head -1 | sed 's/^"//; s/"$//'
+  sed -n "s/^$1=//p" "$CLAVIS_ROOT/.env" 2>/dev/null | head -1 | sed 's/^"//; s/"$//'
 }
 
 require_tools() {
@@ -42,7 +42,7 @@ require_tools() {
 }
 
 require_env() {
-  [ -f "$ERP_ROOT/.env" ] || {
+  [ -f "$CLAVIS_ROOT/.env" ] || {
     echo "There is no .env at the repository root." >&2
     echo "Create it with: cp .env.example .env" >&2
     exit 2
@@ -61,7 +61,7 @@ require_up() {
 }
 
 # Generates a PKCE S256 pair and leaves PKCE_VERIFIER / PKCE_CHALLENGE in the
-# environment. The erp-app client REQUIRES PKCE: without a code_challenge,
+# environment. The clavis-app client REQUIRES PKCE: without a code_challenge,
 # Keycloak rejects the request.
 pkce_pair() {
   read -r PKCE_VERIFIER PKCE_CHALLENGE <<<"$(python3 -c "

@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 #
-# Keycloak image for production, with the `erp` theme baked in.
+# Keycloak image for production, with the `clavis` theme baked in.
 # IMPORTANT: the build context is the ROOT of the monorepo, not this folder.
 #   docker build -f infra/keycloak/Dockerfile .
 #

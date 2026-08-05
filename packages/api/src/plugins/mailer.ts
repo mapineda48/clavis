@@ -84,7 +84,7 @@ export const mailerPlugin = fp(
 
     app.decorate('mailer', mailer)
   },
-  { name: 'erp-mailer' },
+  { name: 'clavis-mailer' },
 )
 
 export default mailerPlugin

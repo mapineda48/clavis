@@ -28,6 +28,7 @@ data "terraform_remote_state" "core" {
 
 locals {
   app_fqdn  = "${var.app_subdomain}.${var.zone_name}"
+  api_fqdn  = "${var.api_subdomain}.${var.zone_name}"
   auth_fqdn = "${var.auth_subdomain}.${var.zone_name}"
 
   storage_account_name = data.terraform_remote_state.core.outputs.storage_account_name
@@ -145,11 +146,12 @@ locals {
   })
 
   deploy_env = join("\n", [
-    "ERP_STORAGE_ACCOUNT=${local.storage_account_name}",
-    "ERP_DEPLOY_CONTAINER=${local.deploy_container}",
-    "ERP_DEPLOY_PREFIX=${var.deploy_prefix}",
-    "ERP_APP_FQDN=${local.app_fqdn}",
-    "ERP_AUTH_FQDN=${local.auth_fqdn}",
+    "CLAVIS_STORAGE_ACCOUNT=${local.storage_account_name}",
+    "CLAVIS_DEPLOY_CONTAINER=${local.deploy_container}",
+    "CLAVIS_DEPLOY_PREFIX=${var.deploy_prefix}",
+    "CLAVIS_APP_FQDN=${local.app_fqdn}",
+    "CLAVIS_API_FQDN=${local.api_fqdn}",
+    "CLAVIS_AUTH_FQDN=${local.auth_fqdn}",
     "",
   ])
 
@@ -157,28 +159,28 @@ locals {
   # entirely, which is where hand-built cloud-init usually breaks.
   host_files = [
     { path = "/etc/blobfuse2.yaml", mode = "0600", b64 = base64encode(local.blobfuse_config) },
-    { path = "/etc/erp/deploy.env", mode = "0644", b64 = base64encode(local.deploy_env) },
+    { path = "/etc/clavis/deploy.env", mode = "0644", b64 = base64encode(local.deploy_env) },
 
-    { path = "/opt/erp/bin/reconcile.sh", mode = "0755", b64 = filebase64("${path.module}/../deploy/scripts/reconcile.sh") },
-    { path = "/opt/erp/bin/acme-restore.sh", mode = "0755", b64 = filebase64("${path.module}/../deploy/scripts/acme-restore.sh") },
-    { path = "/opt/erp/bin/acme-backup.sh", mode = "0755", b64 = filebase64("${path.module}/../deploy/scripts/acme-backup.sh") },
-    { path = "/opt/erp/bin/metadata-guard.sh", mode = "0755", b64 = filebase64("${path.module}/../deploy/scripts/metadata-guard.sh") },
+    { path = "/opt/clavis/bin/reconcile.sh", mode = "0755", b64 = filebase64("${path.module}/../deploy/scripts/reconcile.sh") },
+    { path = "/opt/clavis/bin/acme-restore.sh", mode = "0755", b64 = filebase64("${path.module}/../deploy/scripts/acme-restore.sh") },
+    { path = "/opt/clavis/bin/acme-backup.sh", mode = "0755", b64 = filebase64("${path.module}/../deploy/scripts/acme-backup.sh") },
+    { path = "/opt/clavis/bin/metadata-guard.sh", mode = "0755", b64 = filebase64("${path.module}/../deploy/scripts/metadata-guard.sh") },
 
-    { path = "/etc/systemd/system/erp-blobfuse2.service", mode = "0644", b64 = filebase64("${path.module}/../deploy/systemd/erp-blobfuse2.service") },
-    { path = "/etc/systemd/system/erp-acme-restore.service", mode = "0644", b64 = filebase64("${path.module}/../deploy/systemd/erp-acme-restore.service") },
-    { path = "/etc/systemd/system/erp-acme-backup.service", mode = "0644", b64 = filebase64("${path.module}/../deploy/systemd/erp-acme-backup.service") },
-    { path = "/etc/systemd/system/erp-acme-backup.path", mode = "0644", b64 = filebase64("${path.module}/../deploy/systemd/erp-acme-backup.path") },
-    { path = "/etc/systemd/system/erp-acme-backup.timer", mode = "0644", b64 = filebase64("${path.module}/../deploy/systemd/erp-acme-backup.timer") },
-    { path = "/etc/systemd/system/erp-deploy.service", mode = "0644", b64 = filebase64("${path.module}/../deploy/systemd/erp-deploy.service") },
-    { path = "/etc/systemd/system/erp-deploy.timer", mode = "0644", b64 = filebase64("${path.module}/../deploy/systemd/erp-deploy.timer") },
-    { path = "/etc/systemd/system/erp-metadata-guard.service", mode = "0644", b64 = filebase64("${path.module}/../deploy/systemd/erp-metadata-guard.service") },
-    { path = "/etc/systemd/system/docker.service.d/erp-deps.conf", mode = "0644", b64 = filebase64("${path.module}/../deploy/systemd/docker-erp-deps.conf") },
+    { path = "/etc/systemd/system/clavis-blobfuse2.service", mode = "0644", b64 = filebase64("${path.module}/../deploy/systemd/clavis-blobfuse2.service") },
+    { path = "/etc/systemd/system/clavis-acme-restore.service", mode = "0644", b64 = filebase64("${path.module}/../deploy/systemd/clavis-acme-restore.service") },
+    { path = "/etc/systemd/system/clavis-acme-backup.service", mode = "0644", b64 = filebase64("${path.module}/../deploy/systemd/clavis-acme-backup.service") },
+    { path = "/etc/systemd/system/clavis-acme-backup.path", mode = "0644", b64 = filebase64("${path.module}/../deploy/systemd/clavis-acme-backup.path") },
+    { path = "/etc/systemd/system/clavis-acme-backup.timer", mode = "0644", b64 = filebase64("${path.module}/../deploy/systemd/clavis-acme-backup.timer") },
+    { path = "/etc/systemd/system/clavis-deploy.service", mode = "0644", b64 = filebase64("${path.module}/../deploy/systemd/clavis-deploy.service") },
+    { path = "/etc/systemd/system/clavis-deploy.timer", mode = "0644", b64 = filebase64("${path.module}/../deploy/systemd/clavis-deploy.timer") },
+    { path = "/etc/systemd/system/clavis-metadata-guard.service", mode = "0644", b64 = filebase64("${path.module}/../deploy/systemd/clavis-metadata-guard.service") },
+    { path = "/etc/systemd/system/docker.service.d/clavis-deps.conf", mode = "0644", b64 = filebase64("${path.module}/../deploy/systemd/docker-clavis-deps.conf") },
 
-    { path = "/etc/ssh/sshd_config.d/00-erp-hardening.conf", mode = "0600", b64 = filebase64("${path.module}/../deploy/host/sshd-hardening.conf") },
-    { path = "/etc/apt/apt.conf.d/51erp-unattended-upgrades", mode = "0644", b64 = filebase64("${path.module}/../deploy/host/unattended-upgrades.conf") },
-    { path = "/etc/fail2ban/jail.d/erp-sshd.local", mode = "0644", b64 = filebase64("${path.module}/../deploy/host/fail2ban-sshd.conf") },
+    { path = "/etc/ssh/sshd_config.d/00-clavis-hardening.conf", mode = "0600", b64 = filebase64("${path.module}/../deploy/host/sshd-hardening.conf") },
+    { path = "/etc/apt/apt.conf.d/51clavis-unattended-upgrades", mode = "0644", b64 = filebase64("${path.module}/../deploy/host/unattended-upgrades.conf") },
+    { path = "/etc/fail2ban/jail.d/clavis-sshd.local", mode = "0644", b64 = filebase64("${path.module}/../deploy/host/fail2ban-sshd.conf") },
     { path = "/etc/docker/daemon.json", mode = "0644", b64 = filebase64("${path.module}/../deploy/host/docker-daemon.json") },
-    { path = "/etc/sysctl.d/60-erp.conf", mode = "0644", b64 = filebase64("${path.module}/../deploy/host/sysctl.conf") },
+    { path = "/etc/sysctl.d/60-clavis.conf", mode = "0644", b64 = filebase64("${path.module}/../deploy/host/sysctl.conf") },
   ]
 
   cloud_init = templatefile("${path.module}/templates/cloud-init.yaml.tftpl", {
@@ -253,13 +255,13 @@ resource "digitalocean_firewall" "main" {
 }
 
 # ------------------------------------------------------------------------------
-# DNS. Both records stay DNS-only.
+# DNS. Every record stays DNS-only.
 #
 # Cloudflare's free Universal SSL covers the apex and one level of subdomain, so
-# it does NOT cover auth.erp-keycloak.mapineda48.com. Proxying that hostname
-# would need Advanced Certificate Manager at $10/month per zone; with the proxy
-# off, Traefik terminates TLS at the origin with its own Let's Encrypt
-# certificate and it costs nothing.
+# it does NOT cover app.clavis.mapineda48.com or its siblings (two levels deep).
+# Proxying those hostnames would need Advanced Certificate Manager at $10/month
+# per zone; with the proxy off, Traefik terminates TLS at the origin with its
+# own Let's Encrypt certificate and it costs nothing.
 # ------------------------------------------------------------------------------
 resource "cloudflare_dns_record" "app" {
   zone_id = data.terraform_remote_state.core.outputs.cloudflare_zone_id
@@ -268,7 +270,7 @@ resource "cloudflare_dns_record" "app" {
   content = digitalocean_droplet.main.ipv4_address
   ttl     = 60
   proxied = false
-  comment = "Managed by Terraform - erp-keycloak SPA and API"
+  comment = "Managed by Terraform - Clavis SPA"
 
   lifecycle {
     precondition {
@@ -278,6 +280,16 @@ resource "cloudflare_dns_record" "app" {
   }
 }
 
+resource "cloudflare_dns_record" "api" {
+  zone_id = data.terraform_remote_state.core.outputs.cloudflare_zone_id
+  name    = var.api_subdomain
+  type    = "A"
+  content = digitalocean_droplet.main.ipv4_address
+  ttl     = 60
+  proxied = false
+  comment = "Managed by Terraform - Clavis API"
+}
+
 resource "cloudflare_dns_record" "auth" {
   zone_id = data.terraform_remote_state.core.outputs.cloudflare_zone_id
   name    = var.auth_subdomain
@@ -285,5 +297,5 @@ resource "cloudflare_dns_record" "auth" {
   content = digitalocean_droplet.main.ipv4_address
   ttl     = 60
   proxied = false
-  comment = "Managed by Terraform - erp-keycloak Keycloak"
+  comment = "Managed by Terraform - Clavis Keycloak"
 }

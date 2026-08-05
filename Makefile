@@ -20,7 +20,7 @@ KC_USER ?= admin
         verify verify-api verify-theme verify-reset
 
 help: ## Print this table of targets
-	@printf '\n\033[1mERP Demo\033[0m — available targets\n\n'
+	@printf '\n\033[1mClavis\033[0m — available targets\n\n'
 	@grep -hE '^[a-zA-Z][a-zA-Z0-9_-]*:.*##' $(MAKEFILE_LIST) \
 		| sort \
 		| awk 'BEGIN { FS = ":.*##[ ]?" } { printf "  \033[36m%-10s\033[0m  %s\n", $$1, $$2 }'
@@ -87,10 +87,10 @@ token: ## Access token for the demo user via grant_type=password
 		*) echo 'KC_USER must be admin, manager or worker' >&2; exit 1;; \
 	esac; \
 	response="$$(curl -sS -X POST \
-		"$${kc_url:-http://localhost:8080}/realms/$${realm:-erp}/protocol/openid-connect/token" \
+		"$${kc_url:-http://localhost:8080}/realms/$${realm:-clavis}/protocol/openid-connect/token" \
 		-H 'Content-Type: application/x-www-form-urlencoded' \
 		-d 'grant_type=password' \
-		-d "client_id=$${client:-erp-app}" \
+		-d "client_id=$${client:-clavis-app}" \
 		--data-urlencode "username=$$user" \
 		--data-urlencode "password=$$pass")"; \
 	printf '%s' "$$response" | node -e 'let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{let j;try{j=JSON.parse(s)}catch{console.error("Non-JSON response from Keycloak:\n"+s);process.exit(1)}if(!j.access_token){console.error("Keycloak returned no token:\n"+s);process.exit(1)}process.stdout.write(j.access_token+"\n")})'

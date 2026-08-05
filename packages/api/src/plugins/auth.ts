@@ -65,7 +65,7 @@ export const authPlugin = fp(
     }
 
     /**
-     * preHandler: verifies the token, provisions the user in `erp.users`
+     * preHandler: verifies the token, provisions the user in `clavis.users`
      * (just in time) and leaves the context in `request.auth`.
      */
     const authenticate: preHandlerHookHandler = async function authenticate(request) {
@@ -102,7 +102,7 @@ export const authPlugin = fp(
 
       // JIT provisioning: the user exists in the database as soon as they use the API.
       await app.db.query(
-        `INSERT INTO erp.users (id, username, email, display_name, last_seen_at)
+        `INSERT INTO clavis.users (id, username, email, display_name, last_seen_at)
          VALUES ($1, $2, $3, $4, now())
          ON CONFLICT (id) DO UPDATE
            SET username     = EXCLUDED.username,
@@ -136,7 +136,7 @@ export const authPlugin = fp(
     app.decorate('authenticate', authenticate)
     app.decorate('requirePermissions', requirePermissions)
   },
-  { name: 'erp-auth', dependencies: ['erp-db'] },
+  { name: 'clavis-auth', dependencies: ['clavis-db'] },
 )
 
 export default authPlugin

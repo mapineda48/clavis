@@ -1,7 +1,7 @@
 # Project instructions
 
 Access-control lab built around Keycloak. pnpm monorepo with two packages
-(`@erp/api` and `@erp/app`) and the whole infrastructure in `docker compose`.
+(`@clavis/api` and `@clavis/app`) and the whole infrastructure in `docker compose`.
 
 ---
 
@@ -78,7 +78,7 @@ Individual suites: `./scripts/verify-api.sh`, `./scripts/verify-login-theme.sh`,
 
 Every one of these cost a real failure. Do not rediscover them.
 
-### API (`@erp/api`)
+### API (`@clavis/api`)
 
 - It is **ESM with `moduleResolution: NodeNext`**: every relative import carries the
   `.js` extension, even though the source is `.ts`.
@@ -115,10 +115,10 @@ Every one of these cost a real failure. Do not rediscover them.
 
 ### Language and i18n
 
-- Translating prose must never touch identifiers. The database schema (`erp.users`,
-  `erp.todos`, `owner_id`, …), the realm and its clients and roles (`erp`, `erp-app`,
-  `erp-api`, `erp-user`, `erp-manager`, `erp-admin`, `todos:read`, `admin:manage`, …),
-  env var names, service names, ports, `erp-*` CSS classes and source file names are
+- Translating prose must never touch identifiers. The database schema (`clavis.users`,
+  `clavis.todos`, `owner_id`, …), the realm and its clients and roles (`clavis`, `clavis-app`,
+  `clavis-api`, `clavis-user`, `clavis-manager`, `clavis-admin`, `todos:read`, `admin:manage`, …),
+  env var names, service names, ports, `clavis-*` CSS classes and source file names are
   already English and are part of the contract. Renaming any of them is a behaviour
   change, not a translation.
 - The SPA catalogues live in `packages/app/src/i18n/`. `en.ts` is the **source of
