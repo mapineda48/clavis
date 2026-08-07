@@ -32,6 +32,34 @@ export interface AuthContext {
 }
 
 /**
+ * Everything `authenticate` resolved for a request, or `null` before it ran.
+ *
+ * This is the one nullable thing, and `request.auth` / `request.access` are
+ * getters over it. They used to be decorated with `null as unknown as
+ * AuthContext`: the type said "always there", the value was `null` until the
+ * preHandler filled it in, and `requirePermissions` had to write `?? null` on a
+ * non-nullable type to say so. Route handlers never see the difference — they
+ * run after `authenticate` — while reading either one without it now fails
+ * where the mistake is instead of somewhere downstream on `undefined`.
+ */
+export interface AuthState {
+  auth: AuthContext
+  access: AccessContext
+}
+
+/** The state, or a loud failure naming the route wiring that is missing. */
+function requireAuthState(request: FastifyRequest): AuthState {
+  const state = request.authState
+  if (state === null) {
+    throw new Error(
+      'request.auth / request.access were read before `authenticate` ran. ' +
+        "Add `app.authenticate` to this route's preHandler.",
+    )
+  }
+  return state
+}
+
+/**
  * How stale `last_seen_at` is allowed to get before it is written again.
  *
  * The mark used to be an unconditional UPDATE on every authenticated request,
@@ -83,10 +111,20 @@ export const authPlugin = fp<AuthPluginOptions>(
       cacheMaxAge: 600000,
     })
 
-    // Declared as request properties so they always exist; routes must only
-    // read them after going through `authenticate`.
-    app.decorateRequest('auth', null as unknown as AuthContext)
-    app.decorateRequest('access', null as unknown as AccessContext)
+    // One nullable property holds the state; `auth` and `access` are getters
+    // over it, so a handler keeps reading `request.auth.sub` unchanged while
+    // nothing has to pretend a value exists before `authenticate` produced it.
+    app.decorateRequest('authState', null)
+    app.decorateRequest('auth', {
+      getter(this: FastifyRequest) {
+        return requireAuthState(this).auth
+      },
+    })
+    app.decorateRequest('access', {
+      getter(this: FastifyRequest) {
+        return requireAuthState(this).access
+      },
+    })
 
     /** Extracts the token from the `Authorization: Bearer <jwt>` header. */
     const readBearerToken = (request: FastifyRequest): string => {
@@ -128,7 +166,7 @@ export const authPlugin = fp<AuthPluginOptions>(
         throw unauthorized('The token does not contain the "sub" claim.')
       }
 
-      request.auth = {
+      const auth: AuthContext = {
         sub,
         username: readStringClaim(payload, 'preferred_username') ?? sub,
         email: readStringClaim(payload, 'email'),
@@ -183,17 +221,20 @@ export const authPlugin = fp<AuthPluginOptions>(
         )
         .catch((error) => request.log.warn({ err: error }, 'Could not update last_seen_at'))
 
-      request.access = access
+      request.authState = { auth, access }
     }
 
     /** Returns a preHandler that demands every listed permission (logical AND). */
     const requirePermissions = (...perms: PermissionKey[]): preHandlerHookHandler => {
       return async function requirePermissionsHandler(request) {
-        const access: AccessContext | null = request.access ?? null
-        if (access === null) {
+        // Read through the nullable state, not the getters: a route that forgot
+        // `app.authenticate` must answer 401, not the programming error the
+        // getters raise.
+        const state = request.authState
+        if (state === null) {
           throw unauthorized('This operation requires authentication.')
         }
-        const missing = perms.filter((perm) => !contextHasPermission(access, perm))
+        const missing = perms.filter((perm) => !contextHasPermission(state.access, perm))
         if (missing.length > 0) {
           throw forbidden(
             `You do not have enough permissions. Missing: ${missing.join(', ')}.`,

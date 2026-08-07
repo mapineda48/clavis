@@ -3,7 +3,7 @@ import type { preHandlerHookHandler } from 'fastify'
 import type { Redis } from 'ioredis'
 import type { Pool, PoolClient, QueryResult, QueryResultRow } from 'pg'
 import type { AccessContext } from '../lib/access.js'
-import type { AuthContext } from '../plugins/auth.js'
+import type { AuthContext, AuthState } from '../plugins/auth.js'
 import type { KeycloakCreateUser, KeycloakUser } from '../plugins/keycloak-admin.js'
 
 /**
@@ -84,10 +84,19 @@ declare module 'fastify' {
   }
 
   interface FastifyRequest {
-    /** Token identity of the caller; available after `fastify.authenticate`. */
-    auth: AuthContext
+    /**
+     * What `fastify.authenticate` resolved, `null` until it has run.
+     * The only nullable one, and the only one that is written to.
+     */
+    authState: AuthState | null
 
-    /** What the caller may do, resolved from the database; available after `fastify.authenticate`. */
-    access: AccessContext
+    /** Token identity of the caller. Reading it before `authenticate` throws. */
+    readonly auth: AuthContext
+
+    /**
+     * What the caller may do, resolved from the database.
+     * Reading it before `authenticate` throws.
+     */
+    readonly access: AccessContext
   }
 }
