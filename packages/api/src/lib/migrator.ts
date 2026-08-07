@@ -22,7 +22,8 @@ const { Client } = pg
  * a file, so renaming an applied migration makes the migrator see a brand new
  * one: it re-runs the whole file against a schema that already has it, and
  * leaves the old row behind. The drift check below turns that into a startup
- * error instead of a mystery.
+ * error instead of a mystery — while letting a rollback (a database that is
+ * simply ahead of this build) start with a warning rather than a crash loop.
  */
 
 /** Fixed identifier of the advisory lock (arbitrary but stable). */
@@ -122,25 +123,58 @@ async function acquireLock(client: PgClient, logger: MigrationLogger): Promise<v
 }
 
 /**
- * Aborts when the database records a migration whose file is not here.
+ * Checks the direction the loop below cannot see.
  *
- * The loop below walks the files on disk and looks each one up among the
- * applied versions; without this check the opposite direction is invisible.
- * A recorded version with no file means the file was renamed or deleted, or
- * that this build is older than the database it is pointed at — all three are
- * situations where continuing applies an unknown delta to an unknown schema.
+ * That loop walks the files on disk and looks each one up among the applied
+ * versions, so a version recorded in `clavis.schema_migrations` whose file is
+ * not here is invisible to it. Where such an orphan **sorts** is what tells the
+ * two causes apart, and they call for opposite reactions:
+ *
+ * - **After every file on disk — a rollback.** Deploying the previous image
+ *   after shipping a migration is exactly this state: the older build simply
+ *   does not have the newer file yet. The schema is a superset of what this
+ *   code expects and the code runs fine against it, which is the whole reason
+ *   rolling back is a usable recovery. Aborting here would turn a rollback into
+ *   a crash loop (`restart: unless-stopped`) with no escape hatch, at the one
+ *   moment somebody is already having a bad day. Warn loudly and continue.
+ * - **Interleaved with the files on disk — a rename or a deletion.** A file
+ *   that used to sit between two that are still here is gone, and migrations
+ *   are looked up by filename with no reverse check inside them, so a rename
+ *   also makes the migrator run the whole file again against a schema that
+ *   already has it. There is nothing safe to assume: abort.
  */
-export function assertNoDrift(files: MigrationFile[], applied: Map<string, string>): void {
+export function assertNoDrift(
+  files: MigrationFile[],
+  applied: Map<string, string>,
+  logger: MigrationLogger,
+): void {
   const onDisk = new Set(files.map((file) => file.version))
   const orphans = [...applied.keys()].filter((version) => !onDisk.has(version)).sort()
   if (orphans.length === 0) return
 
-  throw new Error(
-    `The database records migrations that no longer exist in this build: ${orphans.join(', ')}. ` +
-      'Migrations are looked up by filename, so a renamed file also looks like this — and ' +
-      'renaming one makes it run again against a schema that already has it. Restore the ' +
-      'file under its recorded name, or point the API at the database this build belongs to. ' +
-      'Deleting the row is only correct once you know which of the two happened.',
+  // The files are already sorted the way they are applied, so the last one is
+  // the newest this build carries. With no files at all there is no newest and
+  // nothing to be ahead of: that is a broken build, not a rollback.
+  const newest = files.at(-1)?.version ?? null
+  const ahead = newest === null ? [] : orphans.filter((version) => version > newest)
+  const aheadSet = new Set(ahead)
+  const interleaved = orphans.filter((version) => !aheadSet.has(version))
+
+  if (interleaved.length > 0) {
+    throw new Error(
+      `The database records migrations that no longer exist in this build: ${interleaved.join(', ')}. ` +
+        'Migrations are looked up by filename, so a renamed file also looks like this — and ' +
+        'renaming one makes it run again against a schema that already has it. Restore the ' +
+        'file under its recorded name, or point the API at the database this build belongs to. ' +
+        'Deleting the row is only correct once you know which of the two happened.',
+    )
+  }
+
+  logger.warn(
+    { orphans: ahead, newestOnDisk: newest },
+    'The database is AHEAD of this build: it records migrations this image does not carry. ' +
+      'That is what a rollback looks like, and the schema being a superset is why it works. ' +
+      'Roll forward again, or confirm the older code is meant to keep running against it.',
   )
 }
 
@@ -189,7 +223,7 @@ export async function runMigrations(
     )
     const applied = new Map(rows.map((row) => [row.version, row.checksum]))
 
-    assertNoDrift(files, applied)
+    assertNoDrift(files, applied, logger)
 
     let appliedCount = 0
 

@@ -354,9 +354,14 @@ The formula that reads all of this — `union(role permissions) ∪ grants − r
   already been applied fails at startup instead of silently diverging between environments. To
   change something you add a new migration (see
   [`operations.md`](operations.md#add-a-migration)).
-- The check runs **both ways**: a version recorded in `clavis.schema_migrations` whose file is not
-  in this build also aborts startup. Since migrations are keyed by file name, that is what a
-  renamed migration looks like — and a renamed one would be applied again from scratch.
+- The check runs **both ways**, and where the missing version *sorts* decides what it means. A
+  recorded version that sits **between** the files this build carries aborts startup: migrations
+  are keyed by file name, so that is what a renamed or deleted migration looks like, and a
+  renamed one would be applied again from scratch. A recorded version that sorts **after** every
+  file on disk is a **rollback** — the previous image redeployed after a migration shipped — and
+  it only warns. The schema is a superset of what the older code expects, which is precisely why
+  rolling back works; aborting would put the container in a `restart: unless-stopped` loop with
+  no way out at the worst possible moment.
 
 > **The migration history was reset** when authorization moved into the database: the previous
 > `0001`/`0002` pair is gone and `0001_init.sql` is a fresh file with a different checksum. An

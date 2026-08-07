@@ -175,8 +175,12 @@ Every one of these cost a real failure. Do not rediscover them.
   after `0001_init.sql`.
 - **`0001_init.sql` is never renamed.** The migrator keys migrations by file
   name, so a rename reads as a brand new migration and the whole file runs again
-  against a schema that already has it. Startup now aborts on a recorded version
-  whose file is missing, which is what that mistake looks like from the database.
+  against a schema that already has it. Startup aborts on a recorded version
+  that sits **between** the files on disk, which is what that mistake looks like
+  from the database. A recorded version **after** all of them is a rollback (the
+  previous image, redeployed) and only warns: the schema is a superset the older
+  code runs fine against, and aborting would be a `restart: unless-stopped` loop
+  with no escape hatch.
 - An applied migration is **immutable**: its sha256 is recorded, and editing it
   fails startup. Change something by adding a file.
 - The migrator runs on a **connection of its own**, not one from the pool.
