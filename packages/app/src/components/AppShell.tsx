@@ -1,12 +1,9 @@
-import { useState } from 'react'
+import { Link, Outlet } from '@tanstack/react-router'
 import { useAuth } from '../auth/AuthProvider'
-import { Can } from '../auth/Can'
-import { AdminPanel } from './AdminPanel'
 import { isLocale, LOCALE_LABELS, LOCALES } from '../i18n'
 import { useI18n } from '../i18n/I18nProvider'
-import { initialsOf, REALM_ROLE_LABEL_KEYS, visibleRealmRoles } from '../lib/types'
-
-type TabId = 'home' | 'admin'
+import { initialsOf } from '../lib/types'
+import { NAV_ITEMS } from '../router'
 
 /**
  * Language picker. A native `<select>` is deliberate: it is reachable with the
@@ -37,29 +34,11 @@ function LanguagePicker() {
   )
 }
 
-/** Landing view while the access-control base is being rebuilt. */
-function Home() {
-  const { t } = useI18n()
-
-  return (
-    <section className="panel">
-      <h2 className="panel__title">{t('home.title')}</h2>
-      <p className="muted">{t('home.lead')}</p>
-    </section>
-  )
-}
-
 export function AppShell() {
-  const { profile, realmRoles, logout, has } = useAuth()
+  const { me, roles, isRoot, logout, has } = useAuth()
   const { t } = useI18n()
-  const [tab, setTab] = useState<TabId>('home')
 
-  const canAdmin = has('admin:manage')
-  // If the user loses the permission (token refresh) we fall back to the home view.
-  const activeTab: TabId = tab === 'admin' && !canAdmin ? 'home' : tab
-
-  const displayName = profile?.displayName ?? t('auth.defaultDisplayName')
-  const roles = visibleRealmRoles(realmRoles)
+  const displayName = me?.user.displayName ?? me?.user.username ?? t('auth.defaultDisplayName')
 
   return (
     <div className="shell">
@@ -81,22 +60,21 @@ export function AppShell() {
             </span>
             <span className="user-meta">
               <span className="user-meta__name">{displayName}</span>
-              <span className="user-meta__mail">{profile?.email ?? profile?.username ?? ''}</span>
+              <span className="user-meta__mail">{me?.user.email ?? me?.user.username ?? ''}</span>
             </span>
-            <ul className="chips" aria-label={t('nav.realmRolesLabel')}>
-              {roles.map((role) => {
-                const labelKey = REALM_ROLE_LABEL_KEYS[role]
-                return (
-                  <li key={role}>
-                    <span
-                      className="chip chip--role"
-                      title={labelKey === undefined ? role : t(labelKey)}
-                    >
-                      {role}
-                    </span>
-                  </li>
-                )
-              })}
+            <ul className="chips" aria-label={t('nav.rolesLabel')}>
+              {isRoot ? (
+                <li>
+                  <span className="chip chip--role" title={t('auth.rootChipTitle')}>
+                    root
+                  </span>
+                </li>
+              ) : null}
+              {roles.map((role) => (
+                <li key={role}>
+                  <span className="chip chip--role">{role}</span>
+                </li>
+              ))}
             </ul>
             <LanguagePicker />
             <button type="button" className="btn btn--ghost" onClick={logout}>
@@ -106,32 +84,23 @@ export function AppShell() {
         </div>
 
         <nav className="tabs" aria-label={t('nav.sectionsLabel')}>
-          <button
-            type="button"
-            className={`tab${activeTab === 'home' ? ' tab--active' : ''}`}
-            aria-current={activeTab === 'home' ? 'page' : undefined}
-            onClick={() => {
-              setTab('home')
-            }}
-          >
-            {t('nav.home')}
-          </button>
-          <Can perm="admin:manage">
-            <button
-              type="button"
-              className={`tab${activeTab === 'admin' ? ' tab--active' : ''}`}
-              aria-current={activeTab === 'admin' ? 'page' : undefined}
-              onClick={() => {
-                setTab('admin')
-              }}
+          {NAV_ITEMS.filter((item) => item.required === null || has(item.required)).map((item) => (
+            <Link
+              key={item.to}
+              to={item.to}
+              className="tab"
+              activeProps={{ className: 'tab tab--active', 'aria-current': 'page' }}
+              activeOptions={{ exact: item.to === '/' }}
             >
-              {t('nav.admin')}
-            </button>
-          </Can>
+              {t(item.labelKey)}
+            </Link>
+          ))}
         </nav>
       </header>
 
-      <main className="shell__main">{activeTab === 'admin' ? <AdminPanel /> : <Home />}</main>
+      <main className="shell__main">
+        <Outlet />
+      </main>
     </div>
   )
 }

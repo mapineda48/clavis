@@ -5,51 +5,15 @@
 // and the snake_case spelling so a serialisation change on the API side does
 // not break the SPA.
 //
-// Labels are not stored here any more: a label depends on the active locale, so
-// this module only maps a domain value to its translation key and lets the
-// caller resolve it through `useI18n()` (or `translateActive()` outside React).
+// Permissions come from @clavis/shared — the same catalog the API syncs into
+// the database — so a route guard or a <Can> check can only name keys that
+// actually exist.
 
 import { getActiveLocale } from '../i18n'
-import type { Locale, TranslationKey } from '../i18n'
+import type { Locale } from '../i18n'
 
-/* ------------------------------------------------------------------ */
-/* Permissions (client roles of `clavis-api`)                             */
-/* ------------------------------------------------------------------ */
-
-export const PERMISSIONS = ['users:read', 'admin:manage'] as const
-
-export type Permission = (typeof PERMISSIONS)[number]
-
-const PERMISSION_SET: ReadonlySet<string> = new Set<string>(PERMISSIONS)
-
-export function isPermission(value: string): value is Permission {
-  return PERMISSION_SET.has(value)
-}
-
-export const PERMISSION_LABEL_KEYS: Record<Permission, TranslationKey> = {
-  'users:read': 'auth.permUsersRead',
-  'admin:manage': 'auth.permAdminManage',
-}
-
-/* ------------------------------------------------------------------ */
-/* Realm roles                                                         */
-/* ------------------------------------------------------------------ */
-
-export const REALM_ROLE_LABEL_KEYS: Record<string, TranslationKey> = {
-  'clavis-admin': 'auth.roleAdmin',
-  'clavis-manager': 'auth.roleManager',
-  'clavis-user': 'auth.roleUser',
-}
-
-/** Technical Keycloak roles that mean nothing to the end user. */
-const NOISY_REALM_ROLES: ReadonlySet<string> = new Set([
-  'offline_access',
-  'uma_authorization',
-])
-
-export function visibleRealmRoles(roles: readonly string[]): string[] {
-  return roles.filter((role) => !NOISY_REALM_ROLES.has(role) && !role.startsWith('default-roles'))
-}
+export { isPermissionKey, PERMISSION_KEYS } from '@clavis/shared'
+export type { PermissionKey } from '@clavis/shared'
 
 /* ------------------------------------------------------------------ */
 /* Defensive reading of unknown JSON                                   */

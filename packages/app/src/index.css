@@ -661,3 +661,158 @@ code {
     justify-content: space-between;
   }
 }
+
+/* ==========================================================================
+   Access-control views: facts list, forms, matrix and row editors
+   ========================================================================== */
+
+.facts {
+  display: grid;
+  gap: 14px;
+  margin: 18px 0 0;
+}
+
+.facts__item dt {
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+.facts__item dd {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.form-grid {
+  display: grid;
+  gap: 16px;
+}
+
+.form-grid__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+
+.form-grid__row .field {
+  flex: 1 1 220px;
+}
+
+.form-grid__row--end {
+  align-items: flex-end;
+  margin-top: 16px;
+}
+
+.form-grid__row--end .field {
+  flex: 0 1 220px;
+}
+
+.radio-row,
+.check-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+
+.radio {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.92rem;
+  cursor: pointer;
+}
+
+.radio input {
+  accent-color: var(--primary);
+}
+
+.row-actions {
+  display: grid;
+  gap: 14px;
+}
+
+.row-actions__buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.btn--danger {
+  color: var(--danger);
+}
+
+.btn--danger:hover:not(:disabled) {
+  background: var(--danger-soft);
+}
+
+.chip--ok {
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.chip--warn {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
+.panel--nested {
+  margin-top: 14px;
+  background: var(--surface-2);
+  box-shadow: none;
+}
+
+.panel--center {
+  display: grid;
+  justify-items: start;
+  gap: 12px;
+  max-width: 560px;
+}
+
+.tabs--inner {
+  margin: 4px 0 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* Roles × permissions matrix */
+.matrix__module th {
+  background: var(--surface-2);
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.matrix__cell {
+  text-align: center;
+}
+
+.matrix__role {
+  white-space: nowrap;
+}
+
+.matrix__description {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 400;
+}
+
+.matrix__delete {
+  padding: 0 6px;
+  margin-left: 6px;
+  line-height: 1;
+}
+
+.access-editor {
+  display: grid;
+  gap: 16px;
+}
+
+.access-editor .field {
+  max-width: 320px;
+}

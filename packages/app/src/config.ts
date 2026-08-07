@@ -10,8 +10,6 @@ export interface ClavisConfig {
   keycloakRealm: string
   /** Public client of the SPA. */
   keycloakClientId: string
-  /** API client: its roles are the permissions read from `resource_access`. */
-  apiClientId: string
   /** Base URL of the REST API. */
   apiUrl: string
 }
@@ -26,7 +24,6 @@ const DEFAULTS: ClavisConfig = {
   keycloakUrl: 'http://localhost:8080',
   keycloakRealm: 'clavis',
   keycloakClientId: 'clavis-app',
-  apiClientId: 'clavis-api',
   apiUrl: 'http://localhost:3000',
 }
 
@@ -69,10 +66,6 @@ export const config: ClavisConfig = {
     fromRuntime('keycloakClientId', 'KEYCLOAK_CLIENT_ID', 'VITE_KEYCLOAK_CLIENT_ID') ??
     fromEnv(import.meta.env.VITE_KEYCLOAK_CLIENT_ID) ??
     DEFAULTS.keycloakClientId,
-  apiClientId:
-    fromRuntime('apiClientId', 'KEYCLOAK_API_CLIENT_ID', 'VITE_KEYCLOAK_API_CLIENT_ID') ??
-    fromEnv(import.meta.env.VITE_KEYCLOAK_API_CLIENT_ID) ??
-    DEFAULTS.apiClientId,
   apiUrl: stripTrailingSlash(
     fromRuntime('apiUrl', 'API_URL', 'VITE_API_URL') ??
       fromEnv(import.meta.env.VITE_API_URL) ??

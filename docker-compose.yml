@@ -303,7 +303,6 @@ services:
       CLAVIS_KEYCLOAK_URL: ${KEYCLOAK_PUBLIC_URL:-http://localhost:8080}
       CLAVIS_KEYCLOAK_REALM: ${KEYCLOAK_REALM:-clavis}
       CLAVIS_KEYCLOAK_CLIENT_ID: ${KEYCLOAK_APP_CLIENT_ID:-clavis-app}
-      CLAVIS_KEYCLOAK_API_CLIENT_ID: ${KEYCLOAK_API_CLIENT_ID:-clavis-api}
       CLAVIS_API_URL: ${VITE_API_URL:-http://localhost:3000}
     ports:
       - "8081:80"

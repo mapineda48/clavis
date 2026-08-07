@@ -13,6 +13,7 @@
   "dependencies": {
     "@clavis/shared": "workspace:*",
     "@tanstack/react-query": "5.101.4",
+    "@tanstack/react-router": "1.170.22",
     "keycloak-js": "26.2.4",
     "react": "19.2.8",
     "react-dom": "19.2.8"

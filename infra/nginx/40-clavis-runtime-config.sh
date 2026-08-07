@@ -15,7 +15,6 @@ set -eu
 CLAVIS_KEYCLOAK_URL="${CLAVIS_KEYCLOAK_URL:-http://localhost:8080}"
 CLAVIS_KEYCLOAK_REALM="${CLAVIS_KEYCLOAK_REALM:-clavis}"
 CLAVIS_KEYCLOAK_CLIENT_ID="${CLAVIS_KEYCLOAK_CLIENT_ID:-clavis-app}"
-CLAVIS_KEYCLOAK_API_CLIENT_ID="${CLAVIS_KEYCLOAK_API_CLIENT_ID:-clavis-api}"
 CLAVIS_API_URL="${CLAVIS_API_URL:-http://localhost:3000}"
 # Commit this build was deployed from. It is what lets the pipeline tell a
 # converged host from one that merely answers.
@@ -39,7 +38,6 @@ escape_js() {
 KEYCLOAK_URL_JS="$(escape_js "$CLAVIS_KEYCLOAK_URL")"
 KEYCLOAK_REALM_JS="$(escape_js "$CLAVIS_KEYCLOAK_REALM")"
 KEYCLOAK_CLIENT_ID_JS="$(escape_js "$CLAVIS_KEYCLOAK_CLIENT_ID")"
-KEYCLOAK_API_CLIENT_ID_JS="$(escape_js "$CLAVIS_KEYCLOAK_API_CLIENT_ID")"
 API_URL_JS="$(escape_js "$CLAVIS_API_URL")"
 COMMIT_JS="$(escape_js "$CLAVIS_COMMIT")"
 
@@ -50,7 +48,6 @@ window.__CLAVIS_CONFIG__ = {
   keycloakUrl: '${KEYCLOAK_URL_JS}',
   keycloakRealm: '${KEYCLOAK_REALM_JS}',
   keycloakClientId: '${KEYCLOAK_CLIENT_ID_JS}',
-  apiClientId: '${KEYCLOAK_API_CLIENT_ID_JS}',
   apiUrl: '${API_URL_JS}',
   commit: '${COMMIT_JS}'
 };
@@ -60,6 +57,5 @@ echo "[clavis-runtime-config] wrote ${OUTPUT_FILE}"
 echo "[clavis-runtime-config]   keycloakUrl      = ${CLAVIS_KEYCLOAK_URL}"
 echo "[clavis-runtime-config]   keycloakRealm    = ${CLAVIS_KEYCLOAK_REALM}"
 echo "[clavis-runtime-config]   keycloakClientId = ${CLAVIS_KEYCLOAK_CLIENT_ID}"
-echo "[clavis-runtime-config]   apiClientId      = ${CLAVIS_KEYCLOAK_API_CLIENT_ID}"
 echo "[clavis-runtime-config]   apiUrl           = ${CLAVIS_API_URL}"
 echo "[clavis-runtime-config]   commit           = ${CLAVIS_COMMIT}"

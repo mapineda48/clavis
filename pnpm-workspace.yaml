@@ -14,3 +14,5 @@ allowBuilds:
 minimumReleaseAgeExclude:
   - '@types/pg@8.20.2'
   - jose@6.2.6
+  - '@tanstack/react-router@1.170.22'
+  - '@tanstack/router-core@1.171.19'

@@ -72,7 +72,6 @@ services:
       CLAVIS_KEYCLOAK_URL: https://${CLAVIS_AUTH_FQDN:?}
       CLAVIS_KEYCLOAK_REALM: ${KEYCLOAK_REALM:-clavis}
       CLAVIS_KEYCLOAK_CLIENT_ID: ${KEYCLOAK_APP_CLIENT_ID:-clavis-app}
-      CLAVIS_KEYCLOAK_API_CLIENT_ID: ${KEYCLOAK_API_CLIENT_ID:-clavis-api}
       # The ORIGIN only — no /api suffix. The SPA's client already prepends
       # /api to every path it requests (src/api/client.ts builds
       # `${config.apiUrl}${path}` and every path starts with /api), so adding it

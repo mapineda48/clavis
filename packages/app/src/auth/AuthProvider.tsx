@@ -1,105 +1,42 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
-import { config } from '../config'
+import type { PermissionKey } from '@clavis/shared'
 import { getAccessToken, initKeycloak, keycloak } from './keycloak'
-import { translateActive } from '../i18n'
+import { useMe } from '../api/me'
+import type { Me } from '../api/me'
+import type { ApiError } from '../api/client'
 import type { Locale } from '../i18n'
 import { useI18n } from '../i18n/I18nProvider'
-import { isPermission, isRecord, readRecord, readString, readStringArray } from '../lib/types'
-import type { Permission } from '../lib/types'
 
-/* ------------------------------------------------------------------ */
-/* Reading the access token                                            */
-/* ------------------------------------------------------------------ */
+/**
+ * Session model after the authorization swap:
+ *
+ *   - keycloak-js answers WHO the user is (authenticated or not, tokens).
+ *   - /api/me answers WHAT they may do: the application user row, the roles
+ *     and the effective permissions resolved from the database.
+ *
+ * The token carries no permissions any more, so nothing here parses claims.
+ */
 
-/** The access token claims the SPA cares about. */
-interface ParsedAccessToken {
-  sub: string | null
-  username: string | null
-  email: string | null
-  name: string | null
-  realmRoles: string[]
-  /** Client roles indexed by `clientId` (the `resource_access` of the token). */
-  clientRoles: Record<string, string[]>
-}
-
-/** Turns the `tokenParsed` of keycloak-js into a typed structure. */
-function parseAccessToken(raw: unknown): ParsedAccessToken {
-  const claims = isRecord(raw) ? raw : {}
-  const resourceAccess = readRecord(claims, 'resource_access')
-  const clientRoles: Record<string, string[]> = {}
-  if (resourceAccess !== null) {
-    for (const [clientId, value] of Object.entries(resourceAccess)) {
-      if (!isRecord(value)) continue
-      clientRoles[clientId] = readStringArray(value, 'roles')
-    }
-  }
-  return {
-    sub: readString(claims, 'sub'),
-    username: readString(claims, 'preferred_username'),
-    email: readString(claims, 'email'),
-    name: readString(claims, 'name'),
-    realmRoles: readStringArray(readRecord(claims, 'realm_access'), 'roles'),
-    clientRoles,
-  }
-}
-
-/* ------------------------------------------------------------------ */
-/* Context                                                             */
-/* ------------------------------------------------------------------ */
-
-export interface UserProfile {
-  /** The `sub` of the token, which is also the id in `clavis.users`. */
-  id: string
-  username: string
-  email: string | null
-  displayName: string
-}
-
-interface SessionState {
-  authenticated: boolean
-  profile: UserProfile | null
-  realmRoles: string[]
-  permissions: Permission[]
-}
-
-export interface AuthContextValue extends SessionState {
+export interface AuthContextValue {
   /** `false` while keycloak-js resolves the silent session check. */
   ready: boolean
-  /** Checks one or several permissions (logical AND). */
-  has: (perm: Permission | Permission[]) => boolean
+  authenticated: boolean
+  /** Result of /api/me. `null` until it loads (or when it is refused). */
+  me: Me | null
+  /** The /api/me request state the App gate renders from. */
+  meStatus: 'idle' | 'loading' | 'ready' | 'blocked' | 'error'
+  /** The error behind a `blocked`/`error` status, if any. */
+  meError: ApiError | null
+  roles: string[]
+  permissions: PermissionKey[]
+  isRoot: boolean
+  /** Checks one or several permissions (logical AND). Root always passes. */
+  has: (perm: PermissionKey | PermissionKey[]) => boolean
   login: () => void
   logout: () => void
   /** Returns a live JWT, refreshing it when it is about to expire. */
   token: () => Promise<string>
-}
-
-const ANONYMOUS: SessionState = {
-  authenticated: false,
-  profile: null,
-  realmRoles: [],
-  permissions: [],
-}
-
-/** Reads the session state straight from the Keycloak instance. */
-function readSession(): SessionState {
-  if (keycloak.authenticated !== true) return ANONYMOUS
-  const claims = parseAccessToken(keycloak.tokenParsed)
-  // This runs outside React, so the label comes from the active locale.
-  const username = claims.username ?? translateActive('common.unknown')
-  // The permissions are the client roles of the API client (`clavis-api`).
-  const permissions = (claims.clientRoles[config.apiClientId] ?? []).filter(isPermission)
-  return {
-    authenticated: true,
-    profile: {
-      id: claims.sub ?? '',
-      username,
-      email: claims.email,
-      displayName: claims.name ?? username,
-    },
-    realmRoles: claims.realmRoles,
-    permissions,
-  }
 }
 
 /**
@@ -121,28 +58,26 @@ const AuthContext = createContext<AuthContextValue | null>(null)
 export function AuthProvider({ children }: { children: ReactNode }) {
   const { locale } = useI18n()
   const [ready, setReady] = useState(false)
-  const [session, setSession] = useState<SessionState>(ANONYMOUS)
+  const [authenticated, setAuthenticated] = useState(false)
 
   useEffect(() => {
     let active = true
     const sync = (): void => {
-      if (active) setSession(readSession())
+      if (active) setAuthenticated(keycloak.authenticated === true)
     }
 
-    // Keycloak warns just before the token expires: we refresh it and read the
-    // claims again (the roles may have changed in the meantime).
     keycloak.onTokenExpired = () => {
       void keycloak
         .updateToken(30)
         .then(sync)
         .catch(() => {
-          if (active) setSession(ANONYMOUS)
+          if (active) setAuthenticated(false)
         })
     }
     keycloak.onAuthSuccess = sync
     keycloak.onAuthRefreshSuccess = sync
     keycloak.onAuthLogout = () => {
-      if (active) setSession(ANONYMOUS)
+      if (active) setAuthenticated(false)
     }
 
     // `initKeycloak` is memoised: in StrictMode the second effect reuses the
@@ -157,14 +92,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  const permissions = session.permissions
+  const meQuery = useMe(ready && authenticated)
+
+  const me = meQuery.data ?? null
+  const meError = meQuery.error ?? null
+
+  const meStatus = useMemo<AuthContextValue['meStatus']>(() => {
+    if (!authenticated) return 'idle'
+    if (me !== null) return 'ready'
+    if (meQuery.isPending) return 'loading'
+    // A 403 is a decision, not a failure: disabled account or an identity the
+    // application has no user for.
+    if (meError !== null && meError.isForbidden) return 'blocked'
+    return 'error'
+  }, [authenticated, me, meQuery.isPending, meError])
+
+  const permissions = me?.permissions ?? []
+  const isRoot = me?.user.isRoot === true
 
   const has = useCallback(
-    (perm: Permission | Permission[]): boolean => {
+    (perm: PermissionKey | PermissionKey[]): boolean => {
+      if (isRoot) return true
       const required = Array.isArray(perm) ? perm : [perm]
       return required.every((item) => permissions.includes(item))
     },
-    [permissions],
+    [isRoot, permissions],
   )
 
   const login = useCallback(() => {
@@ -180,8 +132,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const token = useCallback((): Promise<string> => getAccessToken(30), [])
 
   const value = useMemo<AuthContextValue>(
-    () => ({ ready, ...session, has, login, logout, token }),
-    [ready, session, has, login, logout, token],
+    () => ({
+      ready,
+      authenticated,
+      me,
+      meStatus,
+      meError,
+      roles: me?.roles ?? [],
+      permissions,
+      isRoot,
+      has,
+      login,
+      logout,
+      token,
+    }),
+    [ready, authenticated, me, meStatus, meError, permissions, isRoot, has, login, logout, token],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
