@@ -8,7 +8,7 @@ import { ACCESS_NAMESPACE, loadAccessContext } from '../../lib/access.js'
 import type { Executor } from '../../lib/executor.js'
 import { mutate } from '../../lib/mutate.js'
 import { badRequest, conflict, forbidden, notFound } from '../../lib/errors.js'
-import { ErrorResponse } from '../shared/schemas.js'
+import { errorResponses } from '../shared/schemas.js'
 
 interface IdParamsInput {
   id: string
@@ -162,7 +162,7 @@ export const accessRoutes: FastifyPluginAsync = async (app) => {
           'Permission keys are declared in code and synced at boot; roles and their permission ' +
           'sets live in the database and are managed here.',
         security: [{ bearerAuth: [] }],
-        response: { 200: CatalogResponse, 401: ErrorResponse, 403: ErrorResponse },
+        response: { 200: CatalogResponse, ...errorResponses(401, 403) },
       },
     },
     async () => {
@@ -188,10 +188,7 @@ export const accessRoutes: FastifyPluginAsync = async (app) => {
         params: IdParams,
         response: {
           200: UserAccessResponse,
-          400: ErrorResponse,
-          401: ErrorResponse,
-          403: ErrorResponse,
-          404: ErrorResponse,
+          ...errorResponses(400, 401, 403, 404),
         },
       },
     },
@@ -243,10 +240,7 @@ export const accessRoutes: FastifyPluginAsync = async (app) => {
         },
         response: {
           200: UserAccessResponse,
-          400: ErrorResponse,
-          401: ErrorResponse,
-          403: ErrorResponse,
-          404: ErrorResponse,
+          ...errorResponses(400, 401, 403, 404),
         },
       },
     },
@@ -335,10 +329,7 @@ export const accessRoutes: FastifyPluginAsync = async (app) => {
         },
         response: {
           201: { type: 'object', properties: { role: RoleSchema }, required: ['role'] },
-          400: ErrorResponse,
-          401: ErrorResponse,
-          403: ErrorResponse,
-          409: ErrorResponse,
+          ...errorResponses(400, 401, 403, 409),
         },
       },
     },
@@ -406,10 +397,7 @@ export const accessRoutes: FastifyPluginAsync = async (app) => {
         },
         response: {
           200: { type: 'object', properties: { role: RoleSchema }, required: ['role'] },
-          400: ErrorResponse,
-          401: ErrorResponse,
-          403: ErrorResponse,
-          404: ErrorResponse,
+          ...errorResponses(400, 401, 403, 404),
         },
       },
     },
@@ -474,9 +462,7 @@ export const accessRoutes: FastifyPluginAsync = async (app) => {
         params: SlugParams,
         response: {
           204: { type: 'null' },
-          401: ErrorResponse,
-          403: ErrorResponse,
-          404: ErrorResponse,
+          ...errorResponses(401, 403, 404),
         },
       },
     },

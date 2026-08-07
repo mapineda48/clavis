@@ -9,7 +9,7 @@ import { AppError, badRequest, conflict, forbidden, notFound } from '../../lib/e
 import { mutate } from '../../lib/mutate.js'
 import { KeycloakAdminError } from '../../plugins/keycloak-admin.js'
 import { recordAudit } from '../shared/audit.js'
-import { ErrorResponse } from '../shared/schemas.js'
+import { errorResponses } from '../shared/schemas.js'
 import {
   findUser,
   insertUser,
@@ -210,7 +210,7 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
             limit: { type: 'integer', minimum: 1, maximum: 500, default: 100 },
           },
         },
-        response: { 200: UsersResponse, 401: ErrorResponse, 403: ErrorResponse },
+        response: { 200: UsersResponse, ...errorResponses(401, 403) },
       },
     },
     async (request) => {
@@ -239,10 +239,7 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
             properties: { user: UserSchema, invite: InviteSchema },
             required: ['user', 'invite'],
           },
-          400: ErrorResponse,
-          401: ErrorResponse,
-          403: ErrorResponse,
-          409: ErrorResponse,
+          ...errorResponses(400, 401, 403, 409),
         },
       },
     },
@@ -358,11 +355,7 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
         body: UpdateUserBody,
         response: {
           200: { type: 'object', properties: { user: UserSchema }, required: ['user'] },
-          400: ErrorResponse,
-          401: ErrorResponse,
-          403: ErrorResponse,
-          404: ErrorResponse,
-          409: ErrorResponse,
+          ...errorResponses(400, 401, 403, 404, 409),
         },
       },
     },
@@ -468,10 +461,7 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
         params: IdParams,
         response: {
           204: { type: 'null' },
-          400: ErrorResponse,
-          401: ErrorResponse,
-          403: ErrorResponse,
-          404: ErrorResponse,
+          ...errorResponses(400, 401, 403, 404),
         },
       },
     },
@@ -547,10 +537,7 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
             properties: { invite: InviteSchema },
             required: ['invite'],
           },
-          400: ErrorResponse,
-          401: ErrorResponse,
-          403: ErrorResponse,
-          404: ErrorResponse,
+          ...errorResponses(400, 401, 403, 404),
         },
       },
     },

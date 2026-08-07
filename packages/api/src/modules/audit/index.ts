@@ -2,7 +2,7 @@
 import type { FastifyPluginAsync } from 'fastify'
 // Pulls in the @fastify/swagger type augmentation (tags, summary, security inside `schema`).
 import type {} from '@fastify/swagger'
-import { ErrorResponse } from '../shared/schemas.js'
+import { errorResponses } from '../shared/schemas.js'
 
 interface ListQueryInput {
   limit?: number
@@ -70,8 +70,7 @@ export const auditRoutes: FastifyPluginAsync = async (app) => {
         },
         response: {
           200: AuditResponse,
-          401: ErrorResponse,
-          403: ErrorResponse,
+          ...errorResponses(401, 403),
         },
       },
     },

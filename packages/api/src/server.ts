@@ -9,6 +9,7 @@ import { accessRoutes } from './modules/access/index.js'
 import { auditRoutes } from './modules/audit/index.js'
 import { healthRoutes } from './modules/health/index.js'
 import { meRoutes } from './modules/me/index.js'
+import { registerSharedSchemas } from './modules/shared/schemas.js'
 import { usersRoutes } from './modules/users/index.js'
 import { authPlugin } from './plugins/auth.js'
 import { bootstrapPlugin } from './plugins/bootstrap.js'
@@ -130,6 +131,13 @@ export async function buildServer(config: AppConfig): Promise<FastifyInstance> {
         },
       },
     },
+    // Without this, a schema registered with `addSchema` is published under a
+    // generated name (`def-0`) that changes as soon as another shared schema is
+    // added before it. Its `$id` is a name somebody chose; use that.
+    refResolver: {
+      buildLocalReference: (json, _baseUri, _fragment, index) =>
+        typeof json['$id'] === 'string' ? json['$id'] : `def-${index}`,
+    },
   })
 
   await app.register(swaggerUi, {
@@ -144,8 +152,10 @@ export async function buildServer(config: AppConfig): Promise<FastifyInstance> {
     },
   })
 
-  // --- Uniform error envelope for the whole API
+  // --- Uniform error envelope for the whole API: the handler that produces it
+  // and the schema the routes refer to. Both before any route is registered.
   registerErrorHandler(app)
+  registerSharedSchemas(app)
 
   // --- Infrastructure (all wrapped in fastify-plugin: they decorate the root scope)
   await app.register(dbPlugin, config)
