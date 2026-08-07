@@ -137,6 +137,8 @@ export const en = {
   'users.openActions': 'Manage',
   'users.resendInviteButton': 'Resend invitation',
   'users.rootImmutableHint': 'Root is managed by the deployment, not from here.',
+  'users.selfImmutableHint':
+    'This is your own account: your roles and status can only be changed by another administrator, and you cannot delete yourself.',
   'users.statusActive': 'active',
   'users.statusDisabled': 'disabled',
   'users.usernamePlaceholder': 'defaults to the email local part',

@@ -1,8 +1,14 @@
 import { PERMISSION_DEFS, PERMISSION_KEYS } from '@clavis/shared'
 import type { FastifyInstance } from 'fastify'
 import fp from 'fastify-plugin'
-import { env } from '../config/env.js'
+import type { AppConfig } from '../config/env.js'
 import { ACCESS_NAMESPACE } from '../lib/access.js'
+
+/** The slice of the configuration this plugin reads. */
+export type BootstrapPluginOptions = Pick<
+  AppConfig,
+  'ROOT_USERNAME' | 'ROOT_EMAIL' | 'ROOT_PASSWORD' | 'ROOT_DISPLAY_NAME'
+>
 
 /**
  * Boot seeding, in order:
@@ -23,8 +29,8 @@ import { ACCESS_NAMESPACE } from '../lib/access.js'
  * Root is a COLUMN (`is_root`), not a role: break-glass access must not be
  * grantable or revocable through the roles UI.
  */
-export const bootstrapPlugin = fp(
-  async (app: FastifyInstance) => {
+export const bootstrapPlugin = fp<BootstrapPluginOptions>(
+  async (app: FastifyInstance, options) => {
     // --- 1. permission catalog -------------------------------------------------
     const keys = PERMISSION_DEFS.map((def) => def.key)
     const modules = PERMISSION_DEFS.map((def) => def.module)
@@ -67,13 +73,13 @@ export const bootstrapPlugin = fp(
     // --- 3. root ---------------------------------------------------------------
     await app.keycloakAdmin.ready()
 
-    const existing = await app.keycloakAdmin.findUserByUsername(env.ROOT_USERNAME)
+    const existing = await app.keycloakAdmin.findUserByUsername(options.ROOT_USERNAME)
     let rootId: string
     if (existing === null) {
       rootId = await app.keycloakAdmin.createUser({
-        username: env.ROOT_USERNAME,
-        email: env.ROOT_EMAIL,
-        firstName: env.ROOT_DISPLAY_NAME,
+        username: options.ROOT_USERNAME,
+        email: options.ROOT_EMAIL,
+        firstName: options.ROOT_DISPLAY_NAME,
         emailVerified: true,
         enabled: true,
       })
@@ -84,14 +90,14 @@ export const bootstrapPlugin = fp(
     }
 
     // Always re-applied: the environment is the source of truth for root.
-    await app.keycloakAdmin.setPassword(rootId, env.ROOT_PASSWORD, false)
+    await app.keycloakAdmin.setPassword(rootId, options.ROOT_PASSWORD, false)
 
     await app.db.tx(async (client) => {
       // A realm re-import may have assigned a new id to the same username or
       // email; the unique constraints demand the stale row goes first.
       await client.query(
         `DELETE FROM clavis.users WHERE (username = $1 OR email = $2) AND id <> $3`,
-        [env.ROOT_USERNAME, env.ROOT_EMAIL, rootId],
+        [options.ROOT_USERNAME, options.ROOT_EMAIL, rootId],
       )
       await client.query(
         `INSERT INTO clavis.users (id, username, email, display_name, is_root, status)
@@ -102,13 +108,13 @@ export const bootstrapPlugin = fp(
                display_name = EXCLUDED.display_name,
                is_root = true,
                status = 'active'`,
-        [rootId, env.ROOT_USERNAME, env.ROOT_EMAIL, env.ROOT_DISPLAY_NAME],
+        [rootId, options.ROOT_USERNAME, options.ROOT_EMAIL, options.ROOT_DISPLAY_NAME],
       )
     })
 
     await app.cache.bumpVersion(ACCESS_NAMESPACE)
     app.log.info(
-      { rootId, username: env.ROOT_USERNAME, catalog: PERMISSION_KEYS.length },
+      { rootId, username: options.ROOT_USERNAME, catalog: PERMISSION_KEYS.length },
       'Access-control base ready: catalog synced, admin role seeded, root linked',
     )
   },

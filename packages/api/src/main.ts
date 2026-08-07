@@ -1,6 +1,14 @@
 import type { FastifyInstance } from 'fastify'
-import { env } from './config/env.js'
+import { ConfigError, loadConfig } from './config/env.js'
 import { buildServer } from './server.js'
+
+/**
+ * Process entry point.
+ *
+ * This is the only file that reads `process.env` and the only one that calls
+ * `process.exit`. Everything below it takes its configuration as an argument,
+ * which is what makes `buildServer` parameterisable and `loadConfig` testable.
+ */
 
 /** Signals that trigger a graceful shutdown. */
 const SHUTDOWN_SIGNALS: NodeJS.Signals[] = ['SIGINT', 'SIGTERM']
@@ -35,12 +43,13 @@ function registerShutdownHooks(app: FastifyInstance): void {
 }
 
 async function main(): Promise<void> {
-  const app = await buildServer()
+  const config = loadConfig(process.env)
+  const app = await buildServer(config)
   registerShutdownHooks(app)
 
   try {
-    await app.listen({ host: env.HOST, port: env.PORT })
-    const baseUrl = `http://${displayHost(env.HOST)}:${env.PORT}`
+    await app.listen({ host: config.HOST, port: config.PORT })
+    const baseUrl = `http://${displayHost(config.HOST)}:${config.PORT}`
     app.log.info(
       { url: baseUrl, docs: `${baseUrl}/api/docs` },
       `API ready — documentation at ${baseUrl}/api/docs`,
@@ -53,6 +62,12 @@ async function main(): Promise<void> {
 
 main().catch((error: unknown) => {
   // Failure before a logger is available (configuration, migrations, plugins).
+  // A bad environment gets its own report: the list of offending variables is
+  // the whole answer, and a stack trace would only bury it.
+  if (error instanceof ConfigError) {
+    console.error(error.report())
+    process.exit(1)
+  }
   console.error('[@clavis/api] Fatal failure during startup:', error)
   process.exit(1)
 })

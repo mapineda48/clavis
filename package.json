@@ -11,6 +11,7 @@
   "scripts": {
     "dev": "pnpm --filter @clavis/shared build && pnpm -r --parallel dev",
     "build": "pnpm -r build",
+    "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",
     "verify": "bash scripts/verify-api.sh && bash scripts/verify-login-theme.sh",
     "verify:api": "bash scripts/verify-api.sh",

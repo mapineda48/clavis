@@ -423,13 +423,13 @@ curl -s http://localhost:3000/api/me -H "Authorization: Bearer $ROOT_TOKEN" | jq
 #   "user": { "id": "…", "username": "root", "email": "…",
 #             "displayName": "Root", "isRoot": true, "status": "active" },
 #   "roles": [],
-#   "permissions": ["users:read","users:create","users:update",
+#   "permissions": ["users:read","users:create","users:update","users:delete",
 #                   "access:read","access:manage","audit:read"],
 #   "requestedAt": "…"
 # }
 ```
 
-Note where those six permissions came from: **not the token**. Root's JWT is the one printed in
+Note where those seven permissions came from: **not the token**. Root's JWT is the one printed in
 [section 5](#token), and it mentions none of them. They are the code catalog, returned because
 the database row has `is_root = true`.
 

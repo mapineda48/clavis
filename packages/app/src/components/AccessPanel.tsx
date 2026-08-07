@@ -206,7 +206,7 @@ function CreateRoleForm() {
 type OverrideChoice = 'none' | OverrideEffect
 
 function UserAccessEditor({ catalog }: { catalog: Catalog }) {
-  const { has } = useAuth()
+  const { has, me } = useAuth()
   const { t } = useI18n()
   const toast = useToast()
   const canManage = has('access:manage')
@@ -255,8 +255,14 @@ function UserAccessEditor({ catalog }: { catalog: Catalog }) {
           }}
         >
           <option value="">{t('access.selectUserPlaceholder')}</option>
+          {/*
+            Neither root nor oneself: the API answers 403 ROOT_IMMUTABLE and
+            403 SELF_MODIFICATION respectively, and an override is the shortest
+            path there is to the whole catalog, so the editor does not offer
+            the row it cannot write. Same rule as the user list's own row.
+          */}
           {(usersQuery.data ?? [])
-            .filter((user) => !user.isRoot)
+            .filter((user) => !user.isRoot && user.id !== me?.user.id)
             .map((user) => (
               <option key={user.id} value={user.id}>
                 {user.username}

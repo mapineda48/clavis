@@ -1,7 +1,13 @@
 import type { FastifyInstance } from 'fastify'
 import fp from 'fastify-plugin'
 import { Resend } from 'resend'
-import { env } from '../config/env.js'
+import type { AppConfig } from '../config/env.js'
+
+/** The slice of the configuration this plugin reads. */
+export type MailerPluginOptions = Pick<
+  AppConfig,
+  'RESEND_API_KEY' | 'MAIL_FROM' | 'MAIL_REPLY_TO' | 'MAIL_ENABLED'
+>
 
 /**
  * Email plugin.
@@ -13,20 +19,20 @@ import { env } from '../config/env.js'
  *
  * `send()` never throws: a mail failure must not take a request down.
  */
-export const mailerPlugin = fp(
-  async (app: FastifyInstance) => {
-    const apiKey = (env.RESEND_API_KEY ?? '').trim()
-    const enabled = env.MAIL_ENABLED && apiKey.length > 0
+export const mailerPlugin = fp<MailerPluginOptions>(
+  async (app: FastifyInstance, options) => {
+    const apiKey = (options.RESEND_API_KEY ?? '').trim()
+    const enabled = options.MAIL_ENABLED && apiKey.length > 0
     const provider: 'resend' | 'dry-run' = enabled ? 'resend' : 'dry-run'
-    const replyTo = env.MAIL_REPLY_TO
+    const replyTo = options.MAIL_REPLY_TO
 
     const resend = enabled ? new Resend(apiKey) : null
 
     if (enabled) {
-      app.log.info({ from: env.MAIL_FROM }, 'Email enabled through Resend')
+      app.log.info({ from: options.MAIL_FROM }, 'Email enabled through Resend')
     } else {
       app.log.info(
-        { from: env.MAIL_FROM, mailEnabled: env.MAIL_ENABLED, hasApiKey: apiKey.length > 0 },
+        { from: options.MAIL_FROM, mailEnabled: options.MAIL_ENABLED, hasApiKey: apiKey.length > 0 },
         'Email in dry-run mode: messages are only written to the log',
       )
     }
@@ -34,14 +40,14 @@ export const mailerPlugin = fp(
     const mailer: FastifyInstance['mailer'] = {
       enabled,
       provider,
-      from: env.MAIL_FROM,
+      from: options.MAIL_FROM,
 
       async send(msg) {
         const recipients = Array.isArray(msg.to) ? msg.to : [msg.to]
 
         // Dry-run mode: leave a trace in the log and report why nothing was sent.
         if (!enabled || resend === null) {
-          const reason = !env.MAIL_ENABLED
+          const reason = !options.MAIL_ENABLED
             ? 'Email delivery is disabled (MAIL_ENABLED=false).'
             : 'No RESEND_API_KEY configured; the email was not sent.'
           app.log.info(
@@ -53,7 +59,7 @@ export const mailerPlugin = fp(
 
         try {
           const { data, error } = await resend.emails.send({
-            from: env.MAIL_FROM,
+            from: options.MAIL_FROM,
             to: msg.to,
             subject: msg.subject,
             html: msg.html,

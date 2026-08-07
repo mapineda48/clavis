@@ -3,7 +3,7 @@ import type { preHandlerHookHandler } from 'fastify'
 import type { Redis } from 'ioredis'
 import type { Pool, PoolClient, QueryResult, QueryResultRow } from 'pg'
 import type { AccessContext } from '../lib/access.js'
-import type { AuthContext } from '../plugins/auth.js'
+import type { AuthContext, AuthState } from '../plugins/auth.js'
 import type { KeycloakCreateUser, KeycloakUser } from '../plugins/keycloak-admin.js'
 
 /**
@@ -31,10 +31,21 @@ declare module 'fastify' {
       client: Redis
       get<T>(key: string): Promise<T | null>
       set(key: string, value: unknown, ttlSeconds?: number): Promise<void>
-      /** Current version of the namespace (created at 1 when missing). */
-      version(namespace: string): Promise<number>
-      /** INCR of the version: invalidates every derived key. */
-      bumpVersion(namespace: string): Promise<number>
+      /**
+       * Current version of the namespace (created at 1 when missing).
+       * `null` when it could not be read, **and** while a lost `bumpVersion`
+       * has this namespace marked untrusted: fail closed and bypass the cache
+       * rather than compose a key from a guessed or superseded version.
+       */
+      version(namespace: string): Promise<number | null>
+      /**
+       * INCR of the version: invalidates every derived key.
+       * `null` when the invalidation was lost even after a retry. That also
+       * marks the namespace untrusted in this process, so `version()` answers
+       * `null` and every request resolves from PostgreSQL until a bump lands —
+       * callers cannot undo a committed write, so the cache degrades instead.
+       */
+      bumpVersion(namespace: string): Promise<number | null>
       ping(): Promise<boolean>
     }
 
@@ -76,10 +87,19 @@ declare module 'fastify' {
   }
 
   interface FastifyRequest {
-    /** Token identity of the caller; available after `fastify.authenticate`. */
-    auth: AuthContext
+    /**
+     * What `fastify.authenticate` resolved, `null` until it has run.
+     * The only nullable one, and the only one that is written to.
+     */
+    authState: AuthState | null
 
-    /** What the caller may do, resolved from the database; available after `fastify.authenticate`. */
-    access: AccessContext
+    /** Token identity of the caller. Reading it before `authenticate` throws. */
+    readonly auth: AuthContext
+
+    /**
+     * What the caller may do, resolved from the database.
+     * Reading it before `authenticate` throws.
+     */
+    readonly access: AccessContext
   }
 }

@@ -40,6 +40,7 @@ The `package.json` scripts and the `Makefile` targets are equivalent; use whiche
 | `pnpm dev` | `make dev` | `pnpm -r --parallel dev` (API and SPA outside Docker) |
 | `pnpm build` | `make build` | `pnpm -r build` |
 | `pnpm typecheck` | `make typecheck` | `pnpm -r typecheck` |
+| `pnpm test` | `make test` | `pnpm -r test` (unit tests, no service needed) |
 
 > Make does not accept `:` in target names, which is why `up:full` is called `up-full` in the
 > Makefile.
@@ -428,22 +429,31 @@ Azurite data persists in the `azurite-data` volume; to throw it away, delete tha
 > five steps are in [`access-control.md`](access-control.md#add-a-permission). Use a migration
 > when the **schema** changes — a new table for a new business module, a new column, an index.
 
-Migrations live in `packages/api/migrations/` following the `NNNN_name.sql` pattern and are applied
-**in lexicographic order** when the API starts. Each one is recorded in `clavis.schema_migrations`
-with its **checksum**. There is currently one, `0001_init.sql`.
+Migrations live in `packages/api/migrations/` and are applied **in lexicographic order** when the
+API starts. Each one is recorded in `clavis.schema_migrations` with its **checksum**.
+
+New files are named **`YYYYMMDDHHMMSS_description.sql`**, in UTC. Sequential numbering collides
+across branches: two people who both write `0002_` produce two files that are valid apart and
+broken together, and whichever lands second is applied in an order nobody chose. A timestamp
+cannot collide, and it still sorts after `0001_init.sql` because `'0' < '2'`.
+
+> **`0001_init.sql` is never renamed.** The migrator looks a migration up by its file name and
+> has no reverse check, so a rename reads as a brand new migration: the whole file would be
+> re-applied and `clavis.schema_migrations` would keep an orphan row pointing at a name that no
+> longer exists.
 
 ### Procedure
 
-1. Create the next file in the sequence (four digits, descriptive name):
+1. Create the file, timestamped in UTC (`date -u +%Y%m%d%H%M%S`) with a descriptive suffix:
 
    ```
-   packages/api/migrations/0002_add_user_phone.sql
+   packages/api/migrations/20260807194105_add_user_phone.sql
    ```
 
 2. Write SQL that is **idempotent where it makes sense**, and always inside the `clavis` schema:
 
    ```sql
-   -- 0002: optional contact number on a user
+   -- Optional contact number on a user
    ALTER TABLE clavis.users
      ADD COLUMN IF NOT EXISTS phone text;
 
@@ -479,7 +489,7 @@ with its **checksum**. There is currently one, `0001_init.sql`.
 
   ```bash
   docker compose exec postgres psql -U clavis -d clavis -c \
-    "DELETE FROM clavis.schema_migrations WHERE version = '0002_add_user_phone';"
+    "DELETE FROM clavis.schema_migrations WHERE version = '20260807194105_add_user_phone';"
   ```
 
   …but remember to also undo by hand whatever the migration had already applied.

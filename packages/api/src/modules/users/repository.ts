@@ -1,8 +1,9 @@
 // SQL layer of the users module. Handlers own the flow; this owns the queries.
-import type { FastifyInstance } from 'fastify'
-import type { PoolClient } from 'pg'
-
-type Database = FastifyInstance['db']
+//
+// Every function here takes an `Executor` and never opens a transaction: the
+// caller decides whether the statement runs on its own (`app.db`) or inside a
+// transaction it already started (`client`). See `lib/executor.ts`.
+import type { Executor } from '../../lib/executor.js'
 
 /** Application user with their assigned role slugs. */
 export interface UserRecord {
@@ -34,7 +35,7 @@ const USER_SELECT = `
          ) AS roles
     FROM clavis.users u`
 
-export async function listUsers(db: Database, limit: number): Promise<UserRecord[]> {
+export async function listUsers(db: Executor, limit: number): Promise<UserRecord[]> {
   const result = await db.query<UserRecord>(
     `${USER_SELECT}
      ORDER BY u.is_root DESC, u.username ASC
@@ -44,13 +45,13 @@ export async function listUsers(db: Database, limit: number): Promise<UserRecord
   return result.rows
 }
 
-export async function findUser(db: Database, id: string): Promise<UserRecord | null> {
+export async function findUser(db: Executor, id: string): Promise<UserRecord | null> {
   const result = await db.query<UserRecord>(`${USER_SELECT} WHERE u.id = $1`, [id])
   return result.rows[0] ?? null
 }
 
 /** Returns which of `slugs` do not exist as roles. */
-export async function missingRoles(db: Database, slugs: string[]): Promise<string[]> {
+export async function missingRoles(db: Executor, slugs: string[]): Promise<string[]> {
   if (slugs.length === 0) return []
   const result = await db.query<{ slug: string }>(
     `SELECT slug FROM clavis.roles WHERE slug = ANY($1::text[])`,
@@ -62,7 +63,7 @@ export async function missingRoles(db: Database, slugs: string[]): Promise<strin
 
 /** The field already taken by another user, if any. */
 export async function takenField(
-  db: Database,
+  db: Executor,
   email: string,
   username: string,
 ): Promise<'email' | 'username' | null> {
@@ -83,31 +84,32 @@ export interface NewUser {
   roles: string[]
 }
 
-/** Inserts the user and their role assignments in one transaction. */
-export async function insertUser(db: Database, user: NewUser): Promise<void> {
-  await db.tx(async (client) => {
-    await client.query(
-      `INSERT INTO clavis.users (id, username, email, display_name)
-       VALUES ($1, $2, $3, $4)`,
-      [user.id, user.username, user.email, user.displayName],
-    )
-    await assignRoles(client, user.id, user.roles)
-  })
+/**
+ * Inserts the user and their role assignments.
+ * Two statements that belong together, so the caller runs it inside a `tx`.
+ */
+export async function insertUser(db: Executor, user: NewUser): Promise<void> {
+  await db.query(
+    `INSERT INTO clavis.users (id, username, email, display_name)
+     VALUES ($1, $2, $3, $4)`,
+    [user.id, user.username, user.email, user.displayName],
+  )
+  await assignRoles(db, user.id, user.roles)
 }
 
-/** Replaces the user's role set (inside a caller-provided transaction). */
+/** Replaces the user's role set. Two statements: run it inside a `tx`. */
 export async function replaceRoles(
-  client: PoolClient,
+  db: Executor,
   userId: string,
   roles: string[],
 ): Promise<void> {
-  await client.query(`DELETE FROM clavis.user_roles WHERE user_id = $1`, [userId])
-  await assignRoles(client, userId, roles)
+  await db.query(`DELETE FROM clavis.user_roles WHERE user_id = $1`, [userId])
+  await assignRoles(db, userId, roles)
 }
 
-async function assignRoles(client: PoolClient, userId: string, roles: string[]): Promise<void> {
+async function assignRoles(db: Executor, userId: string, roles: string[]): Promise<void> {
   if (roles.length === 0) return
-  await client.query(
+  await db.query(
     `INSERT INTO clavis.user_roles (user_id, role_slug)
      SELECT $1, unnest($2::text[])
      ON CONFLICT DO NOTHING`,

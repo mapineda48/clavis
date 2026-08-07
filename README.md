@@ -566,7 +566,7 @@ user (or sign out between steps), because Keycloak keeps the SSO session.
 ./scripts/verify-api.sh
 ```
 
-The same walk in 33 assertions, no browser involved. See [Verification](#verification).
+The same walk in 60 assertions, no browser involved. See [Verification](#verification).
 
 ---
 
@@ -634,6 +634,7 @@ This repository is built to produce **exactly the same result** on any machine a
 | `pnpm dev` | `make dev` | Runs API and SPA in parallel, outside Docker |
 | `pnpm build` | `make build` | Builds every package |
 | `pnpm typecheck` | `make typecheck` | Type-checks the whole monorepo |
+| `pnpm test` | `make test` | Unit tests (`node:test`, pure logic, no service needed) |
 | `pnpm run verify` | `make verify` | End-to-end verification (API + login theme) |
 
 > Make does not accept `:` in target names, so the only one that changes name is
@@ -658,12 +659,15 @@ pnpm run verify:reset    # password reset (needs the resend CLI)
 
 What they really cover:
 
-- **`verify-api.sh` — 33 assertions that walk the whole permission model from the outside.**
+- **`verify-api.sh` — 60 assertions that walk the whole permission model from the outside.**
   Root proves the bypass and the full catalog; it then creates a throwaway user through the API
   (which registers it in Keycloak) and shapes that user's access live: the temporary password
   **blocks the grant** until the first-login change, an override `grant` opens a door **on the
-  very next request**, the `revoke` closes it, a role adds exactly what it declares, `disabled`
-  refuses everything, and root plus the system role stay immutable. If somebody loosens a
+  very next request**, the `revoke` closes it — beating the role that grants the same key — a
+  role adds exactly what it declares, `disabled` refuses everything, and root plus the system
+  role stay immutable. The last section covers the guards that sit behind a permission the
+  caller does hold: assigning roles needs `access:manage` on create as well as on update, and
+  nobody edits their own roles, status, overrides or account. If somebody loosens a
   `requirePermissions` or forgets a cache bump, this is where it shows.
 - **`verify-login-theme.sh` — the whole OIDC flow**: authorization with PKCE `S256` → form →
   *authorization code* → exchange for an *access token*. A custom theme can render perfectly and

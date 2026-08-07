@@ -2,7 +2,7 @@
 import type { FastifyPluginAsync } from 'fastify'
 // Pulls in the @fastify/swagger type augmentation (tags, summary, security inside `schema`).
 import type {} from '@fastify/swagger'
-import { ErrorResponse } from '../shared/schemas.js'
+import { errorResponses } from '../shared/schemas.js'
 
 /** Response schema of /api/me. */
 const MeResponse = {
@@ -49,8 +49,7 @@ export const meRoutes: FastifyPluginAsync = async (app) => {
         security: [{ bearerAuth: [] }],
         response: {
           200: MeResponse,
-          401: ErrorResponse,
-          403: ErrorResponse,
+          ...errorResponses(401, 403),
         },
       },
     },

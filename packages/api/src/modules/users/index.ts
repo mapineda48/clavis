@@ -4,11 +4,13 @@
 import type { FastifyPluginAsync } from 'fastify'
 // Pulls in the @fastify/swagger type augmentation (tags, summary, security inside `schema`).
 import type {} from '@fastify/swagger'
-import { ACCESS_NAMESPACE } from '../../lib/access.js'
+import { ACCESS_NAMESPACE, assertNotSelf, contextHasPermission } from '../../lib/access.js'
 import { AppError, badRequest, conflict, forbidden, notFound } from '../../lib/errors.js'
+import { mutate } from '../../lib/mutate.js'
 import { KeycloakAdminError } from '../../plugins/keycloak-admin.js'
-import { recordAudit } from '../shared/audit.js'
-import { ErrorResponse } from '../shared/schemas.js'
+import { recordAuditBestEffort } from '../shared/audit.js'
+import { errorResponses } from '../shared/schemas.js'
+import { toIso } from '../shared/serialize.js'
 import {
   findUser,
   insertUser,
@@ -32,7 +34,7 @@ interface CreateUserInput {
   temporaryPassword?: string
 }
 
-interface UpdateUserInput {
+export interface UpdateUserInput {
   displayName?: string
   status?: 'active' | 'disabled'
   roles?: string[]
@@ -42,7 +44,15 @@ interface IdParamsInput {
   id: string
 }
 
-const UserSchema = {
+/**
+ * The user shape every response declares.
+ *
+ * Exported so a test can compare it against `serializeUser` rather than against
+ * a copy of the field list: Fastify serialises against this schema and drops
+ * anything it does not declare, so a field added to the serializer alone
+ * disappears from every response without a word.
+ */
+export const UserSchema = {
   type: 'object',
   properties: {
     id: { type: 'string' },
@@ -68,13 +78,15 @@ const UserSchema = {
   ],
 }
 
+// No `total`: it used to be `items.length` after a LIMIT, which reports the
+// page size as the collection size. A real total needs its own COUNT, and the
+// listing needs a pagination policy before it needs one of those.
 const UsersResponse = {
   type: 'object',
   properties: {
     items: { type: 'array', items: UserSchema },
-    total: { type: 'integer' },
   },
-  required: ['items', 'total'],
+  required: ['items'],
 }
 
 const InviteSchema = {
@@ -129,12 +141,7 @@ const IdParams = {
   properties: { id: { type: 'string', minLength: 1 } },
 }
 
-/** Converts a pg timestamptz to ISO 8601. */
-function toIso(value: Date | string): string {
-  return value instanceof Date ? value.toISOString() : new Date(value).toISOString()
-}
-
-function serializeUser(row: UserRecord) {
+export function serializeUser(row: UserRecord) {
   return {
     id: row.id,
     username: row.username,
@@ -145,6 +152,38 @@ function serializeUser(row: UserRecord) {
     roles: row.roles,
     createdAt: toIso(row.created_at),
     lastSeenAt: row.last_seen_at === null ? null : toIso(row.last_seen_at),
+  }
+}
+
+/**
+ * Which fields of an update nobody may apply to their own account.
+ *
+ * Editing one's own `displayName` stays allowed: it carries no privilege.
+ * `roles` and `status` do — self-granting a role is escalation and
+ * self-disabling is a lockout — so they need a second pair of hands.
+ */
+export function selfBlockedFields(body: UpdateUserInput): string[] {
+  const blocked: string[] = []
+  if (body.roles !== undefined) blocked.push('roles')
+  if (body.status !== undefined) blocked.push('status')
+  return blocked
+}
+
+/**
+ * Role assignment is an `access:*` operation reached through a `users:*` route.
+ *
+ * `requirePermissions` is a static preHandler and cannot look at the body, so
+ * the rule lives in the handler. Without it `users:update` alone would be
+ * enough to hand any account the `admin` role — which boot seeding fills with
+ * the whole catalog — and the catalog's split between `users:*` and `access:*`
+ * would exist only on paper.
+ */
+export function assertMayAssignRoles(access: Parameters<typeof contextHasPermission>[0]): void {
+  if (!contextHasPermission(access, 'access:manage')) {
+    throw forbidden(
+      'Assigning roles requires the access:manage permission.',
+      'ROLE_ASSIGNMENT_DENIED',
+    )
   }
 }
 
@@ -175,12 +214,12 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
             limit: { type: 'integer', minimum: 1, maximum: 500, default: 100 },
           },
         },
-        response: { 200: UsersResponse, 401: ErrorResponse, 403: ErrorResponse },
+        response: { 200: UsersResponse, ...errorResponses(401, 403) },
       },
     },
     async (request) => {
       const rows = await listUsers(app.db, request.query.limit ?? 100)
-      return { items: rows.map(serializeUser), total: rows.length }
+      return { items: rows.map(serializeUser) }
     },
   )
 
@@ -193,8 +232,9 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
         summary: 'Create a system user',
         description:
           'Registers the user in Keycloak first (which assigns the id and owns the credentials), ' +
-          'then stores the application user and their roles. If the database write fails the ' +
-          'Keycloak user is deleted again, so the two systems cannot drift on creation.',
+          'then sets the temporary password and stores the application user and their roles. ' +
+          'If any of those fails the Keycloak user is deleted again, so the two systems cannot ' +
+          'drift on creation. A non-empty `roles` additionally requires `access:manage`.',
         security: [{ bearerAuth: [] }],
         body: CreateUserBody,
         response: {
@@ -203,10 +243,7 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
             properties: { user: UserSchema, invite: InviteSchema },
             required: ['user', 'invite'],
           },
-          400: ErrorResponse,
-          401: ErrorResponse,
-          403: ErrorResponse,
-          409: ErrorResponse,
+          ...errorResponses(400, 401, 403, 409),
         },
       },
     },
@@ -222,6 +259,11 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
       if (body.credentialMode === 'temporary_password' && !body.temporaryPassword) {
         throw badRequest('temporaryPassword is required when credentialMode is temporary_password.')
       }
+      // Same rule as PATCH: creating an account already holding `admin` and
+      // knowing its temporary password is the escalation PATCH no longer allows.
+      if (roles.length > 0) {
+        assertMayAssignRoles(request.access)
+      }
 
       const unknownRoles = await missingRoles(app.db, roles)
       if (unknownRoles.length > 0) {
@@ -235,6 +277,10 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
       // Keycloak first: it owns the id. UPDATE_PASSWORD arrives either as an
       // explicit required action (invite) or implicitly with the temporary
       // password Keycloak itself flags.
+      //
+      // This call is alone in its own try on purpose. It is the line that
+      // creates the thing every step below has to be able to undo, and until it
+      // returns there is nothing to undo.
       let keycloakId: string
       try {
         keycloakId = await app.keycloakAdmin.createUser({
@@ -245,20 +291,56 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
           enabled: true,
           requiredActions: body.credentialMode === 'invite' ? ['UPDATE_PASSWORD'] : [],
         })
-        if (body.credentialMode === 'temporary_password') {
-          await app.keycloakAdmin.setPassword(keycloakId, body.temporaryPassword as string, true)
-        }
       } catch (error) {
         mapKeycloakError(error)
       }
 
+      // Everything from here to the COMMIT is compensated, not just the
+      // database write. `setPassword` used to sit in the try above, whose catch
+      // only rethrows: a password that Keycloak refused left a user nobody
+      // could reach and nobody could remove — the username and email are taken
+      // forever, a retry answers 409, and DELETE /api/users/:id answers 404
+      // because there is no application row to delete. Only Keycloak's own
+      // console could clear it.
       try {
-        await insertUser(app.db, { id: keycloakId, username, email, displayName: body.displayName, roles })
+        if (body.credentialMode === 'temporary_password') {
+          try {
+            await app.keycloakAdmin.setPassword(keycloakId, body.temporaryPassword as string, true)
+          } catch (error) {
+            mapKeycloakError(error)
+          }
+        }
+
+        // The row, its roles and the audit entry share one transaction. The
+        // Keycloak calls are deliberately outside it: no network I/O to another
+        // system while a transaction is open.
+        await mutate(app, {
+          run: (client) =>
+            insertUser(client, {
+              id: keycloakId,
+              username,
+              email,
+              displayName: body.displayName,
+              roles,
+            }),
+          audit: () => ({
+            actorId: request.auth.sub,
+            action: 'user.created',
+            entity: 'user',
+            entityId: keycloakId,
+            payload: { username, email, roles, credentialMode: body.credentialMode },
+          }),
+          invalidate: ACCESS_NAMESPACE,
+        })
       } catch (error) {
         // Compensation: without the application row the Keycloak user is an
         // orphan that would block the username forever.
         await app.keycloakAdmin.deleteUser(keycloakId).catch((cleanupError) => {
-          request.log.error({ err: cleanupError, keycloakId }, 'Could not clean up the Keycloak user')
+          request.log.error(
+            { err: cleanupError, keycloakId, username },
+            'RECONCILE: could not clean up the Keycloak user after a failed creation; ' +
+              'the username and email stay taken until it is removed by hand',
+          )
         })
         throw error
       }
@@ -275,19 +357,6 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
         }
       }
 
-      await recordAudit(
-        app.db,
-        {
-          actorId: request.auth.sub,
-          action: 'user.created',
-          entity: 'user',
-          entityId: keycloakId,
-          payload: { username, email, roles, credentialMode: body.credentialMode },
-        },
-        request.log,
-      )
-      await app.cache.bumpVersion(ACCESS_NAMESPACE)
-
       const created = await findUser(app.db, keycloakId)
       if (!created) throw new AppError(500, 'INTERNAL_ERROR', 'The user vanished after creation.')
       return reply.code(201).send({ user: serializeUser(created), invite })
@@ -302,16 +371,15 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
         tags: ['users'],
         summary: 'Update a user: profile, status or roles',
         description:
-          'Disabling a user also disables them in Keycloak. The root user cannot be edited here.',
+          'Disabling a user also disables them in Keycloak. The root user cannot be edited here. ' +
+          'Changing `roles` additionally requires `access:manage`, and nobody may change their ' +
+          'own roles or status.',
         security: [{ bearerAuth: [] }],
         params: IdParams,
         body: UpdateUserBody,
         response: {
           200: { type: 'object', properties: { user: UserSchema }, required: ['user'] },
-          400: ErrorResponse,
-          401: ErrorResponse,
-          403: ErrorResponse,
-          404: ErrorResponse,
+          ...errorResponses(400, 401, 403, 404, 409),
         },
       },
     },
@@ -323,15 +391,23 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
       }
 
       const body = request.body
+      const blocked = selfBlockedFields(body)
+      if (blocked.length > 0) {
+        assertNotSelf(request.auth.sub, existing.id, `change your own ${blocked.join(' or ')}`)
+      }
       if (body.roles !== undefined) {
+        assertMayAssignRoles(request.access)
         const unknownRoles = await missingRoles(app.db, body.roles)
         if (unknownRoles.length > 0) {
           throw badRequest(`Unknown roles: ${unknownRoles.join(', ')}.`, 'UNKNOWN_ROLES')
         }
       }
 
-      // Keycloak first, so a refusal leaves the database untouched.
-      if (body.status !== undefined && body.status !== existing.status) {
+      // Keycloak first, so a refusal leaves the database untouched. Outside the
+      // transaction on purpose: no network I/O to another system while one is
+      // open. The flag is remembered so the write below can undo it.
+      const statusChanged = body.status !== undefined && body.status !== existing.status
+      if (statusChanged) {
         try {
           await app.keycloakAdmin.setEnabled(existing.id, body.status === 'active')
         } catch (error) {
@@ -339,33 +415,49 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
         }
       }
 
-      await app.db.tx(async (client) => {
-        if (body.displayName !== undefined || body.status !== undefined) {
-          await client.query(
-            `UPDATE clavis.users
-                SET display_name = COALESCE($2, display_name),
-                    status = COALESCE($3, status)
-              WHERE id = $1`,
-            [existing.id, body.displayName ?? null, body.status ?? null],
-          )
+      try {
+        await mutate(app, {
+          run: async (client) => {
+            if (body.displayName !== undefined || body.status !== undefined) {
+              await client.query(
+                `UPDATE clavis.users
+                    SET display_name = COALESCE($2, display_name),
+                        status = COALESCE($3, status)
+                  WHERE id = $1`,
+                [existing.id, body.displayName ?? null, body.status ?? null],
+              )
+            }
+            if (body.roles !== undefined) {
+              await replaceRoles(client, existing.id, [...new Set(body.roles)])
+            }
+          },
+          audit: () => ({
+            actorId: request.auth.sub,
+            action: 'user.updated',
+            entity: 'user',
+            entityId: existing.id,
+            payload: { changes: body },
+          }),
+          invalidate: ACCESS_NAMESPACE,
+        })
+      } catch (error) {
+        // Compensation, the mirror of the one on creation: Keycloak has already
+        // been flipped and the database has not, so without this the two
+        // systems disagree permanently — Keycloak refusing to authenticate
+        // somebody the application still lists as active, or the reverse.
+        if (statusChanged) {
+          await app.keycloakAdmin
+            .setEnabled(existing.id, existing.status === 'active')
+            .catch((cleanupError) => {
+              request.log.error(
+                { err: cleanupError, userId: existing.id, restoreTo: existing.status },
+                'RECONCILE: could not restore the Keycloak enabled flag; ' +
+                  'Keycloak and the application now disagree about this user',
+              )
+            })
         }
-        if (body.roles !== undefined) {
-          await replaceRoles(client, existing.id, [...new Set(body.roles)])
-        }
-      })
-
-      await recordAudit(
-        app.db,
-        {
-          actorId: request.auth.sub,
-          action: 'user.updated',
-          entity: 'user',
-          entityId: existing.id,
-          payload: { changes: body },
-        },
-        request.log,
-      )
-      await app.cache.bumpVersion(ACCESS_NAMESPACE)
+        throw error
+      }
 
       const updated = await findUser(app.db, existing.id)
       if (!updated) throw notFound('User not found.')
@@ -376,20 +468,19 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
   app.delete<{ Params: IdParamsInput }>(
     '/users/:id',
     {
-      preHandler: [app.authenticate, app.requirePermissions('users:update')],
+      preHandler: [app.authenticate, app.requirePermissions('users:delete')],
       schema: {
         tags: ['users'],
         summary: 'Delete a user',
         description:
           'Removes the user from Keycloak and from the application; role assignments and ' +
-          'overrides cascade away, the audit trail keeps its rows. Root cannot be deleted.',
+          'overrides cascade away, the audit trail keeps its rows. Root cannot be deleted, ' +
+          'and nobody can delete themselves.',
         security: [{ bearerAuth: [] }],
         params: IdParams,
         response: {
           204: { type: 'null' },
-          401: ErrorResponse,
-          403: ErrorResponse,
-          404: ErrorResponse,
+          ...errorResponses(400, 401, 403, 404),
         },
       },
     },
@@ -399,9 +490,16 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
       if (existing.is_root) {
         throw forbidden('The root user is managed by the deployment, not by the API.', 'ROOT_IMMUTABLE')
       }
+      assertNotSelf(request.auth.sub, existing.id, 'delete your own account')
 
-      // Keycloak first: an identity that can still log in but has no
-      // application row is the state authenticate() already refuses.
+      // Keycloak first, and DO NOT reorder this. An identity that can still log
+      // in but has no application row is the state authenticate() already
+      // refuses (403 USER_NOT_PROVISIONED), so the intermediate state is safe;
+      // the reverse order leaves an account that can still authenticate.
+      //
+      // It is also why this needs no compensation: the Keycloak 404 below is
+      // tolerated, so the whole handler is idempotent and simply calling
+      // DELETE again finishes the job.
       try {
         await app.keycloakAdmin.deleteUser(existing.id)
       } catch (error) {
@@ -409,20 +507,30 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
           mapKeycloakError(error)
         }
       }
-      await app.db.query(`DELETE FROM clavis.users WHERE id = $1`, [existing.id])
 
-      await recordAudit(
-        app.db,
-        {
-          actorId: request.auth.sub,
-          action: 'user.deleted',
-          entity: 'user',
-          entityId: existing.id,
-          payload: { username: existing.username },
-        },
-        request.log,
-      )
-      await app.cache.bumpVersion(ACCESS_NAMESPACE)
+      try {
+        await mutate(app, {
+          run: (client) => client.query(`DELETE FROM clavis.users WHERE id = $1`, [existing.id]),
+          audit: () => ({
+            actorId: request.auth.sub,
+            action: 'user.deleted',
+            entity: 'user',
+            entityId: existing.id,
+            payload: { username: existing.username },
+          }),
+          invalidate: ACCESS_NAMESPACE,
+        })
+      } catch (error) {
+        // Retryable, but nobody retries what nobody noticed: the identity is
+        // already gone from Keycloak and the row is still here, so say so
+        // loudly enough to be found in the logs.
+        request.log.error(
+          { err: error, userId: existing.id, username: existing.username },
+          'RECONCILE: the Keycloak identity was deleted but the application row was not; ' +
+            'retry DELETE /api/users/:id to finish',
+        )
+        throw error
+      }
 
       return reply.code(204).send()
     },
@@ -443,9 +551,7 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
             properties: { invite: InviteSchema },
             required: ['invite'],
           },
-          401: ErrorResponse,
-          403: ErrorResponse,
-          404: ErrorResponse,
+          ...errorResponses(400, 401, 403, 404),
         },
       },
     },
@@ -465,7 +571,17 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
         request.log.warn({ err: error, userId: existing.id }, 'The invitation email could not be sent')
       }
 
-      await recordAudit(
+      // Not a `mutate`: nothing is written but the audit row itself, and
+      // nothing derives from it, so there is no transaction and no namespace
+      // to invalidate.
+      //
+      // And the ONLY site that audits best-effort. Everywhere else an audit
+      // failure has to fail the write, because the write can still be rolled
+      // back; here the email is already gone and there is nothing to roll back
+      // into. Propagating would answer 500 for an invitation that was
+      // delivered, and the natural response to that 500 is to press the button
+      // again and send a second one.
+      await recordAuditBestEffort(
         app.db,
         {
           actorId: request.auth.sub,

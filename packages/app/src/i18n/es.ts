@@ -136,6 +136,8 @@ export const es: Record<TranslationKey, string> = {
   'users.openActions': 'Gestionar',
   'users.resendInviteButton': 'Reenviar invitación',
   'users.rootImmutableHint': 'Root lo gestiona el despliegue, no esta pantalla.',
+  'users.selfImmutableHint':
+    'Esta es tu propia cuenta: tus roles y tu estado solo puede cambiarlos otro administrador, y no puedes eliminarte a ti mismo.',
   'users.statusActive': 'activo',
   'users.statusDisabled': 'deshabilitado',
   'users.usernamePlaceholder': 'por defecto, la parte local del correo',

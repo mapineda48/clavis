@@ -50,7 +50,6 @@ export const healthRoutes: FastifyPluginAsync = async (app) => {
   app.get(
     '/health',
     {
-      config: {},
       schema: {
         tags: ['health'],
         summary: 'Liveness check',
@@ -69,7 +68,6 @@ export const healthRoutes: FastifyPluginAsync = async (app) => {
   app.get(
     '/health/ready',
     {
-      config: {},
       schema: {
         tags: ['health'],
         summary: 'Readiness check',

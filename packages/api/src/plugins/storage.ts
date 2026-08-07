@@ -1,8 +1,14 @@
 import { BlobServiceClient } from '@azure/storage-blob'
 import type { FastifyInstance } from 'fastify'
 import fp from 'fastify-plugin'
-import { env } from '../config/env.js'
+import type { AppConfig } from '../config/env.js'
 import { notFound } from '../lib/errors.js'
+
+/** The slice of the configuration this plugin reads. */
+export type StoragePluginOptions = Pick<
+  AppConfig,
+  'AZURE_STORAGE_CONNECTION_STRING' | 'AZURE_STORAGE_CONTAINER'
+>
 
 /**
  * Attachment storage plugin backed by Azure Blob Storage (Azurite in
@@ -10,10 +16,10 @@ import { notFound } from '../lib/errors.js'
  * service is not ready yet, the creation is retried on the first real
  * operation.
  */
-export const storagePlugin = fp(
-  async (app: FastifyInstance) => {
-    const service = BlobServiceClient.fromConnectionString(env.AZURE_STORAGE_CONNECTION_STRING)
-    const container = service.getContainerClient(env.AZURE_STORAGE_CONTAINER)
+export const storagePlugin = fp<StoragePluginOptions>(
+  async (app: FastifyInstance, options) => {
+    const service = BlobServiceClient.fromConnectionString(options.AZURE_STORAGE_CONNECTION_STRING)
+    const container = service.getContainerClient(options.AZURE_STORAGE_CONTAINER)
 
     let containerReady = false
 
@@ -26,12 +32,12 @@ export const storagePlugin = fp(
 
     try {
       await ensureContainer()
-      app.log.info({ container: env.AZURE_STORAGE_CONTAINER }, 'Attachment container available')
+      app.log.info({ container: options.AZURE_STORAGE_CONTAINER }, 'Attachment container available')
     } catch (error) {
       // Startup is not aborted: /api/health/ready will report it and the container
       // is retried on the first upload or download.
       app.log.warn(
-        { err: error, container: env.AZURE_STORAGE_CONTAINER },
+        { err: error, container: options.AZURE_STORAGE_CONTAINER },
         'Could not prepare the attachment container; it will be retried on demand',
       )
     }

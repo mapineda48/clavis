@@ -23,7 +23,17 @@ export interface PermissionDef {
 export const PERMISSION_DEFS = [
   { key: 'users:read', module: 'users', description: 'List and view system users' },
   { key: 'users:create', module: 'users', description: 'Create system users' },
-  { key: 'users:update', module: 'users', description: 'Edit users: status, roles and profile' },
+  // These strings are served by GET /api/access/catalog and rendered verbatim
+  // in the SPA's permission matrix, so they describe what the key grants ON ITS
+  // OWN. `users:update` accepts a `roles` field, but assigning one additionally
+  // requires `access:manage` — saying "roles" flat would tell an operator the
+  // opposite of what the route does.
+  {
+    key: 'users:update',
+    module: 'users',
+    description: 'Edit users: profile, status and invitations (roles need access:manage)',
+  },
+  { key: 'users:delete', module: 'users', description: 'Delete system users' },
   { key: 'access:read', module: 'access', description: 'View roles, permissions and assignments' },
   {
     key: 'access:manage',

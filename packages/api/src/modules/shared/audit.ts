@@ -1,9 +1,12 @@
 // Audit trail of the domain writes.
-// It must never bring the request down: if the INSERT fails a warning is logged and we move on.
-import type { FastifyBaseLogger, FastifyInstance } from 'fastify'
-
-/** Database access decorated on the Fastify instance. */
-type Database = FastifyInstance['db']
+//
+// The insert runs on the caller's executor and its errors PROPAGATE. Inside
+// `lib/mutate.ts` that executor is the transaction client, so the audit row and
+// the write it describes commit together or not at all: a trail that can
+// silently miss a privileged change is not a trail. The trade is deliberate —
+// an `audit_log` insert failure now fails the user's write, and in an
+// access-control system an unaudited privileged write is the worse of the two.
+import type { Executor } from '../../lib/executor.js'
 
 /** Entry persisted into `clavis.audit_log`. */
 export interface AuditEntry {
@@ -19,28 +22,51 @@ export interface AuditEntry {
   payload?: Record<string, unknown>
 }
 
+/** The one logger method the best-effort variant needs. */
+export interface AuditLogger {
+  warn(obj: Record<string, unknown>, msg: string): void
+}
+
+/** Inserts an audit row on the caller's executor. Errors propagate. */
+export async function recordAudit(db: Executor, entry: AuditEntry): Promise<void> {
+  await db.query(
+    `INSERT INTO clavis.audit_log (actor_id, action, entity, entity_id, payload)
+     VALUES ($1, $2, $3, $4, $5::jsonb)`,
+    [
+      entry.actorId,
+      entry.action,
+      entry.entity,
+      entry.entityId ?? null,
+      JSON.stringify(entry.payload ?? {}),
+    ],
+  )
+}
+
 /**
- * Inserts an audit row. Errors are caught and logged: the audit trail is
- * informative and must never break the response sent to the client.
+ * Same insert, but a failure is logged instead of propagated.
+ *
+ * Use it ONLY where the action being audited has already happened in another
+ * system and cannot be undone, so there is no transaction for the audit row to
+ * join and nothing a thrown error could roll back. `POST /users/:id/resend-invite`
+ * is the one such caller: the invitation email is out. Failing the request
+ * there turns a delivered invitation into a 500, and the obvious reaction to a
+ * 500 is to press the button again — a second email for a first one that
+ * worked. A missing audit row is the smaller loss, and it is logged.
+ *
+ * Everything that writes to the database goes through `lib/mutate.ts` and
+ * `recordAudit` instead, where the row commits with the write it describes.
  */
-export async function recordAudit(
-  db: Database,
+export async function recordAuditBestEffort(
+  db: Executor,
   entry: AuditEntry,
-  logger?: FastifyBaseLogger,
+  log: AuditLogger,
 ): Promise<void> {
   try {
-    await db.query(
-      `INSERT INTO clavis.audit_log (actor_id, action, entity, entity_id, payload)
-       VALUES ($1, $2, $3, $4, $5::jsonb)`,
-      [
-        entry.actorId,
-        entry.action,
-        entry.entity,
-        entry.entityId ?? null,
-        JSON.stringify(entry.payload ?? {}),
-      ],
+    await recordAudit(db, entry)
+  } catch (error) {
+    log.warn(
+      { err: error, action: entry.action, entity: entry.entity, entityId: entry.entityId ?? null },
+      'The audit row could not be written; the action it describes already happened',
     )
-  } catch (err) {
-    logger?.warn({ err, action: entry.action, entity: entry.entity }, 'Could not record the audit entry')
   }
 }

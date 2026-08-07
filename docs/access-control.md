@@ -156,7 +156,10 @@ Three consequences worth stating plainly:
 - **`audit_log.actor_id` and `user_permission_overrides.created_by` carry no foreign key.** The
   record of who did something has to survive the deletion of the person who did it.
 - **`updated_at` is maintained by the database** through `clavis.set_updated_at()` and
-  `BEFORE UPDATE` triggers on `clavis.users` and `clavis.roles`.
+  `BEFORE UPDATE` triggers on `clavis.users` and `clavis.roles`. On `users` the trigger is
+  declared `BEFORE UPDATE OF username, email, display_name, is_root, status`, so the presence
+  mark on `last_seen_at` does not move it: `updated_at` answers "when was this record last
+  edited", not "when was this person last here".
 
 ---
 
@@ -171,7 +174,8 @@ that array is the source of truth for **which permission keys exist**:
 |---|---|---|
 | `users:read` | `users` | List and view system users |
 | `users:create` | `users` | Create system users |
-| `users:update` | `users` | Edit users: status, roles and profile |
+| `users:update` | `users` | Edit users: profile, status and invitations (roles need `access:manage`) |
+| `users:delete` | `users` | Delete system users |
 | `access:read` | `access` | View roles, permissions and assignments |
 | `access:manage` | `access` | Manage roles and per-user permission overrides |
 | `audit:read` | `audit` | Read the audit trail |
@@ -249,8 +253,9 @@ app.get('/reports/export', {
 failure it answers `403` with `{ error: { code: 'FORBIDDEN', message, statusCode } }`, naming
 the missing keys in the message.
 
-> If you add a new OpenAPI tag, add it to the `tags` array in `packages/api/src/server.ts` too,
-> or the documentation grows a second, undescribed section.
+> A new OpenAPI tag, or a whole new routes file, is **one entry** in the `MODULES` array in
+> `packages/api/src/server.ts`: it is read once for the tag list and once for the registrations.
+> There is no second list to keep in step.
 
 ### Step 4 — Use it in the SPA
 
@@ -383,8 +388,7 @@ their own.
 > **The rule: every mutation that can change somebody's permissions bumps the namespace.**
 
 That is: creating, updating and deleting users, replacing overrides, creating a role, replacing
-a role's permissions, deleting a role, and the boot catalog sync. Each of those calls
-`app.cache.bumpVersion(ACCESS_NAMESPACE)` after its transaction commits.
+a role's permissions, deleting a role, and the boot catalog sync.
 
 The observable contract is the point of the whole design: **a permission change applies on the
 very next request**, from any client, with the same token. `verify-api.sh` asserts exactly that
@@ -392,10 +396,49 @@ very next request**, from any client, with the same token. `verify-api.sh` asser
 
 > **Trap.** Adding a mutating route and forgetting the bump produces a bug that is invisible for
 > up to `CACHE_TTL_SECONDS` and then fixes itself, which is the hardest possible shape to
-> reproduce. The bump belongs next to the audit write, not in the handler's happy path.
+> reproduce.
+
+That is why the seven request mutations do not each remember to do it. They all go through
+`mutate()` (`packages/api/src/lib/mutate.ts`), which is the whole convention in one place:
+
+1. open `app.db.tx()`;
+2. run the write on that client;
+3. insert the `audit_log` row **on the same client**, inside the same transaction;
+4. COMMIT;
+5. **then** `bumpVersion`.
+
+Each step earns its position. The audit row is inside the transaction because it used to run
+after the commit and swallow its own errors, so the trail could silently miss a change that is
+permanently in the database — the exact failure an audit trail exists to rule out. They now
+commit together or not at all, which means **an `audit_log` insert failure fails the user's
+write**: a deliberate trade, since an unaudited privileged write is worse than a failed one.
+The bump is after COMMIT because bumping first opens a window in which a concurrent request
+repopulates the new version with the pre-commit state — precisely the staleness it exists to
+prevent. And `invalidate` is a required field rather than an optional one, so adding a mutation
+forces its author to decide rather than forget.
+
+There is exactly one exception, and it is named after itself: `recordAuditBestEffort`, used only
+by `POST /api/users/:id/resend-invite`. That route writes nothing but the audit row, and by the
+time it writes it the invitation email has already left. There is no transaction to join and
+nothing to roll back into, so propagating the failure would answer `500` for an invitation that
+was delivered — and the obvious reaction to that `500` is to press the button again and send a
+second one. The failure is logged at `warn` instead.
 
 Cache failures degrade to a miss rather than an error: if Valkey is down, every request resolves
-from PostgreSQL.
+from PostgreSQL. Degrading is not guessing, though, and the version is where the difference
+matters:
+
+- **`version()` returns `null` when it could not be read**, and `authenticate` then goes straight
+  to PostgreSQL and writes nothing back. Answering `1` instead would compose a `v1` key, and a
+  surviving `v1` entry can hold permissions that several bumps ago took away.
+- **`bumpVersion()` retries once and, if it still fails, marks the namespace untrusted** in that
+  process, returns `null` and logs at `error`. Returning `null` alone would change nothing: the
+  write has already committed and neither caller can undo it, so the API would answer `200`
+  while Valkey — still up, still serving the old version — kept every entry built from it
+  readable until its TTL expired. That is exactly the window a revoke exists to close. While the
+  mark is set, `version()` answers `null`, so the namespace resolves from PostgreSQL on every
+  request; the next successful bump clears it. The mark lives in memory because the only thing
+  that could record it in Valkey is the call that just failed.
 
 ---
 
@@ -418,19 +461,32 @@ sequenceDiagram
     A->>K: client_credentials (clavis-api service account)
     A->>K: POST /users  -> 201, Location carries the new id
     K-->>A: id
-    A->>P: BEGIN · INSERT clavis.users (id = that id) · INSERT user_roles · COMMIT
-    alt the transaction fails
+    A->>K: set the temporary password (temporary_password mode only)
+    A->>P: BEGIN · INSERT clavis.users (id = that id) · INSERT user_roles · INSERT audit_log · COMMIT
+    alt the password or the transaction fails
         A->>K: DELETE the Keycloak user - compensation
         A-->>A: the request fails, nothing is left behind
     end
-    A->>K: set password (temporary) OR execute-actions email
-    A->>A: audit + bumpVersion('access')
+    A->>A: bumpVersion('access')
+    A->>K: execute-actions email (invite mode only)
 ```
 
 **Keycloak goes first because it owns the id.** The value it returns in the `Location` header
 becomes the primary key of `clavis.users`, which is what makes `sub` a direct index later. If
 the database write fails afterwards, the Keycloak user is deleted — a compensating action, since
 two systems cannot share one transaction.
+
+### Every two-system write compensates, or explains why it does not
+
+| Route | Order | If the second step fails |
+|---|---|---|
+| `POST /api/users` | Keycloak creates, Keycloak sets the temporary password, then PostgreSQL | The Keycloak user is deleted again. The compensation covers **everything after the id comes back**, the password included: a `setPassword` failure would otherwise leave a user nobody can sign in as and nobody can remove — the username and email are taken, a retry is `409`, and `DELETE /api/users/:id` is `404` because there is no application row |
+| `PATCH /api/users/:id` with a `status` change | Keycloak `setEnabled`, then PostgreSQL | `setEnabled` is put back to its previous value, best effort, and the original error is returned |
+| `DELETE /api/users/:id` | Keycloak deletes, then PostgreSQL | **Nothing is undone, on purpose.** The handler tolerates a Keycloak `404`, so it is idempotent: the fix is to call `DELETE` again. Do not "fix" it by reordering — deleting the row first would leave an identity that can still authenticate |
+
+A failure that leaves the two systems disagreeing is logged at `error` with a `RECONCILE:`
+marker and the user id, because the one thing worse than needing a manual reconciliation is not
+knowing that you do.
 
 Two credential modes, chosen with `credentialMode` in the body:
 
@@ -454,14 +510,57 @@ worse outcome. The response carries `invite: { sent: false, reason: … }` and t
 | Route | Permission | Notes |
 |---|---|---|
 | `GET /api/users` | `users:read` | `limit` 1–500, default 100 |
-| `POST /api/users` | `users:create` | 201 `{ user, invite }`; duplicate email → `409 USER_EXISTS` |
-| `PATCH /api/users/:id` | `users:update` | `displayName`, `status`, `roles` |
-| `DELETE /api/users/:id` | `users:update` | 204; removes the Keycloak user too |
+| `POST /api/users` | `users:create` | 201 `{ user, invite }`; duplicate email → `409 USER_EXISTS`; a non-empty `roles` also needs `access:manage` |
+| `PATCH /api/users/:id` | `users:update` | `displayName`, `status`, `roles`; `roles` also needs `access:manage` |
+| `DELETE /api/users/:id` | `users:delete` | 204; removes the Keycloak user too |
 | `POST /api/users/:id/resend-invite` | `users:update` | 200 `{ invite }` |
 
-There is deliberately **no `users:delete` key**: deleting is an edit of the strongest kind, and
-a separate permission that nobody would ever grant without `users:update` is a key that only
-exists to be forgotten in a role.
+### Two rules the route table cannot express
+
+`requirePermissions` is a static preHandler: it sees the token and the resolved access context,
+never the body. Two rules therefore live inside the handlers.
+
+- **Assigning roles needs `access:manage`** (`403 ROLE_ASSIGNMENT_DENIED`), on `POST` and on
+  `PATCH` alike. `users:create` and `users:update` provision people and edit their profile and
+  status; they do not decide who holds which role. Without this the split between `users:*` and
+  `access:*` would exist only in the catalog: anyone with `users:update` could `PATCH` themselves
+  into the `admin` role — which boot seeding fills with the entire catalog — and hold everything
+  on the very next request, because the mutation bumps the cache namespace immediately. `POST`
+  is the same door one step further away: create an account carrying `admin`, with a temporary
+  password you chose, and sign in as it.
+- **Nobody edits their own privileges** (`403 SELF_MODIFICATION`): not their `roles` or `status`
+  through `PATCH /api/users/:id`, not their own account through `DELETE /api/users/:id`, and not
+  their own exceptions through `PUT /api/access/users/:id/overrides`. Self-granting is
+  escalation; self-disabling, self-deleting and self-revoking are lockouts. The overrides route
+  is the shortest path of the three — one request writes individual permission keys — so it is
+  guarded by the same `assertNotSelf` rather than by a copy of it. Editing one's own
+  `displayName` carries no privilege and stays allowed.
+
+`users:delete` is its own key rather than a facet of `users:update` for the same reason: an
+irreversible operation that also removes the Keycloak identity is not the same authority as
+"edit the profile", and a role that should be able to do one and not the other has to be
+expressible.
+
+<a id="self-check-limits"></a>
+
+#### What the self check does not buy
+
+It is worth saying plainly, because the rule is easy to read as more than it is. The check is
+keyed on **identity**, so it stops exactly one thing: a single account raising its own privileges
+in a single request. It does not make `access:manage` a bounded authority.
+
+- **Two accounts holding `access:manage` can grant each other.** A grants B the catalog, B grants
+  A the catalog, and neither request is a self-modification. Nothing in the code detects that,
+  and nothing is meant to: the guard is a footgun rail, not a separation-of-duties model.
+- **`POST /api/users` still creates privileged accounts.** With `users:create` and
+  `access:manage` you can create a user carrying `admin`, with a temporary password you chose,
+  and sign in as it. That is the same escalation one step further away, and it is refused only
+  when `access:manage` is missing.
+- **It is not a defence against a compromised administrator**, only against an ordinary operator
+  quietly widening their own access, and against locking yourself out by accident.
+
+What actually bounds `access:manage` is who holds it. The audit trail records every one of these
+writes with its actor, which is the control that survives the two cases above.
 
 ### Disable versus delete
 
@@ -509,7 +608,7 @@ role slug on a user with `400 UNKNOWN_ROLES`.
 | Route | Permission | Notes |
 |---|---|---|
 | `GET /api/access/users/:id` | `access:read` | Roles, overrides and the effective set |
-| `PUT /api/access/users/:id/overrides` | `access:manage` | **Replaces** the whole set of exceptions |
+| `PUT /api/access/users/:id/overrides` | `access:manage` | **Replaces** the whole set of exceptions; refused on root (`403 ROOT_IMMUTABLE`) and on oneself (`403 SELF_MODIFICATION`, see [the limits of that check](#self-check-limits)) |
 
 `PUT` is a replacement, not a patch: the body is the complete list of exceptions for that user,
 and an empty array clears them. That makes the operation idempotent and makes the UI — which
@@ -615,7 +714,7 @@ database.
 | Section | Route | Needs | What it does |
 |---|---|---|---|
 | Home | `/` | *(sign-in only)* | Username, role chips and effective-permission chips, straight from `/api/me` |
-| Users | `/admin/users` | `users:read` | List; create with either credential mode (`users:create`); enable/disable, roles, delete, resend invite (`users:update`); role checkboxes need `access:read` |
+| Users | `/admin/users` | `users:read` | List; create with either credential mode (`users:create`); enable/disable and resend invite (`users:update`); delete (`users:delete`); role checkboxes need `access:read` to list the roles and `access:manage` to change them; on one's own row the status, role and delete controls are hidden |
 | Access | `/admin/access` | `access:read` | Catalog matrix (permissions × roles, grouped by module) and the per-user exception editor; editing needs `access:manage`, and the user tab also needs `users:read` to list people |
 | Audit | `/admin/audit` | `audit:read` | The last 50 entries of `clavis.audit_log` |
 
@@ -624,8 +723,9 @@ the **resulting effective value** — so the outcome of "revoke wins" is visible
 chosen rather than inferred afterwards. Both it and the catalog matrix write on change; there is
 no Save button, because each control maps to exactly one idempotent `PUT`.
 
-Root does not appear in the user selector at all. The API would refuse the write
-(`403 ROOT_IMMUTABLE`); the UI simply does not offer it.
+Neither root nor the signed-in user appears in the exception editor's selector. The API refuses
+both writes (`403 ROOT_IMMUTABLE` and `403 SELF_MODIFICATION`); the UI simply does not offer
+them, the same way the user list hides the status, role and delete controls on one's own row.
 
 ---
 
@@ -634,7 +734,7 @@ Root does not appear in the user selector at all. The API would refuse the write
 ## 10. The executable specification
 
 `scripts/verify-api.sh` is the document that cannot go stale. It walks the model from the
-outside, against the running stack, in 33 assertions:
+outside, against the running stack, in 60 assertions:
 
 ```bash
 ./scripts/verify-api.sh
@@ -651,7 +751,9 @@ outside, against the running stack, in 33 assertions:
 | 8 | A role grants exactly what it declares and nothing else |
 | 9 | `disabled` refuses everything; re-enabling restores access |
 | 10 | Root and the `admin` system role are immutable through the API |
-| 11 | Cleanup, so the suite is re-runnable |
+| 11 | A `revoke` override beats the role that grants the same key |
+| 12 | The guards behind a permission the caller does hold: role assignment needs `access:manage` on `POST` and `PATCH` alike, `users:update` does not carry `users:delete`, and nobody edits their own roles, status, overrides or account |
+| 13 | Cleanup, so the suite is re-runnable |
 
 It reads root's credentials from `.env` (`ROOT_USERNAME`, `ROOT_PASSWORD`) and never prints a
 token. If somebody loosens a `requirePermissions` or forgets a

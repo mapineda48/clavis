@@ -68,6 +68,7 @@ pnpm run down                # stop the stack (keeps data)
 pnpm run reset               # down -v: wipes volumes and REIMPORTS the realm
 pnpm dev                     # API and SPA outside Docker, in parallel
 pnpm build / pnpm typecheck  # both packages
+pnpm test                    # unit tests (node:test); no service required
 pnpm run verify              # the two suites that need no external CLI
 ```
 
@@ -91,6 +92,20 @@ Every one of these cost a real failure. Do not rediscover them.
   `src/config/env.ts`.
 - If you declare `response` in a route `schema`, Fastify **serialises and drops** the
   fields you did not declare. Declare them all, or do not declare `response` at all.
+  The error envelope is registered once with `addSchema` and referenced: use
+  `errorResponses(401, 403, 404)` from `modules/shared/schemas.ts`, not a copy.
+- **Configuration is passed, never imported.** `loadConfig(env)` is pure — it
+  returns or throws, it does not read `process.env` and it does not exit.
+  `src/main.ts` is the only file that may do either. Plugins take their slice
+  through registration options (`Pick<AppConfig, …>`); a plugin that imports the
+  configuration puts an exit back behind every import of it.
+- Adding an OpenAPI tag or a route module means adding **one entry** to `MODULES`
+  in `server.ts`, which is read for the tag list and for the registrations.
+- Unit tests live in `packages/api/test/` and run with `node --import tsx --test`
+  (`node:test`, no new dependency). They cover **pure logic only** — the live
+  stack is `scripts/verify-api.sh`'s job, and it already runs in CI.
+  `tsconfig.test.json` typechecks them; the build config still compiles `src`
+  alone so `dist` keeps its shape.
 - The public issuer (`KEYCLOAK_ISSUER`) and the internal one
   (`KEYCLOAK_INTERNAL_ISSUER`) differ on purpose: the browser sees `localhost:8080`
   and the container sees `keycloak:8080`. JWKS is fetched over the internal one; `iss`
@@ -104,8 +119,43 @@ Every one of these cost a real failure. Do not rediscover them.
   (`NAV_ITEMS`, guards, labels). The database owns ASSIGNMENTS only.
 - Effective permissions are resolved per request from Postgres through the
   Valkey `access` namespace (versioned keys). **Every mutation of users, roles
-  or overrides must `cache.bumpVersion('access')`** or the change waits out the
-  TTL. `is_root` bypasses everything and root is immutable through the API.
+  or overrides must invalidate `access`** or the change waits out the TTL.
+  Request mutations get that from `mutate()`, whose `invalidate` is required
+  rather than optional; anything outside a request (boot seeding) still calls
+  `cache.bumpVersion('access')` by hand. `is_root` bypasses everything and root
+  is immutable through the API.
+- **Nobody edits their own privileges**, and the check is `assertNotSelf`
+  (`lib/access.ts`), not a copy per route. It guards `PATCH /users/:id`
+  (`roles`, `status`), `DELETE /users/:id` and
+  `PUT /access/users/:id/overrides` — a new route that changes what somebody
+  may do needs it too. It is keyed on identity, so it stops one account raising
+  itself in one request and nothing more: two accounts can still grant each
+  other, and `POST /users` can still create a privileged account. Say that in
+  the docs rather than implying the guard is stronger than it is.
+- Request mutations go through `mutate()` (`lib/mutate.ts`): one transaction
+  carrying the write **and** its `audit_log` row, then the bump after COMMIT.
+  So an `audit_log` insert failure fails the user's write — deliberate: in an
+  access-control system an unaudited privileged write is worse than a failed
+  one. Bumping before the commit would let a concurrent request repopulate the
+  new version with the pre-commit state.
+- **Tripwire: partition `clavis.audit_log` by month before it carries real
+  volume.** It is the only unbounded table in the schema, its
+  `created_at DESC` index is monotonic (so its rightmost page is a contention
+  point), and every domain write now waits on that insert. Retrofitting a
+  partition onto a large live table is the expensive version of this job; doing
+  it while the table is small is not.
+- Every function that touches the database takes an `Executor` first
+  (`lib/executor.ts`) and **never opens a transaction of its own**: whether a
+  statement runs alone (`app.db`) or inside one somebody else began (`client`)
+  is the caller's decision. A function that opens its own cannot be composed
+  into a larger unit of work, which is exactly how the audit row ended up
+  outside the transaction it describes.
+- **No network I/O inside `tx()`.** An open transaction across a Keycloak REST
+  round trip pins `backend_xmin`, stops vacuum database-wide and holds every row
+  lock it has taken for the length of an HTTP call to another system. Keycloak
+  calls go before or after the `tx`, never inside it — and a two-system write
+  that fails on the second system compensates the first (see `POST`/`PATCH`
+  `/api/users`).
 - Users are created FROM the app: Keycloak first (the id it assigns is the PK of
   `clavis.users`), database second, compensating delete on failure. The realm is
   re-imported with `--override` on every prod deploy, so app-created Keycloak
@@ -117,6 +167,53 @@ Every one of these cost a real failure. Do not rediscover them.
 - The realm declares its user profile with firstName/lastName OPTIONAL. Keycloak's
   default profile requires both, and a user created without a last name cannot
   log in ("Account is not fully set up") — do not remove that `components` block.
+
+### PostgreSQL and migrations
+
+- New migrations are named **`YYYYMMDDHHMMSS_description.sql`** (UTC). Sequential
+  numbering collides across branches; a timestamp cannot, and it still sorts
+  after `0001_init.sql`.
+- **`0001_init.sql` is never renamed.** The migrator keys migrations by file
+  name, so a rename reads as a brand new migration and the whole file runs again
+  against a schema that already has it. Startup aborts on a recorded version
+  that sits **between** the files on disk, which is what that mistake looks like
+  from the database. A recorded version **after** all of them is a rollback (the
+  previous image, redeployed) and only warns: the schema is a superset the older
+  code runs fine against, and aborting would be a `restart: unless-stopped` loop
+  with no escape hatch.
+- An applied migration is **immutable**: its sha256 is recorded, and editing it
+  fails startup. Change something by adding a file.
+- The migrator runs on a **connection of its own**, not one from the pool.
+  Releasing a pooled client does not reset session state, and the pool's
+  timeouts must not apply to DDL. It takes the advisory lock with
+  `pg_try_advisory_lock` in a bounded retry loop — the blocking version waits
+  forever, and a lock from a session that never ended then stops every instance
+  from starting with nothing in the log.
+- `SET LOCAL` **before** `BEGIN` is a silent no-op: it applies to the implicit
+  transaction of that statement alone and is gone by the time the real one
+  starts. Reproduced against this project's PostgreSQL.
+- The application pool sets `statement_timeout` and
+  `idle_in_transaction_session_timeout` on every connection
+  (`DB_STATEMENT_TIMEOUT_MS`, `DB_IDLE_IN_TRANSACTION_TIMEOUT_MS`; `0` disables
+  them). They are `SET` statements through pg-pool's `onConnect`, which the pool
+  awaits — a listener on the `connect` event races the first query instead. Do
+  not move them into `-c` startup options: a pooler that does not know the
+  parameter refuses the connection, while one that resets a `SET` merely leaves
+  the timeout unapplied.
+- The pool also sets `connectionTimeoutMillis` (`DB_CONNECTION_TIMEOUT_MS`).
+  Without it `pool.connect()` has **no timer**: a saturated pool queues callers
+  forever and the symptom is requests that never answer, with nothing logged and
+  no failing statement to point at.
+- A FATAL from the server (that idle timeout, an administrative terminate)
+  arrives as an `error` **event** on a client with no query in flight, and the
+  pool takes its own listener off while a client is checked out. `db.tx()`
+  attaches one for the length of the checkout; without it the event is unhandled
+  and the process dies.
+- `client.release()` with **no argument** returns the client to the idle pool
+  unless it is unqueryable. So a failed ROLLBACK must be passed to `release()`:
+  otherwise the connection goes back inside an aborted transaction and the next
+  checkout answers `25P02` to every statement, on a request that did nothing
+  wrong.
 
 ### Keycloak and the theme
 
@@ -154,7 +251,7 @@ Every one of these cost a real failure. Do not rediscover them.
 - The Keycloak theme mirrors the same rule: `messages_en.properties` is the reference
   catalogue, `messages_es.properties` must carry every key it has.
 - OpenAPI tag names are shared state. Renaming a tag means renaming it in **every**
-  route that uses it *and* in the `tags` array of `server.ts`; miss one and the docs
+  route that uses it *and* in `MODULES` (`server.ts`); miss one and the docs
   silently grow a duplicate section.
 - Renaming a documentation file means fixing **every** reference to it across the
   repo (`README.md`, the other docs, this file, source comments). Heading anchors

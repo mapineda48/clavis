@@ -1,6 +1,16 @@
 import type { FastifyInstance } from 'fastify'
 import fp from 'fastify-plugin'
-import { env } from '../config/env.js'
+import type { AppConfig } from '../config/env.js'
+
+/** The slice of the configuration this plugin reads. */
+export type KeycloakAdminPluginOptions = Pick<
+  AppConfig,
+  | 'KEYCLOAK_INTERNAL_ISSUER'
+  | 'KEYCLOAK_AUDIENCE'
+  | 'KEYCLOAK_API_CLIENT_SECRET'
+  | 'KEYCLOAK_APP_CLIENT_ID'
+  | 'PUBLIC_APP_URL'
+>
 
 /**
  * Keycloak Admin REST client.
@@ -69,10 +79,10 @@ async function readErrorMessage(response: Response): Promise<string> {
   return `Keycloak answered HTTP ${response.status}`
 }
 
-export const keycloakAdminPlugin = fp(
-  async (app: FastifyInstance) => {
-    const tokenUrl = `${env.KEYCLOAK_INTERNAL_ISSUER.replace(/\/+$/, '')}/protocol/openid-connect/token`
-    const adminBase = adminBaseFromIssuer(env.KEYCLOAK_INTERNAL_ISSUER)
+export const keycloakAdminPlugin = fp<KeycloakAdminPluginOptions>(
+  async (app: FastifyInstance, options) => {
+    const tokenUrl = `${options.KEYCLOAK_INTERNAL_ISSUER.replace(/\/+$/, '')}/protocol/openid-connect/token`
+    const adminBase = adminBaseFromIssuer(options.KEYCLOAK_INTERNAL_ISSUER)
 
     app.log.info({ adminBase }, 'Keycloak Admin client configured')
 
@@ -85,8 +95,8 @@ export const keycloakAdminPlugin = fp(
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({
           grant_type: 'client_credentials',
-          client_id: env.KEYCLOAK_AUDIENCE,
-          client_secret: env.KEYCLOAK_API_CLIENT_SECRET,
+          client_id: options.KEYCLOAK_AUDIENCE,
+          client_secret: options.KEYCLOAK_API_CLIENT_SECRET,
         }),
       })
       if (!response.ok) {
@@ -183,8 +193,8 @@ export const keycloakAdminPlugin = fp(
 
       async sendExecuteActionsEmail(id, actions) {
         const query = new URLSearchParams({
-          client_id: env.KEYCLOAK_APP_CLIENT_ID,
-          redirect_uri: env.PUBLIC_APP_URL,
+          client_id: options.KEYCLOAK_APP_CLIENT_ID,
+          redirect_uri: options.PUBLIC_APP_URL,
         })
         await adminFetch(`/users/${encodeURIComponent(id)}/execute-actions-email?${query}`, {
           method: 'PUT',

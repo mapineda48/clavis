@@ -4,10 +4,11 @@
 import type { FastifyPluginAsync } from 'fastify'
 // Pulls in the @fastify/swagger type augmentation (tags, summary, security inside `schema`).
 import type {} from '@fastify/swagger'
-import { ACCESS_NAMESPACE, loadAccessContext } from '../../lib/access.js'
+import { ACCESS_NAMESPACE, assertNotSelf, loadAccessContext } from '../../lib/access.js'
+import type { Executor } from '../../lib/executor.js'
+import { mutate } from '../../lib/mutate.js'
 import { badRequest, conflict, forbidden, notFound } from '../../lib/errors.js'
-import { recordAudit } from '../shared/audit.js'
-import { ErrorResponse } from '../shared/schemas.js'
+import { errorResponses } from '../shared/schemas.js'
 
 interface IdParamsInput {
   id: string
@@ -110,7 +111,7 @@ interface RoleRow {
   permissions: string[]
 }
 
-async function listRoles(db: Parameters<typeof loadAccessContext>[0]): Promise<RoleRow[]> {
+async function listRoles(db: Executor): Promise<RoleRow[]> {
   const result = await db.query<RoleRow>(
     `SELECT r.slug,
             r.name,
@@ -161,7 +162,7 @@ export const accessRoutes: FastifyPluginAsync = async (app) => {
           'Permission keys are declared in code and synced at boot; roles and their permission ' +
           'sets live in the database and are managed here.',
         security: [{ bearerAuth: [] }],
-        response: { 200: CatalogResponse, 401: ErrorResponse, 403: ErrorResponse },
+        response: { 200: CatalogResponse, ...errorResponses(401, 403) },
       },
     },
     async () => {
@@ -185,7 +186,10 @@ export const accessRoutes: FastifyPluginAsync = async (app) => {
         summary: 'Roles, overrides and effective permissions of one user',
         security: [{ bearerAuth: [] }],
         params: IdParams,
-        response: { 200: UserAccessResponse, 401: ErrorResponse, 403: ErrorResponse, 404: ErrorResponse },
+        response: {
+          200: UserAccessResponse,
+          ...errorResponses(400, 401, 403, 404),
+        },
       },
     },
     async (request) => {
@@ -223,7 +227,8 @@ export const accessRoutes: FastifyPluginAsync = async (app) => {
         summary: 'Replace the permission exceptions of one user',
         description:
           'The full set is replaced in one write: grants add permissions the roles do not give, ' +
-          'revokes remove permissions they do. Root accepts no overrides.',
+          'revokes remove permissions they do. Root accepts no overrides, and nobody may edit ' +
+          'their own.',
         security: [{ bearerAuth: [] }],
         params: IdParams,
         body: {
@@ -236,10 +241,7 @@ export const accessRoutes: FastifyPluginAsync = async (app) => {
         },
         response: {
           200: UserAccessResponse,
-          400: ErrorResponse,
-          401: ErrorResponse,
-          403: ErrorResponse,
-          404: ErrorResponse,
+          ...errorResponses(400, 401, 403, 404),
         },
       },
     },
@@ -253,6 +255,12 @@ export const accessRoutes: FastifyPluginAsync = async (app) => {
       if (row.is_root) {
         throw forbidden('Root bypasses the permission system; overrides do not apply.', 'ROOT_IMMUTABLE')
       }
+      // The same rule `PATCH /users/:id` applies to `roles`, on the route that
+      // reaches further: an override grant hands out an individual permission
+      // key directly, so without this a holder of `access:manage` could write
+      // themselves the entire catalog in one request — and the revoke
+      // direction is the matching self-lockout.
+      assertNotSelf(request.auth.sub, request.params.id, 'change your own permission overrides')
 
       const overrides = request.body.overrides
       const keys = overrides.map((override) => override.permissionKey)
@@ -264,37 +272,34 @@ export const accessRoutes: FastifyPluginAsync = async (app) => {
         throw badRequest(`Unknown permissions: ${unknown.join(', ')}.`, 'UNKNOWN_PERMISSIONS')
       }
 
-      await app.db.tx(async (client) => {
-        await client.query(`DELETE FROM clavis.user_permission_overrides WHERE user_id = $1`, [
-          request.params.id,
-        ])
-        if (overrides.length > 0) {
-          await client.query(
-            `INSERT INTO clavis.user_permission_overrides (user_id, permission_key, effect, created_by)
-             SELECT $1, o.key, o.effect, $2
-               FROM unnest($3::text[], $4::text[]) AS o(key, effect)`,
-            [
-              request.params.id,
-              request.auth.sub,
-              keys,
-              overrides.map((override) => override.effect),
-            ],
-          )
-        }
-      })
-
-      await recordAudit(
-        app.db,
-        {
+      await mutate(app, {
+        run: async (client) => {
+          await client.query(`DELETE FROM clavis.user_permission_overrides WHERE user_id = $1`, [
+            request.params.id,
+          ])
+          if (overrides.length > 0) {
+            await client.query(
+              `INSERT INTO clavis.user_permission_overrides (user_id, permission_key, effect, created_by)
+               SELECT $1, o.key, o.effect, $2
+                 FROM unnest($3::text[], $4::text[]) AS o(key, effect)`,
+              [
+                request.params.id,
+                request.auth.sub,
+                keys,
+                overrides.map((override) => override.effect),
+              ],
+            )
+          }
+        },
+        audit: () => ({
           actorId: request.auth.sub,
           action: 'access.overrides_replaced',
           entity: 'user',
           entityId: request.params.id,
           payload: { overrides },
-        },
-        request.log,
-      )
-      await app.cache.bumpVersion(ACCESS_NAMESPACE)
+        }),
+        invalidate: ACCESS_NAMESPACE,
+      })
 
       // Answer with the resolved state so the editor never guesses.
       const context = await loadAccessContext(app.db, request.params.id)
@@ -331,10 +336,7 @@ export const accessRoutes: FastifyPluginAsync = async (app) => {
         },
         response: {
           201: { type: 'object', properties: { role: RoleSchema }, required: ['role'] },
-          400: ErrorResponse,
-          401: ErrorResponse,
-          403: ErrorResponse,
-          409: ErrorResponse,
+          ...errorResponses(400, 401, 403, 409),
         },
       },
     },
@@ -352,32 +354,29 @@ export const accessRoutes: FastifyPluginAsync = async (app) => {
         throw conflict(`A role with slug "${slug}" already exists.`, 'ROLE_EXISTS')
       }
 
-      await app.db.tx(async (client) => {
-        await client.query(
-          `INSERT INTO clavis.roles (slug, name, description) VALUES ($1, $2, $3)`,
-          [slug, name, description ?? null],
-        )
-        if (permissions.length > 0) {
+      await mutate(app, {
+        run: async (client) => {
           await client.query(
-            `INSERT INTO clavis.role_permissions (role_slug, permission_key)
-             SELECT $1, unnest($2::text[])`,
-            [slug, permissions],
+            `INSERT INTO clavis.roles (slug, name, description) VALUES ($1, $2, $3)`,
+            [slug, name, description ?? null],
           )
-        }
-      })
-
-      await recordAudit(
-        app.db,
-        {
+          if (permissions.length > 0) {
+            await client.query(
+              `INSERT INTO clavis.role_permissions (role_slug, permission_key)
+               SELECT $1, unnest($2::text[])`,
+              [slug, permissions],
+            )
+          }
+        },
+        audit: () => ({
           actorId: request.auth.sub,
           action: 'role.created',
           entity: 'role',
           entityId: slug,
           payload: { name, permissions },
-        },
-        request.log,
-      )
-      await app.cache.bumpVersion(ACCESS_NAMESPACE)
+        }),
+        invalidate: ACCESS_NAMESPACE,
+      })
 
       return reply.code(201).send({
         role: { slug, name, description: description ?? null, isSystem: false, permissions },
@@ -405,10 +404,7 @@ export const accessRoutes: FastifyPluginAsync = async (app) => {
         },
         response: {
           200: { type: 'object', properties: { role: RoleSchema }, required: ['role'] },
-          400: ErrorResponse,
-          401: ErrorResponse,
-          403: ErrorResponse,
-          404: ErrorResponse,
+          ...errorResponses(400, 401, 403, 404),
         },
       },
     },
@@ -428,29 +424,26 @@ export const accessRoutes: FastifyPluginAsync = async (app) => {
         throw badRequest(`Unknown permissions: ${unknown.join(', ')}.`, 'UNKNOWN_PERMISSIONS')
       }
 
-      await app.db.tx(async (client) => {
-        await client.query(`DELETE FROM clavis.role_permissions WHERE role_slug = $1`, [slug])
-        if (permissions.length > 0) {
-          await client.query(
-            `INSERT INTO clavis.role_permissions (role_slug, permission_key)
-             SELECT $1, unnest($2::text[])`,
-            [slug, permissions],
-          )
-        }
-      })
-
-      await recordAudit(
-        app.db,
-        {
+      await mutate(app, {
+        run: async (client) => {
+          await client.query(`DELETE FROM clavis.role_permissions WHERE role_slug = $1`, [slug])
+          if (permissions.length > 0) {
+            await client.query(
+              `INSERT INTO clavis.role_permissions (role_slug, permission_key)
+               SELECT $1, unnest($2::text[])`,
+              [slug, permissions],
+            )
+          }
+        },
+        audit: () => ({
           actorId: request.auth.sub,
           action: 'role.permissions_replaced',
           entity: 'role',
           entityId: slug,
           payload: { permissions },
-        },
-        request.log,
-      )
-      await app.cache.bumpVersion(ACCESS_NAMESPACE)
+        }),
+        invalidate: ACCESS_NAMESPACE,
+      })
 
       return {
         role: {
@@ -476,9 +469,7 @@ export const accessRoutes: FastifyPluginAsync = async (app) => {
         params: SlugParams,
         response: {
           204: { type: 'null' },
-          401: ErrorResponse,
-          403: ErrorResponse,
-          404: ErrorResponse,
+          ...errorResponses(401, 403, 404),
         },
       },
     },
@@ -491,19 +482,17 @@ export const accessRoutes: FastifyPluginAsync = async (app) => {
       if (!row) throw notFound('Role not found.')
       if (row.is_system) throw forbidden('System roles are managed at boot.', 'SYSTEM_ROLE')
 
-      await app.db.query(`DELETE FROM clavis.roles WHERE slug = $1`, [request.params.slug])
-
-      await recordAudit(
-        app.db,
-        {
+      await mutate(app, {
+        run: (client) =>
+          client.query(`DELETE FROM clavis.roles WHERE slug = $1`, [request.params.slug]),
+        audit: () => ({
           actorId: request.auth.sub,
           action: 'role.deleted',
           entity: 'role',
           entityId: request.params.slug,
-        },
-        request.log,
-      )
-      await app.cache.bumpVersion(ACCESS_NAMESPACE)
+        }),
+        invalidate: ACCESS_NAMESPACE,
+      })
 
       return reply.code(204).send()
     },
