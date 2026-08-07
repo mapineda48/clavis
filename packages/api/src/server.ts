@@ -2,7 +2,7 @@ import cors from '@fastify/cors'
 import multipart from '@fastify/multipart'
 import swagger from '@fastify/swagger'
 import swaggerUi from '@fastify/swagger-ui'
-import Fastify, { type FastifyInstance } from 'fastify'
+import Fastify, { type FastifyInstance, type FastifyPluginAsync } from 'fastify'
 import type { AppConfig } from './config/env.js'
 import { registerErrorHandler } from './lib/errors.js'
 import { accessRoutes } from './modules/access/index.js'
@@ -17,6 +17,42 @@ import { dbPlugin } from './plugins/db.js'
 import { keycloakAdminPlugin } from './plugins/keycloak-admin.js'
 import { mailerPlugin } from './plugins/mailer.js'
 import { storagePlugin } from './plugins/storage.js'
+
+/**
+ * The modules this service exposes: one OpenAPI tag and one route plugin each.
+ *
+ * The tag list and the registration list were two blocks kept in sync by hand.
+ * A module registered without its tag grows an undocumented section, and a tag
+ * declared without its module documents routes nobody serves — neither fails
+ * anything, so both survive review. One array read twice cannot drift.
+ *
+ * The order is the order the tags appear in `/api/docs`.
+ */
+const MODULES: ReadonlyArray<{
+  tag: { name: string; description: string }
+  routes: FastifyPluginAsync
+}> = [
+  {
+    tag: { name: 'health', description: 'Status of the service and its dependencies' },
+    routes: healthRoutes,
+  },
+  {
+    tag: { name: 'profile', description: 'Data about the authenticated user' },
+    routes: meRoutes,
+  },
+  {
+    tag: { name: 'users', description: 'System users: created here, authenticated by Keycloak' },
+    routes: usersRoutes,
+  },
+  {
+    tag: { name: 'access', description: 'Roles, permissions and per-user exceptions' },
+    routes: accessRoutes,
+  },
+  {
+    tag: { name: 'audit', description: 'Audit trail' },
+    routes: auditRoutes,
+  },
+]
 
 /**
  * Builds the Fastify instance with every plugin and route.
@@ -82,13 +118,7 @@ export async function buildServer(config: AppConfig): Promise<FastifyInstance> {
         version: '1.0.0',
       },
       servers: [{ url: `http://localhost:${config.PORT}`, description: 'Local environment' }],
-      tags: [
-        { name: 'health', description: 'Status of the service and its dependencies' },
-        { name: 'profile', description: 'Data about the authenticated user' },
-        { name: 'users', description: 'System users: created here, authenticated by Keycloak' },
-        { name: 'access', description: 'Roles, permissions and per-user exceptions' },
-        { name: 'audit', description: 'Audit trail' },
-      ],
+      tags: MODULES.map((module) => module.tag),
       components: {
         securitySchemes: {
           bearerAuth: {
@@ -133,11 +163,9 @@ export async function buildServer(config: AppConfig): Promise<FastifyInstance> {
   // probe against /health would otherwise reach the SPA, which answers any
   // unknown path with index.html and HTTP 200 — a readiness check that can
   // never fail.
-  await app.register(healthRoutes, { prefix: '/api' })
-  await app.register(meRoutes, { prefix: '/api' })
-  await app.register(usersRoutes, { prefix: '/api' })
-  await app.register(accessRoutes, { prefix: '/api' })
-  await app.register(auditRoutes, { prefix: '/api' })
+  for (const module of MODULES) {
+    await app.register(module.routes, { prefix: '/api' })
+  }
 
   return app
 }
