@@ -634,6 +634,7 @@ This repository is built to produce **exactly the same result** on any machine a
 | `pnpm dev` | `make dev` | Runs API and SPA in parallel, outside Docker |
 | `pnpm build` | `make build` | Builds every package |
 | `pnpm typecheck` | `make typecheck` | Type-checks the whole monorepo |
+| `pnpm test` | `make test` | Unit tests (`node:test`, pure logic, no service needed) |
 | `pnpm run verify` | `make verify` | End-to-end verification (API + login theme) |
 
 > Make does not accept `:` in target names, so the only one that changes name is

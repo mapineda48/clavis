@@ -57,18 +57,18 @@ package carries no DTOs, no client and no business logic. It compiles to `dist/`
 
 HTTP backend. **Strict ESM** (`"type": "module"`, `module`/`moduleResolution` = `NodeNext`),
 which forces **every relative import to carry the `.js` extension** even though the source is
-`.ts` (`import { env } from '../config/env.js'`).
+`.ts` (`import { loadConfig } from '../config/env.js'`).
 
 | Area | Responsibility |
 |---|---|
-| `src/config/env.ts` | Reads and validates the environment with **zod**. It is the **only** place zod is used. If a required variable is missing the process dies at startup with a clear message. |
+| `src/config/env.ts` | `loadConfig(env)`: validates an environment with **zod** and returns an `AppConfig`, or throws `ConfigError` naming every offending variable. It is the **only** place zod is used. It reads no ambient state and never exits — `src/main.ts` is the only file that touches `process.env` or calls `process.exit`, and `buildServer(config)` passes each plugin the slice it declares as its options. |
 | `src/plugins/` | Fastify plugins that decorate the instance: `db`, `cache`, `storage`, `mailer`, `keycloak-admin`, `bootstrap`, `auth`. All wrapped in `fastify-plugin` so the decorators reach the root scope. |
 | `src/lib/access.ts` | `AccessUser`, `AccessContext`, the single query that resolves a user's effective permissions, the `access` cache namespace and its key format. |
 | `src/plugins/keycloak-admin.ts` | Admin REST client over plain `fetch`: `client_credentials` with the API client's service account, single-flight token cache, and the five user operations the application needs. |
 | `src/plugins/bootstrap.ts` | Runs once at startup: syncs the permission catalog, re-seeds the `admin` system role, links root. |
 | `src/lib/errors.ts` | `AppError` with `statusCode` and `code`, plus the `badRequest`, `unauthorized`, `forbidden`, `notFound`, `conflict` helpers. The global *error handler* always answers `{ error: { code, message, statusCode } }`. |
 | `src/modules/` | One directory per domain (`health`, `me`, `users`, `access`, `audit`), each exporting a `FastifyPluginAsync`. |
-| `src/lib/migrator.ts` | Home-grown migrator: reads `migrations/*.sql`, computes a checksum and applies what is pending. |
+| `src/lib/migrator.ts` | Home-grown migrator: reads `migrations/*.sql`, computes a checksum and applies what is pending, on a connection of its own. |
 | `migrations/` | Versioned SQL, `YYYYMMDDHHMMSS_name.sql`, lexicographic order. |
 
 Request validation uses **Fastify's native JSON Schema** (the `schema` property of each route,
@@ -80,6 +80,7 @@ Decorators available across the whole application:
 ```ts
 fastify.authenticate                       // preHandler: verifies the Bearer, then resolves the access context
 fastify.requirePermissions(...perms)       // preHandler: logical AND over the permissions; root bypasses
+request.authState                          // { auth, access } — null until `authenticate` has run
 request.auth                               // AuthContext — identity from the token
 request.access                             // AccessContext — user, roles and permissions from the database
 fastify.db                                 // pg pool + query() + tx() + ping()
@@ -92,7 +93,15 @@ fastify.mailer                             // Resend or dry-run: send()
 
 The split between `request.auth` and `request.access` is the whole architecture in two lines:
 the first comes from the token and answers *who*, the second comes from PostgreSQL and answers
-*what*.
+*what*. Both are getters over `request.authState`, which is `null` until `authenticate` fills it
+in: handlers read them exactly as before, and reading one from a route that forgot
+`app.authenticate` fails there rather than further down on a value that was never set.
+
+Every connection of `fastify.db`'s pool starts with a `statement_timeout` and an
+`idle_in_transaction_session_timeout` (`DB_STATEMENT_TIMEOUT_MS`,
+`DB_IDLE_IN_TRANSACTION_TIMEOUT_MS`; `0` disables either). The second one is the one that matters
+at the database level: a transaction left open with nothing running pins `backend_xmin`, and
+vacuum then cannot clean any row version newer than it anywhere in the database.
 
 ### `@clavis/app`
 
@@ -326,15 +335,28 @@ The formula that reads all of this — `union(role permissions) ∪ grants − r
 ### Migrations
 
 - Files under `packages/api/migrations/YYYYMMDDHHMMSS_name.sql`, applied in **lexicographic
-  order** (`0001_init.sql` predates the convention and keeps its name forever).
-  Currently one: `0001_init.sql` — schema, the seven tables, indexes, function and triggers.
+  order** (`0001_init.sql` predates the convention and keeps its name forever):
+  `0001_init.sql` — schema, the seven tables, indexes, function and triggers — followed by the
+  timestamped ones.
 - The `clavis.schema_migrations (version, checksum, applied_at)` registry **is created by the migrator
   itself**, not by a migration; that way the migrator can start against an empty database. It
   takes a PostgreSQL advisory lock first, so two API replicas starting at once do not race.
+  The lock is taken with `pg_try_advisory_lock` in a retry loop that logs each attempt and gives
+  up after a minute: a lock left behind by a session that never ended would otherwise stop every
+  instance from ever starting, with nothing in the log to say why.
+- It runs on a **connection of its own**, opened from `DATABASE_URL` and closed when it is done,
+  not one borrowed from the application pool. Releasing a pooled client does not reset session
+  state, so anything a migration `SET`s would reach whatever request picked that connection up
+  next; and the pool's `statement_timeout` / `idle_in_transaction_session_timeout`, sized for
+  requests, must not apply to DDL that may legitimately take minutes. Ending the session also
+  releases the advisory lock.
 - Each migration is applied exactly once and its **checksum** is stored. Editing a file that has
   already been applied fails at startup instead of silently diverging between environments. To
   change something you add a new migration (see
   [`operations.md`](operations.md#add-a-migration)).
+- The check runs **both ways**: a version recorded in `clavis.schema_migrations` whose file is not
+  in this build also aborts startup. Since migrations are keyed by file name, that is what a
+  renamed migration looks like — and a renamed one would be applied again from scratch.
 
 > **The migration history was reset** when authorization moved into the database: the previous
 > `0001`/`0002` pair is gone and `0001_init.sql` is a fresh file with a different checksum. An

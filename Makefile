@@ -17,7 +17,7 @@ KC_USER ?=
 KC_PASS ?=
 
 .DEFAULT_GOAL := help
-.PHONY: help install dev build typecheck up up-full down reset logs ps token \
+.PHONY: help install dev build typecheck test up up-full down reset logs ps token \
         verify verify-api verify-theme verify-reset
 
 help: ## Print this table of targets
@@ -38,6 +38,9 @@ build: ## Build every package
 
 typecheck: ## Type-check every package
 	$(PNPM) -r typecheck
+
+test: ## Run the unit tests (pure logic, no service needed)
+	$(PNPM) -r test
 
 verify: verify-api verify-theme ## End-to-end verification (API + login theme)
 

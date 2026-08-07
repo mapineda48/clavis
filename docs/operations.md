@@ -40,6 +40,7 @@ The `package.json` scripts and the `Makefile` targets are equivalent; use whiche
 | `pnpm dev` | `make dev` | `pnpm -r --parallel dev` (API and SPA outside Docker) |
 | `pnpm build` | `make build` | `pnpm -r build` |
 | `pnpm typecheck` | `make typecheck` | `pnpm -r typecheck` |
+| `pnpm test` | `make test` | `pnpm -r test` (unit tests, no service needed) |
 
 > Make does not accept `:` in target names, which is why `up:full` is called `up-full` in the
 > Makefile.
