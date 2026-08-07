@@ -510,16 +510,19 @@ worse outcome. The response carries `invite: { sent: false, reason: … }` and t
 | Route | Permission | Notes |
 |---|---|---|
 | `GET /api/users` | `users:read` | `limit` 1–500, default 100 |
-| `POST /api/users` | `users:create` | 201 `{ user, invite }`; duplicate email → `409 USER_EXISTS`; a non-empty `roles` also needs `access:manage` |
-| `PATCH /api/users/:id` | `users:update` | `displayName`, `status`, `roles`; `roles` also needs `access:manage` |
+| `POST /api/users` | `users:create` | 201 `{ user, invite }`; duplicate email → `409 USER_EXISTS`; a non-empty `roles` also needs `access:manage` and may not [reach past the caller](#privilege-delta) |
+| `PATCH /api/users/:id` | `users:update` | `displayName`, `status`, `roles`; `roles` also needs `access:manage`, and the roles it adds may not [reach past the caller](#privilege-delta) |
 | `DELETE /api/users/:id` | `users:delete` | 204; removes the Keycloak user too |
 | `POST /api/users/:id/resend-invite` | `users:update` | 200 `{ invite }` |
 
-### Two rules the route table cannot express
+### Three rules the route table cannot express
 
 `requirePermissions` is a static preHandler: it sees the token and the resolved access context,
-never the body. Two rules therefore live inside the handlers.
+never the body. Three rules therefore live inside the handlers.
 
+- **No caller may hand out a permission they do not hold** (`403 PRIVILEGE_ESCALATION`). This is
+  *the* rule against escalation, and it has its own section
+  [below](#privilege-delta) because it is the one every writer of the three tables shares.
 - **Assigning roles needs `access:manage`** (`403 ROLE_ASSIGNMENT_DENIED`), on `POST` and on
   `PATCH` alike. `users:create` and `users:update` provision people and edit their profile and
   status; they do not decide who holds which role. Without this the split between `users:*` and
@@ -528,39 +531,89 @@ never the body. Two rules therefore live inside the handlers.
   on the very next request, because the mutation bumps the cache namespace immediately. `POST`
   is the same door one step further away: create an account carrying `admin`, with a temporary
   password you chose, and sign in as it.
-- **Nobody edits their own privileges** (`403 SELF_MODIFICATION`): not their `roles` or `status`
-  through `PATCH /api/users/:id`, not their own account through `DELETE /api/users/:id`, and not
-  their own exceptions through `PUT /api/access/users/:id/overrides`. Self-granting is
-  escalation; self-disabling, self-deleting and self-revoking are lockouts. The overrides route
-  is the shortest path of the three — one request writes individual permission keys — so it is
-  guarded by the same `assertNotSelf` rather than by a copy of it. Editing one's own
-  `displayName` carries no privilege and stays allowed.
+- **Nobody locks themselves out or edits their own privileges** (`403 SELF_MODIFICATION`): not
+  their `roles` or `status` through `PATCH /api/users/:id`, not their own account through
+  `DELETE /api/users/:id`, and not their own exceptions through
+  `PUT /api/access/users/:id/overrides`. Self-disabling, self-deleting and self-revoking are
+  lockouts, and dropping your own roles is one too. All three routes call the same
+  `assertNotSelf` rather than a copy of it. Editing one's own `displayName` carries no privilege
+  and stays allowed.
 
 `users:delete` is its own key rather than a facet of `users:update` for the same reason: an
 irreversible operation that also removes the Keycloak identity is not the same authority as
 "edit the profile", and a role that should be able to do one and not the other has to be
 expressible.
 
+<a id="privilege-delta"></a>
+
+#### The privilege delta, and why identity was the wrong question
+
+> **No actor may introduce a capability they do not themselves hold.** `is_root` holds the whole
+> catalog, so root is unaffected.
+
+The [effective-permission formula](#the-effective-permission-formula) sums three tables. Each is
+written by a different route, and for a while each route carried its own idea of what a caller
+may do — which is how two escalations shipped at once. `PUT /api/access/roles/:slug/permissions`
+related the write to the caller in no way at all, so a holder of `access:manage` raised any
+non-system role, its own included, to the whole catalog; `role_permissions` is the *first* branch
+of the union, and there is no self-id anywhere in that request for an identity check to notice.
+The overrides route did check identity, and lost to a uuid spelled with one capital letter.
+
+The primitive was the problem. `assertNotSelf` answers "are you editing yourself?", which is
+answerable about one of the three tables, silent about the other two, and defeated by two
+accounts editing each other. The question an authorization system has to answer is about the
+**delta**: may this actor hand out this capability? That is a statement about the permission set,
+so it holds whoever the target is and whichever table the write lands in.
+
+`assertMayGrant` (`packages/api/src/lib/access.ts`) is that rule, and every writer of the three
+tables calls it on the keys the edit **adds**:
+
+| Route | Keys checked |
+|---|---|
+| `PUT /api/access/users/:id/overrides` | every `grant` in the body |
+| `POST /api/access/roles` | the role's initial set — a new role starts empty, so all of it |
+| `PUT /api/access/roles/:slug/permissions` | the new set minus the current one |
+| `POST /api/users`, `PATCH /api/users/:id` | what the **newly assigned** roles carry |
+
+Three things follow from that shape.
+
+- **Added, never removed.** These sets are replaced whole, so a rule stated over the *result*
+  would stop an administrator trimming a role or dropping one of their own. Removal is the
+  lockout direction and belongs to `assertNotSelf`.
+- **Assigning a role is an indirect grant.** The two `users:*` routes resolve the added slugs to
+  the permissions they carry before asking. That is what closes the `users:create` +
+  `access:manage` path this document used to concede: `admin` carries the whole catalog, and an
+  account holding those two keys does not, so it can no longer mint an `admin` account and sign
+  in as it.
+- **The self check is not what stops escalation any more.** It stops lockout. The two guards are
+  independent: the delta rule ignores identity, and the identity rule ignores the permission set.
+
 <a id="self-check-limits"></a>
 
-#### What the self check does not buy
+#### What is still not bounded
 
-It is worth saying plainly, because the rule is easy to read as more than it is. The check is
-keyed on **identity**, so it stops exactly one thing: a single account raising its own privileges
-in a single request. It does not make `access:manage` a bounded authority.
+Worth saying plainly, because "no escalation" is easy to read as more than it is.
 
-- **Two accounts holding `access:manage` can grant each other.** A grants B the catalog, B grants
-  A the catalog, and neither request is a self-modification. Nothing in the code detects that,
-  and nothing is meant to: the guard is a footgun rail, not a separation-of-duties model.
-- **`POST /api/users` still creates privileged accounts.** With `users:create` and
-  `access:manage` you can create a user carrying `admin`, with a temporary password you chose,
-  and sign in as it. That is the same escalation one step further away, and it is refused only
-  when `access:manage` is missing.
-- **It is not a defence against a compromised administrator**, only against an ordinary operator
-  quietly widening their own access, and against locking yourself out by accident.
+- **Two accounts can pool what they already hold.** A grants B what A has, B grants A what B has,
+  and both requests are legitimate — each actor only handed out something they held. Collusion is
+  no longer unbounded, which is the change: neither account can conjure a key that neither has,
+  and the union of two administrators is a far smaller thing than "the whole catalog". Nothing
+  detects the pooling itself, and nothing is meant to.
+- **Taking away is not granting, and is not covered.** `access:manage`, `users:update` and
+  `users:delete` are each individually enough to strip every *other* non-root administrator:
+  revoke overrides beat any role, an empty permission set empties a role for all its holders,
+  deleting a role cascades its assignments, and a user can be disabled or deleted outright. No
+  privilege is gained; the second pair of hands every guard here assumes can be removed, and
+  recovery then runs through `ROOT_PASSWORD`. A last-administrator invariant would close it and
+  is deliberately not implemented — it changes what an operator may do, not just what an attacker
+  may.
+- **It is not a defence against a compromised root**, and every recovery path on this page ends
+  at `ROOT_PASSWORD`, which is re-applied from the deployment environment on every boot. Read
+  access to that environment is permanent, unauditable root. That is inherent to break-glass, not
+  a defect, but it should be said rather than implied.
 
-What actually bounds `access:manage` is who holds it. The audit trail records every one of these
-writes with its actor, which is the control that survives the two cases above.
+What bounds `access:manage` beyond this is who holds it. The audit trail records every one of
+these writes with its actor, which is the control that survives all three cases above.
 
 ### Disable versus delete
 
@@ -591,8 +644,8 @@ shows.
 | Route | Permission | Notes |
 |---|---|---|
 | `GET /api/access/catalog` | `access:read` | Every permission and every role with its set |
-| `POST /api/access/roles` | `access:manage` | Slug must match `^[a-z][a-z0-9-]{1,63}$` |
-| `PUT /api/access/roles/:slug/permissions` | `access:manage` | Replaces the whole set |
+| `POST /api/access/roles` | `access:manage` | Slug must match `^[a-z][a-z0-9-]{1,63}$`; the initial set may not [reach past the caller](#privilege-delta) |
+| `PUT /api/access/roles/:slug/permissions` | `access:manage` | Replaces the whole set; the keys it **adds** may not [reach past the caller](#privilege-delta), the ones it removes are unrestricted |
 | `DELETE /api/access/roles/:slug` | `access:manage` | 204 |
 
 `is_system` roles are **immutable through the API** (`403 SYSTEM_ROLE`). There is exactly one:
@@ -608,7 +661,7 @@ role slug on a user with `400 UNKNOWN_ROLES`.
 | Route | Permission | Notes |
 |---|---|---|
 | `GET /api/access/users/:id` | `access:read` | Roles, overrides and the effective set |
-| `PUT /api/access/users/:id/overrides` | `access:manage` | **Replaces** the whole set of exceptions; refused on root (`403 ROOT_IMMUTABLE`) and on oneself (`403 SELF_MODIFICATION`, see [the limits of that check](#self-check-limits)) |
+| `PUT /api/access/users/:id/overrides` | `access:manage` | **Replaces** the whole set of exceptions; refused on root (`403 ROOT_IMMUTABLE`), on a `grant` the caller does not hold (`403 PRIVILEGE_ESCALATION`, see [the delta rule](#privilege-delta)) and on oneself (`403 SELF_MODIFICATION`, see [what is still not bounded](#self-check-limits)) |
 
 `PUT` is a replacement, not a patch: the body is the complete list of exceptions for that user,
 and an empty array clears them. That makes the operation idempotent and makes the UI — which
@@ -734,7 +787,7 @@ them, the same way the user list hides the status, role and delete controls on o
 ## 10. The executable specification
 
 `scripts/verify-api.sh` is the document that cannot go stale. It walks the model from the
-outside, against the running stack, in 60 assertions:
+outside, against the running stack, in 82 assertions:
 
 ```bash
 ./scripts/verify-api.sh
@@ -753,7 +806,14 @@ outside, against the running stack, in 60 assertions:
 | 10 | Root and the `admin` system role are immutable through the API |
 | 11 | A `revoke` override beats the role that grants the same key |
 | 12 | The guards behind a permission the caller does hold: role assignment needs `access:manage` on `POST` and `PATCH` alike, `users:update` does not carry `users:delete`, and nobody edits their own roles, status, overrides or account |
-| 13 | Cleanup, so the suite is re-runnable |
+| 13 | The [privilege delta](#privilege-delta) at all four writers of the union's tables — including the two escalations it was written to close — and that a reduction, and a grant of something the caller does hold, still go through |
+| 14 | Cleanup, so the suite is re-runnable |
+
+Two of the cases in step 13 are the reason to distrust a merely green suite. They were run
+against a live stack before the guard existed and both succeeded; the suite as it stood tested
+the self check with the canonical id, which is the one spelling the bug did not use, and never
+related a role edit to the caller at all. A regression test whose value is that it *changes*
+answer has to be checked against the code it was written for, not only against the fix.
 
 It reads root's credentials from `.env` (`ROOT_USERNAME`, `ROOT_PASSWORD`) and never prints a
 token. If somebody loosens a `requirePermissions` or forgets a
@@ -781,3 +841,12 @@ Each of these has cost a real failure.
   provisioning; a valid token with no row is a deliberate `403`.
 - **Granting a permission to root.** It is refused, and it would be redundant: root already
   reports the whole catalog.
+- **Adding a route that writes `role_permissions`, `user_roles` or `user_permission_overrides`
+  without [the delta check](#privilege-delta).** Those three tables are one union; a writer that
+  does not share the guard is a way around it, and that is precisely how the two live escalations
+  happened. Call `assertMayGrant` on what the edit adds, before any Keycloak call or database
+  write.
+- **Comparing a user id from a path parameter against the caller's `sub`.** PostgreSQL compares
+  uuids and JavaScript compares strings, so `'A1B2…'` and `'a1b2…'` are the same row and two
+  different values. `assertNotSelf` takes a `CanonicalUserId`, which only a repository can
+  produce, so the compiler now refuses the mistake — do not cast around it.
