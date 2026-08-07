@@ -69,13 +69,15 @@ const UserSchema = {
   ],
 }
 
+// No `total`: it used to be `items.length` after a LIMIT, which reports the
+// page size as the collection size. A real total needs its own COUNT, and the
+// listing needs a pagination policy before it needs one of those.
 const UsersResponse = {
   type: 'object',
   properties: {
     items: { type: 'array', items: UserSchema },
-    total: { type: 'integer' },
   },
-  required: ['items', 'total'],
+  required: ['items'],
 }
 
 const InviteSchema = {
@@ -213,7 +215,7 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
     },
     async (request) => {
       const rows = await listUsers(app.db, request.query.limit ?? 100)
-      return { items: rows.map(serializeUser), total: rows.length }
+      return { items: rows.map(serializeUser) }
     },
   )
 

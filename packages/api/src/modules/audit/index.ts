@@ -19,6 +19,9 @@ type AuditRow = {
   created_at: Date | string
 }
 
+// No `total`: it used to be `items.length` after a LIMIT, which reports the
+// page size as the collection size. A real total needs its own COUNT, and the
+// listing needs a pagination policy before it needs one of those.
 const AuditResponse = {
   type: 'object',
   properties: {
@@ -39,9 +42,8 @@ const AuditResponse = {
         required: ['id', 'actorId', 'actorUsername', 'action', 'entity', 'entityId', 'payload', 'createdAt'],
       },
     },
-    total: { type: 'integer' },
   },
-  required: ['items', 'total'],
+  required: ['items'],
 }
 
 /** Converts a pg timestamptz to ISO 8601. */
@@ -102,7 +104,7 @@ export const auditRoutes: FastifyPluginAsync = async (app) => {
         createdAt: toIso(row.created_at),
       }))
 
-      return { items, total: items.length }
+      return { items }
     },
   )
 }
