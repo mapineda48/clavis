@@ -121,6 +121,11 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       CACHE_TTL_SECONDS: ${CACHE_TTL_SECONDS:-60}
       MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-10485760}
+      # Applied to every application-pool connection with a `SET`, never as a
+      # startup option: a pooler that resets it leaves the timeout unapplied,
+      # while one that refuses an unknown startup parameter refuses to connect.
+      DB_STATEMENT_TIMEOUT_MS: ${DB_STATEMENT_TIMEOUT_MS:-15000}
+      DB_IDLE_IN_TRANSACTION_TIMEOUT_MS: ${DB_IDLE_IN_TRANSACTION_TIMEOUT_MS:-10000}
       DATABASE_URL: ${CLAVIS_DATABASE_URL:?the Neon connection string is required}
       VALKEY_URL: redis://valkey:6379
       # Public issuer: what the token carries and what is validated.

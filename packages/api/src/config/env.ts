@@ -60,6 +60,16 @@ const configSchema = z.object({
     .string()
     .min(1)
     .default('postgres://clavis:clavis_dev_password@localhost:5432/clavis'),
+  // Applied to every connection of the application pool (never to the
+  // migrator's, which runs DDL that may legitimately take minutes).
+  // `0` disables the timeout, which is PostgreSQL's own meaning for it.
+  //
+  // No request of this API does anything a Postgres statement should need
+  // 15 seconds for, and a transaction left open with nothing running pins
+  // `backend_xmin`, which stops vacuum from cleaning any row version newer
+  // than it — database-wide, not just in the tables the transaction touched.
+  DB_STATEMENT_TIMEOUT_MS: z.coerce.number().int().min(0).max(600000).default(15000),
+  DB_IDLE_IN_TRANSACTION_TIMEOUT_MS: z.coerce.number().int().min(0).max(600000).default(10000),
 
   // --- keycloak
   // Public issuer: the one carried inside the token (`iss`).

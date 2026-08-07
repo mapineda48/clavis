@@ -243,6 +243,8 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       CACHE_TTL_SECONDS: ${CACHE_TTL_SECONDS:-60}
       MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-10485760}
+      DB_STATEMENT_TIMEOUT_MS: ${DB_STATEMENT_TIMEOUT_MS:-15000}
+      DB_IDLE_IN_TRANSACTION_TIMEOUT_MS: ${DB_IDLE_IN_TRANSACTION_TIMEOUT_MS:-10000}
       # --- derived variables (contract, section 6)
       DATABASE_URL: "postgres://${POSTGRES_USER:-clavis}:${POSTGRES_PASSWORD:-clavis_dev_password}@postgres:5432/${POSTGRES_DB:-clavis}"
       VALKEY_URL: "redis://valkey:6379"

@@ -9,7 +9,10 @@ import { runMigrations } from '../lib/migrator.js'
 const { Pool } = pg
 
 /** The slice of the configuration this plugin reads. */
-export type DbPluginOptions = Pick<AppConfig, 'DATABASE_URL'>
+export type DbPluginOptions = Pick<
+  AppConfig,
+  'DATABASE_URL' | 'DB_STATEMENT_TIMEOUT_MS' | 'DB_IDLE_IN_TRANSACTION_TIMEOUT_MS'
+>
 
 /** Attempts and wait between retries of the very first connection. */
 const CONNECT_ATTEMPTS = 10
@@ -49,6 +52,22 @@ export const dbPlugin = fp<DbPluginOptions>(
       connectionString: options.DATABASE_URL,
       max: 10,
       application_name: 'clavis-api',
+      // Every connection starts with the two timeouts in force. `onConnect` is
+      // AWAITED by the pool before the connection is handed to whoever asked
+      // for it, which the `connect` event is not: a listener there races the
+      // first query and pg 8 answers it with a deprecation warning.
+      //
+      // The settings are sent as ordinary statements rather than as `-c`
+      // startup options on purpose. A connection pooler in front of PostgreSQL
+      // may refuse a startup parameter it does not know — that fails the
+      // connection outright — while a `SET` it decides to reset just leaves the
+      // timeout unapplied. Degrading beats not connecting.
+      onConnect: async (client) => {
+        await client.query(`SET statement_timeout = ${options.DB_STATEMENT_TIMEOUT_MS}`)
+        await client.query(
+          `SET idle_in_transaction_session_timeout = ${options.DB_IDLE_IN_TRANSACTION_TIMEOUT_MS}`,
+        )
+      },
     })
 
     // The pool emits errors coming from idle clients: they are logged so that a
@@ -56,6 +75,14 @@ export const dbPlugin = fp<DbPluginOptions>(
     pool.on('error', (error) => {
       app.log.error({ err: error }, 'Unexpected error on a PostgreSQL pool client')
     })
+
+    app.log.info(
+      {
+        statementTimeoutMs: options.DB_STATEMENT_TIMEOUT_MS,
+        idleInTransactionTimeoutMs: options.DB_IDLE_IN_TRANSACTION_TIMEOUT_MS,
+      },
+      'PostgreSQL pool timeouts configured',
+    )
 
     await waitForDatabase(pool, app)
     // The migrator opens its own connection from the same URL: nothing it does
@@ -73,6 +100,17 @@ export const dbPlugin = fp<DbPluginOptions>(
 
       async tx(fn) {
         const client = await pool.connect()
+        // While a client is checked out the pool takes its own `error` listener
+        // off, and a transaction sitting between two statements has no query to
+        // deliver a failure to. So a FATAL that arrives right then — the
+        // idle-in-transaction timeout above, an administrative terminate, a
+        // dropped connection — surfaces as an unhandled `error` event, which is
+        // a process-wide crash. Logging it turns the worst outcome into the
+        // statement that follows rejecting, which the caller already handles.
+        const onError = (error: Error): void => {
+          app.log.error({ err: error }, 'PostgreSQL connection lost during a transaction')
+        }
+        client.on('error', onError)
         try {
           await client.query('BEGIN')
           const result = await fn(client)
@@ -82,6 +120,9 @@ export const dbPlugin = fp<DbPluginOptions>(
           await client.query('ROLLBACK').catch(() => undefined)
           throw error
         } finally {
+          client.removeListener('error', onError)
+          // A client the server has terminated is no longer `_queryable`, and
+          // the pool discards it on release instead of handing it out again.
           client.release()
         }
       },
