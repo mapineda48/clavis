@@ -86,7 +86,7 @@ Ports that must be free on the host: **5432, 6379, 8080, 3000, 5173, 10000, 1000
 
 ```bash
 # 1. Move to the repository root
-cd /path/to/KeycloakMe
+cd /path/to/clavis
 
 # 2. Create your local .env from the versioned example
 cp .env.example .env

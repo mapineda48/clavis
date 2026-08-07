@@ -328,7 +328,7 @@ Concrete consequences:
 Passwords are read from `.env` so they never have to be typed into a terminal or into a document.
 
 ```bash
-cd /home/mapineda48/Repo/mapineda48/KeyCloak-Demo
+cd /home/mapineda48/Repo/mapineda48/clavis
 set -a; source .env; set +a
 ```
 
