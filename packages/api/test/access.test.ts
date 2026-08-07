@@ -1,12 +1,17 @@
 import { PERMISSION_KEYS } from '@clavis/shared'
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { type AccessContext, accessCacheKey, contextHasPermission } from '../src/lib/access.js'
+import {
+  type AccessContext,
+  type CanonicalUserId,
+  accessCacheKey,
+  contextHasPermission,
+} from '../src/lib/access.js'
 
 function context(overrides: Partial<AccessContext> = {}): AccessContext {
   return {
     user: {
-      id: '00000000-0000-0000-0000-000000000001',
+      id: '00000000-0000-0000-0000-000000000001' as CanonicalUserId,
       username: 'someone',
       email: 'someone@clavis.local',
       displayName: null,

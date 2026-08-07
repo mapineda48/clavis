@@ -3,11 +3,12 @@
 // Every function here takes an `Executor` and never opens a transaction: the
 // caller decides whether the statement runs on its own (`app.db`) or inside a
 // transaction it already started (`client`). See `lib/executor.ts`.
+import type { CanonicalUserId } from '../../lib/access.js'
 import type { Executor } from '../../lib/executor.js'
 
 /** Application user with their assigned role slugs. */
 export interface UserRecord {
-  id: string
+  id: CanonicalUserId
   username: string
   email: string
   display_name: string | null
@@ -16,6 +17,21 @@ export interface UserRecord {
   created_at: Date | string
   last_seen_at: Date | string | null
   roles: string[]
+}
+
+/** The row as `pg` hands it over, before the id is branded. */
+type UserRow = Omit<UserRecord, 'id'> & { id: string }
+
+/**
+ * The one place a user id becomes a `CanonicalUserId`.
+ *
+ * `USER_SELECT` reads `u.id::text`, so this is the spelling the column holds —
+ * which is exactly what the brand claims and what `assertNotSelf` needs. Going
+ * through `db.query<UserRecord>` directly would mint the brand invisibly, and
+ * the point of the type is that minting it is visible.
+ */
+function toRecord(row: UserRow): UserRecord {
+  return { ...row, id: row.id as CanonicalUserId }
 }
 
 const USER_SELECT = `
@@ -36,18 +52,19 @@ const USER_SELECT = `
     FROM clavis.users u`
 
 export async function listUsers(db: Executor, limit: number): Promise<UserRecord[]> {
-  const result = await db.query<UserRecord>(
+  const result = await db.query<UserRow>(
     `${USER_SELECT}
      ORDER BY u.is_root DESC, u.username ASC
      LIMIT $1`,
     [limit],
   )
-  return result.rows
+  return result.rows.map(toRecord)
 }
 
 export async function findUser(db: Executor, id: string): Promise<UserRecord | null> {
-  const result = await db.query<UserRecord>(`${USER_SELECT} WHERE u.id = $1`, [id])
-  return result.rows[0] ?? null
+  const result = await db.query<UserRow>(`${USER_SELECT} WHERE u.id = $1`, [id])
+  const row = result.rows[0]
+  return row === undefined ? null : toRecord(row)
 }
 
 /** Returns which of `slugs` do not exist as roles. */

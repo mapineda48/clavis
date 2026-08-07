@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { AppError } from '../src/lib/errors.js'
-import type { AccessContext } from '../src/lib/access.js'
+import type { AccessContext, CanonicalUserId } from '../src/lib/access.js'
 import {
   UserSchema,
   assertMayAssignRoles,
@@ -13,7 +13,7 @@ import type { UserRecord } from '../src/modules/users/repository.js'
 function access(permissions: AccessContext['permissions'], isRoot = false): AccessContext {
   return {
     user: {
-      id: '00000000-0000-0000-0000-000000000001',
+      id: '00000000-0000-0000-0000-000000000001' as CanonicalUserId,
       username: 'someone',
       email: 'someone@clavis.local',
       displayName: null,
@@ -75,7 +75,7 @@ describe('assertMayAssignRoles', () => {
 
 describe('serializeUser', () => {
   const row: UserRecord = {
-    id: '00000000-0000-0000-0000-000000000002',
+    id: '00000000-0000-0000-0000-000000000002' as CanonicalUserId,
     username: 'someone',
     email: 'someone@clavis.local',
     display_name: 'Some One',

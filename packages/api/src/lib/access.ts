@@ -13,9 +13,28 @@ import type { Executor } from './executor.js'
  * `is_root` short-circuits to the full catalog before any of that runs.
  */
 
+/**
+ * A user id in the exact spelling `clavis.users` stores it.
+ *
+ * The brand exists for one reason: `assertNotSelf` compares strings and
+ * PostgreSQL compares uuids, and those are not the same comparison.
+ * `'A1B2…'::uuid = 'a1b2…'::uuid` is true, as are the brace and unhyphenated
+ * spellings, so a path parameter can address the caller's own row while a
+ * string `!==` sees two different values — which is how a holder of
+ * `access:manage` granted itself the whole catalog by uppercasing one letter of
+ * its own id.
+ *
+ * Only a value the database handed back is branded (`row.id as CanonicalUserId`
+ * inside a repository, and nowhere else), so passing `request.params.id`
+ * straight to the self check is now a compile error rather than a silent
+ * bypass. Nothing else about the type is special: it is a `string` everywhere a
+ * `string` is wanted.
+ */
+export type CanonicalUserId = string & { readonly __brand: 'CanonicalUserId' }
+
 /** Application-side view of a user row. */
 export interface AccessUser {
-  id: string
+  id: CanonicalUserId
   username: string
   email: string
   displayName: string | null
@@ -101,7 +120,9 @@ export async function loadAccessContext(
 
   return {
     user: {
-      id: row.id,
+      // `u.id::text` above: this is the canonical spelling, straight from the
+      // column, which is the only thing the brand claims.
+      id: row.id as CanonicalUserId,
       username: row.username,
       email: row.email,
       displayName: row.display_name,
@@ -130,14 +151,16 @@ export function contextHasPermission(context: AccessContext, key: PermissionKey)
  * somebody may do calls this with the same code, `SELF_MODIFICATION`, so the
  * SPA and the verification suite recognise the refusal wherever it comes from.
  *
- * What it buys: granting yourself is escalation and revoking or disabling
- * yourself is a lockout, and both take a second pair of hands. What it does
- * **not** buy is stated where it is documented (`docs/access-control.md`): a
- * check keyed on identity cannot stop two accounts from granting each other,
- * and it says nothing about creating a new privileged account. It closes the
- * one-request path, not the class.
+ * **This guards the removal direction.** Escalation — handing out a capability
+ * — is `assertMayGrant`'s job, because that question is about the permission
+ * set and not about identity. What is left here is the lockout direction:
+ * revoking, disabling or deleting yourself, and the roles you would drop by
+ * replacing your own set. Those take a second pair of hands.
+ *
+ * `targetId` is a `CanonicalUserId` on purpose: see the type. An identity-keyed
+ * check is only as good as the identity it is given.
  */
-export function assertNotSelf(actorId: string, targetId: string, phrase: string): void {
+export function assertNotSelf(actorId: string, targetId: CanonicalUserId, phrase: string): void {
   if (actorId !== targetId) return
   throw forbidden(`You cannot ${phrase}; another administrator has to.`, 'SELF_MODIFICATION')
 }

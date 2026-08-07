@@ -9,6 +9,7 @@ import type { Executor } from '../../lib/executor.js'
 import { mutate } from '../../lib/mutate.js'
 import { badRequest, conflict, forbidden, notFound } from '../../lib/errors.js'
 import { errorResponses } from '../shared/schemas.js'
+import { findOverrideTarget } from './repository.js'
 
 interface IdParamsInput {
   id: string
@@ -91,10 +92,16 @@ const UserAccessResponse = {
   required: ['userId', 'username', 'isRoot', 'roles', 'overrides', 'effectivePermissions'],
 }
 
+// `format: 'uuid'` because every `:id` here addresses `clavis.users`, whose
+// primary key is a uuid. It rejects the brace and unhyphenated spellings at the
+// edge, so the `22P02 → 400` mapping in `lib/errors.ts` stops being the thing
+// that keeps a malformed id from reading as a 500 on these routes. It does NOT
+// reject a case-varied uuid — the format is case-insensitive, as uuids are —
+// which is why the self check takes a `CanonicalUserId` and not a parameter.
 const IdParams = {
   type: 'object',
   required: ['id'],
-  properties: { id: { type: 'string', minLength: 1 } },
+  properties: { id: { type: 'string', format: 'uuid' } },
 }
 
 const SlugParams = {
@@ -246,21 +253,17 @@ export const accessRoutes: FastifyPluginAsync = async (app) => {
       },
     },
     async (request) => {
-      const target = await app.db.query<{ is_root: boolean }>(
-        `SELECT is_root FROM clavis.users WHERE id = $1`,
-        [request.params.id],
-      )
-      const row = target.rows[0]
-      if (!row) throw notFound('User not found.')
-      if (row.is_root) {
+      // Everything below addresses the user by `target.id`, never by the
+      // parameter: the parameter is what the caller typed, `target.id` is what
+      // the row holds. The two differ whenever the caller wants them to.
+      const target = await findOverrideTarget(app.db, request.params.id)
+      if (!target) throw notFound('User not found.')
+      if (target.isRoot) {
         throw forbidden('Root bypasses the permission system; overrides do not apply.', 'ROOT_IMMUTABLE')
       }
-      // The same rule `PATCH /users/:id` applies to `roles`, on the route that
-      // reaches further: an override grant hands out an individual permission
-      // key directly, so without this a holder of `access:manage` could write
-      // themselves the entire catalog in one request — and the revoke
-      // direction is the matching self-lockout.
-      assertNotSelf(request.auth.sub, request.params.id, 'change your own permission overrides')
+      // The matching self-lockout of the delta check below: a revoke on your own
+      // account takes away, and taking away is what needs a second pair of hands.
+      assertNotSelf(request.auth.sub, target.id, 'change your own permission overrides')
 
       const overrides = request.body.overrides
       const keys = overrides.map((override) => override.permissionKey)
@@ -275,19 +278,14 @@ export const accessRoutes: FastifyPluginAsync = async (app) => {
       await mutate(app, {
         run: async (client) => {
           await client.query(`DELETE FROM clavis.user_permission_overrides WHERE user_id = $1`, [
-            request.params.id,
+            target.id,
           ])
           if (overrides.length > 0) {
             await client.query(
               `INSERT INTO clavis.user_permission_overrides (user_id, permission_key, effect, created_by)
                SELECT $1, o.key, o.effect, $2
                  FROM unnest($3::text[], $4::text[]) AS o(key, effect)`,
-              [
-                request.params.id,
-                request.auth.sub,
-                keys,
-                overrides.map((override) => override.effect),
-              ],
+              [target.id, request.auth.sub, keys, overrides.map((override) => override.effect)],
             )
           }
         },
@@ -295,14 +293,14 @@ export const accessRoutes: FastifyPluginAsync = async (app) => {
           actorId: request.auth.sub,
           action: 'access.overrides_replaced',
           entity: 'user',
-          entityId: request.params.id,
+          entityId: target.id,
           payload: { overrides },
         }),
         invalidate: ACCESS_NAMESPACE,
       })
 
       // Answer with the resolved state so the editor never guesses.
-      const context = await loadAccessContext(app.db, request.params.id)
+      const context = await loadAccessContext(app.db, target.id)
       if (!context) throw notFound('User not found.')
       return {
         userId: context.user.id,

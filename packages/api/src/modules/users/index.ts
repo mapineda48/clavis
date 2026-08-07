@@ -135,10 +135,12 @@ const UpdateUserBody = {
   },
 }
 
+// See the note on the twin in `modules/access/index.ts`: every `:id` here
+// addresses `clavis.users`, whose primary key is a uuid.
 const IdParams = {
   type: 'object',
   required: ['id'],
-  properties: { id: { type: 'string', minLength: 1 } },
+  properties: { id: { type: 'string', format: 'uuid' } },
 }
 
 export function serializeUser(row: UserRecord) {
