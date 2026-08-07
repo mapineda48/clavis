@@ -4,7 +4,7 @@ Day-to-day commands for working with this stack: start it, inspect it, reset it,
 unstick it. Everything runs from the repository root:
 
 ```bash
-cd /home/mapineda48/Repo/mapineda48/KeyCloak-Demo
+cd /home/mapineda48/Repo/mapineda48/clavis
 ```
 
 Many examples use variables from `.env`. Load them into the session with:
