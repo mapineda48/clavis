@@ -1,7 +1,9 @@
+import type { PermissionKey } from '@clavis/shared'
 import type { preHandlerHookHandler } from 'fastify'
 import type { Redis } from 'ioredis'
 import type { Pool, PoolClient, QueryResult, QueryResultRow } from 'pg'
-import type { AuthContext, Permission } from '../lib/permissions.js'
+import type { AccessContext } from '../lib/access.js'
+import type { AuthContext } from '../plugins/auth.js'
 import type { KeycloakCreateUser, KeycloakUser } from '../plugins/keycloak-admin.js'
 
 /**
@@ -10,11 +12,11 @@ import type { KeycloakCreateUser, KeycloakUser } from '../plugins/keycloak-admin
  */
 declare module 'fastify' {
   interface FastifyInstance {
-    /** Verifies the Bearer token and fills `request.auth`. */
+    /** Verifies the Bearer token, resolves the access context and fills `request.auth`/`request.access`. */
     authenticate: preHandlerHookHandler
 
-    /** Demands every listed permission (logical AND); answers 403 if any is missing. */
-    requirePermissions(...perms: Permission[]): preHandlerHookHandler
+    /** Demands every listed permission (logical AND); answers 403 if any is missing. Root bypasses. */
+    requirePermissions(...perms: PermissionKey[]): preHandlerHookHandler
 
     /** Access to PostgreSQL. */
     db: {
@@ -74,7 +76,10 @@ declare module 'fastify' {
   }
 
   interface FastifyRequest {
-    /** Context of the authenticated user; available after `fastify.authenticate`. */
+    /** Token identity of the caller; available after `fastify.authenticate`. */
     auth: AuthContext
+
+    /** What the caller may do, resolved from the database; available after `fastify.authenticate`. */
+    access: AccessContext
   }
 }

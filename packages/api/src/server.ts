@@ -5,9 +5,11 @@ import swaggerUi from '@fastify/swagger-ui'
 import Fastify, { type FastifyInstance } from 'fastify'
 import { env, isDevelopment } from './config/env.js'
 import { registerErrorHandler } from './lib/errors.js'
-import { adminRoutes } from './modules/admin/index.js'
+import { accessRoutes } from './modules/access/index.js'
+import { auditRoutes } from './modules/audit/index.js'
 import { healthRoutes } from './modules/health/index.js'
 import { meRoutes } from './modules/me/index.js'
+import { usersRoutes } from './modules/users/index.js'
 import { authPlugin } from './plugins/auth.js'
 import { bootstrapPlugin } from './plugins/bootstrap.js'
 import { cachePlugin } from './plugins/cache.js'
@@ -75,7 +77,9 @@ export async function buildServer(): Promise<FastifyInstance> {
       tags: [
         { name: 'health', description: 'Status of the service and its dependencies' },
         { name: 'profile', description: 'Data about the authenticated user' },
-        { name: 'administration', description: 'Users and audit trail' },
+        { name: 'users', description: 'System users: created here, authenticated by Keycloak' },
+        { name: 'access', description: 'Roles, permissions and per-user exceptions' },
+        { name: 'audit', description: 'Audit trail' },
       ],
       components: {
         securitySchemes: {
@@ -123,7 +127,9 @@ export async function buildServer(): Promise<FastifyInstance> {
   // never fail.
   await app.register(healthRoutes, { prefix: '/api' })
   await app.register(meRoutes, { prefix: '/api' })
-  await app.register(adminRoutes, { prefix: '/api' })
+  await app.register(usersRoutes, { prefix: '/api' })
+  await app.register(accessRoutes, { prefix: '/api' })
+  await app.register(auditRoutes, { prefix: '/api' })
 
   return app
 }

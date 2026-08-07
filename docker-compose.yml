@@ -93,15 +93,6 @@ services:
       APP_DEV_URL: ${APP_DEV_URL:-http://localhost:5173}
       APP_PROD_URL: ${APP_PROD_URL:-http://localhost:8081}
       # --- demo users
-      DEMO_ADMIN_USERNAME: ${DEMO_ADMIN_USERNAME:-admin}
-      DEMO_ADMIN_EMAIL: ${DEMO_ADMIN_EMAIL:-admin@clavis.local}
-      DEMO_ADMIN_PASSWORD: ${DEMO_ADMIN_PASSWORD:-Admin123!}
-      DEMO_MANAGER_USERNAME: ${DEMO_MANAGER_USERNAME:-manager}
-      DEMO_MANAGER_EMAIL: ${DEMO_MANAGER_EMAIL:-manager@clavis.local}
-      DEMO_MANAGER_PASSWORD: ${DEMO_MANAGER_PASSWORD:-Manager123!}
-      DEMO_USER_USERNAME: ${DEMO_USER_USERNAME:-worker}
-      DEMO_USER_EMAIL: ${DEMO_USER_EMAIL:-worker@clavis.local}
-      DEMO_USER_PASSWORD: ${DEMO_USER_PASSWORD:-Worker123!}
     volumes:
       - ./infra/keycloak:/work:ro
       - keycloak-import:/import

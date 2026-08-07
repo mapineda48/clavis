@@ -106,10 +106,44 @@ else:
 # the .env variable holding the password. Test-only: the client allows this
 # grant on purpose.
 token_for() {
+  token_with "$1" "$(envval "$2")"
+}
+
+# Same as token_for but with a literal password. $1 = username, $2 = password.
+token_with() {
   curl -s -X POST "$KC/realms/$REALM/protocol/openid-connect/token" \
     -d "client_id=$CLIENT" -d "grant_type=password" \
-    -d "username=$1" --data-urlencode "password=$(envval "$2")" |
+    -d "username=$1" --data-urlencode "password=$2" |
     python3 -c "import sys, json; print(json.load(sys.stdin).get('access_token', ''))"
+}
+
+# Token of the Keycloak bootstrap administrator (admin-cli on the master realm).
+# Only the verification scripts use it, to complete flows a browser would.
+kc_admin_token() {
+  curl -s -X POST "$KC/realms/master/protocol/openid-connect/token" \
+    -d "client_id=admin-cli" -d "grant_type=password" \
+    -d "username=$(envval KC_BOOTSTRAP_ADMIN_USERNAME)" \
+    --data-urlencode "password=$(envval KC_BOOTSTRAP_ADMIN_PASSWORD)" |
+    python3 -c "import sys, json; print(json.load(sys.stdin).get('access_token', ''))"
+}
+
+# Completes a user's first login administratively: clears the pending required
+# actions and sets a PERMANENT password. Users created with a temporary
+# password (or by invitation) cannot use the password grant until then —
+# Keycloak answers "Account is not fully set up". $1 = username, $2 = password.
+kc_finish_setup() {
+  local at uid
+  at=$(kc_admin_token)
+  [ -n "$at" ] || return 1
+  uid=$(curl -s -H "Authorization: Bearer $at" \
+    "$KC/admin/realms/$REALM/users?username=$1&exact=true" |
+    python3 -c "import sys, json; users = json.load(sys.stdin); print(users[0]['id'] if users else '')")
+  [ -n "$uid" ] || return 1
+  curl -s -o /dev/null -X PUT -H "Authorization: Bearer $at" -H 'Content-Type: application/json' \
+    -d '{"requiredActions": []}' "$KC/admin/realms/$REALM/users/$uid"
+  curl -s -o /dev/null -X PUT -H "Authorization: Bearer $at" -H 'Content-Type: application/json' \
+    -d "$(python3 -c "import json, sys; print(json.dumps({'type': 'password', 'value': sys.argv[1], 'temporary': False}))" "$2")" \
+    "$KC/admin/realms/$REALM/users/$uid/reset-password"
 }
 
 # Prints the summary and decides the exit code of the script.

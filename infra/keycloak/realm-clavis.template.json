@@ -42,7 +42,7 @@
   "actionTokenGeneratedByUserLifespan": 1800,
   "defaultRole": {
     "name": "default-roles-__KEYCLOAK_REALM__",
-    "description": "Realm default role: own account, offline access and the basic Clavis permissions",
+    "description": "Realm default role: own account and offline access. Authorization lives in the application database, not here.",
     "composite": true,
     "clientRole": false
   },
@@ -50,14 +50,13 @@
     "realm": [
       {
         "name": "default-roles-__KEYCLOAK_REALM__",
-        "description": "Realm default role: own account, offline access and the basic Clavis permissions",
+        "description": "Realm default role: own account and offline access. Authorization lives in the application database, not here.",
         "composite": true,
         "clientRole": false,
         "composites": {
           "realm": [
             "offline_access",
-            "uma_authorization",
-            "clavis-user"
+            "uma_authorization"
           ],
           "client": {
             "account": [
@@ -78,96 +77,8 @@
         "description": "${role_uma_authorization}",
         "composite": false,
         "clientRole": false
-      },
-      {
-        "name": "clavis-user",
-        "description": "Basic user: reads and creates their own tasks",
-        "composite": true,
-        "clientRole": false,
-        "composites": {
-          "client": {
-            "__KEYCLOAK_API_CLIENT_ID__": [
-              "todos:read",
-              "todos:write"
-            ]
-          }
-        }
-      },
-      {
-        "name": "clavis-manager",
-        "description": "Team lead: sees every task, deletes them and lists users",
-        "composite": true,
-        "clientRole": false,
-        "composites": {
-          "realm": [
-            "clavis-user"
-          ],
-          "client": {
-            "__KEYCLOAK_API_CLIENT_ID__": [
-              "todos:read:all",
-              "todos:delete",
-              "users:read"
-            ]
-          }
-        }
-      },
-      {
-        "name": "clavis-admin",
-        "description": "Full administration: everything a team lead can do, plus management and auditing",
-        "composite": true,
-        "clientRole": false,
-        "composites": {
-          "realm": [
-            "clavis-manager"
-          ],
-          "client": {
-            "__KEYCLOAK_API_CLIENT_ID__": [
-              "admin:manage"
-            ]
-          }
-        }
       }
-    ],
-    "client": {
-      "__KEYCLOAK_API_CLIENT_ID__": [
-        {
-          "name": "todos:read",
-          "description": "Read own or assigned tasks",
-          "composite": false,
-          "clientRole": true
-        },
-        {
-          "name": "todos:read:all",
-          "description": "Read the tasks of every user",
-          "composite": false,
-          "clientRole": true
-        },
-        {
-          "name": "todos:write",
-          "description": "Create and update tasks",
-          "composite": false,
-          "clientRole": true
-        },
-        {
-          "name": "todos:delete",
-          "description": "Delete tasks and attachments",
-          "composite": false,
-          "clientRole": true
-        },
-        {
-          "name": "users:read",
-          "description": "List the users",
-          "composite": false,
-          "clientRole": true
-        },
-        {
-          "name": "admin:manage",
-          "description": "Access statistics, auditing and administration features",
-          "composite": false,
-          "clientRole": true
-        }
-      ]
-    }
+    ]
   },
   "clients": [
     {
@@ -222,7 +133,7 @@
     {
       "clientId": "__KEYCLOAK_API_CLIENT_ID__",
       "name": "Clavis API",
-      "description": "Confidential client that represents the API and holds the permissions as client roles",
+      "description": "Confidential client that represents the API: the audience of the tokens, and the service account that manages realm users",
       "enabled": true,
       "protocol": "openid-connect",
       "publicClient": false,
@@ -262,71 +173,11 @@
       "enabled": true,
       "serviceAccountClientId": "__KEYCLOAK_API_CLIENT_ID__",
       "clientRoles": {
-        "realm-management": ["manage-users", "view-users"]
+        "realm-management": [
+          "manage-users",
+          "view-users"
+        ]
       }
-    },
-    {
-      "id": "a0000000-0000-4000-a000-000000000001",
-      "username": "__DEMO_ADMIN_USERNAME__",
-      "email": "__DEMO_ADMIN_EMAIL__",
-      "firstName": "Administrator",
-      "lastName": "Demo",
-      "enabled": true,
-      "emailVerified": true,
-      "requiredActions": [],
-      "credentials": [
-        {
-          "type": "password",
-          "value": "__DEMO_ADMIN_PASSWORD__",
-          "temporary": false
-        }
-      ],
-      "realmRoles": [
-        "default-roles-__KEYCLOAK_REALM__",
-        "clavis-admin"
-      ]
-    },
-    {
-      "id": "a0000000-0000-4000-a000-000000000002",
-      "username": "__DEMO_MANAGER_USERNAME__",
-      "email": "__DEMO_MANAGER_EMAIL__",
-      "firstName": "Manager",
-      "lastName": "Demo",
-      "enabled": true,
-      "emailVerified": true,
-      "requiredActions": [],
-      "credentials": [
-        {
-          "type": "password",
-          "value": "__DEMO_MANAGER_PASSWORD__",
-          "temporary": false
-        }
-      ],
-      "realmRoles": [
-        "default-roles-__KEYCLOAK_REALM__",
-        "clavis-manager"
-      ]
-    },
-    {
-      "id": "a0000000-0000-4000-a000-000000000003",
-      "username": "__DEMO_USER_USERNAME__",
-      "email": "__DEMO_USER_EMAIL__",
-      "firstName": "Worker",
-      "lastName": "Demo",
-      "enabled": true,
-      "emailVerified": true,
-      "requiredActions": [],
-      "credentials": [
-        {
-          "type": "password",
-          "value": "__DEMO_USER_PASSWORD__",
-          "temporary": false
-        }
-      ],
-      "realmRoles": [
-        "default-roles-__KEYCLOAK_REALM__",
-        "clavis-user"
-      ]
     }
   ]
 }
