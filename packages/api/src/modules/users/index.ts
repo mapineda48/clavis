@@ -224,9 +224,9 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
         summary: 'Create a system user',
         description:
           'Registers the user in Keycloak first (which assigns the id and owns the credentials), ' +
-          'then stores the application user and their roles. If the database write fails the ' +
-          'Keycloak user is deleted again, so the two systems cannot drift on creation. ' +
-          'A non-empty `roles` additionally requires `access:manage`.',
+          'then sets the temporary password and stores the application user and their roles. ' +
+          'If any of those fails the Keycloak user is deleted again, so the two systems cannot ' +
+          'drift on creation. A non-empty `roles` additionally requires `access:manage`.',
         security: [{ bearerAuth: [] }],
         body: CreateUserBody,
         response: {
@@ -269,6 +269,10 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
       // Keycloak first: it owns the id. UPDATE_PASSWORD arrives either as an
       // explicit required action (invite) or implicitly with the temporary
       // password Keycloak itself flags.
+      //
+      // This call is alone in its own try on purpose. It is the line that
+      // creates the thing every step below has to be able to undo, and until it
+      // returns there is nothing to undo.
       let keycloakId: string
       try {
         keycloakId = await app.keycloakAdmin.createUser({
@@ -279,14 +283,26 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
           enabled: true,
           requiredActions: body.credentialMode === 'invite' ? ['UPDATE_PASSWORD'] : [],
         })
-        if (body.credentialMode === 'temporary_password') {
-          await app.keycloakAdmin.setPassword(keycloakId, body.temporaryPassword as string, true)
-        }
       } catch (error) {
         mapKeycloakError(error)
       }
 
+      // Everything from here to the COMMIT is compensated, not just the
+      // database write. `setPassword` used to sit in the try above, whose catch
+      // only rethrows: a password that Keycloak refused left a user nobody
+      // could reach and nobody could remove — the username and email are taken
+      // forever, a retry answers 409, and DELETE /api/users/:id answers 404
+      // because there is no application row to delete. Only Keycloak's own
+      // console could clear it.
       try {
+        if (body.credentialMode === 'temporary_password') {
+          try {
+            await app.keycloakAdmin.setPassword(keycloakId, body.temporaryPassword as string, true)
+          } catch (error) {
+            mapKeycloakError(error)
+          }
+        }
+
         // The row, its roles and the audit entry share one transaction. The
         // Keycloak calls are deliberately outside it: no network I/O to another
         // system while a transaction is open.
@@ -312,7 +328,11 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
         // Compensation: without the application row the Keycloak user is an
         // orphan that would block the username forever.
         await app.keycloakAdmin.deleteUser(keycloakId).catch((cleanupError) => {
-          request.log.error({ err: cleanupError, keycloakId }, 'Could not clean up the Keycloak user')
+          request.log.error(
+            { err: cleanupError, keycloakId, username },
+            'RECONCILE: could not clean up the Keycloak user after a failed creation; ' +
+              'the username and email stay taken until it is removed by hand',
+          )
         })
         throw error
       }
