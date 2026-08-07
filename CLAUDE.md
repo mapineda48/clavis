@@ -168,6 +168,15 @@ Full detail in `docs/deployment.md`. The ones that bite hardest:
   and hangs the SPA on "checking session" with nothing logged. Use SAMEORIGIN.
 - Cloudflare's `/user/tokens/verify` does **not** evaluate the token's IP
   condition, so it proves nothing as a preflight.
+- A redeploy of the **same commit** never reaches the host: reconcile converges
+  on the commit, and the overwritten bundle reads stale through blobfuse2.
+  Configuration-only changes (e.g. the cert resolver) need a new commit.
+- A staging certificate **shadows** the production resolver even with one store
+  per resolver: Traefik merges every store into one SNI map and never orders.
+  Retire the staging store (local and blob) when flipping to production.
+- The Azure OIDC federated subjects embed the **repository name** (both
+  formats). Renaming the repo means updating both credentials, and the change
+  propagates eventually — expect AADSTS700213 flapping for a few minutes.
 
 ### Mail
 
