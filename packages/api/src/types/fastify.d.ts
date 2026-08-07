@@ -2,6 +2,7 @@ import type { preHandlerHookHandler } from 'fastify'
 import type { Redis } from 'ioredis'
 import type { Pool, PoolClient, QueryResult, QueryResultRow } from 'pg'
 import type { AuthContext, Permission } from '../lib/permissions.js'
+import type { KeycloakCreateUser, KeycloakUser } from '../plugins/keycloak-admin.js'
 
 /**
  * Fastify declaration merging: this is where the types of every decorator
@@ -41,6 +42,21 @@ declare module 'fastify' {
       download(blobName: string): Promise<{ stream: NodeJS.ReadableStream; contentType: string; size: number }>
       remove(blobName: string): Promise<void>
       ping(): Promise<boolean>
+    }
+
+    /** Keycloak Admin REST client (service account of the confidential client). */
+    keycloakAdmin: {
+      /** Bounded wait until the service account can authenticate. */
+      ready(attempts?: number, retryMs?: number): Promise<void>
+      /** Creates a realm user and returns the id Keycloak assigned. */
+      createUser(user: KeycloakCreateUser): Promise<string>
+      findUserByUsername(username: string): Promise<KeycloakUser | null>
+      getUser(id: string): Promise<KeycloakUser>
+      setPassword(id: string, value: string, temporary: boolean): Promise<void>
+      /** Sends the required-actions email (e.g. UPDATE_PASSWORD) for the user. */
+      sendExecuteActionsEmail(id: string, actions: string[]): Promise<void>
+      setEnabled(id: string, enabled: boolean): Promise<void>
+      deleteUser(id: string): Promise<void>
     }
 
     /** Email delivery (Resend or dry-run mode). */

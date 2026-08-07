@@ -57,6 +57,20 @@ const envSchema = z.object({
   // Internal issuer: where the API downloads the JWKS from (docker network).
   KEYCLOAK_INTERNAL_ISSUER: z.string().min(1).default('http://localhost:8080/realms/clavis'),
   KEYCLOAK_AUDIENCE: z.string().min(1).default('clavis-api'),
+  // Secret of the confidential client; its service account calls the Admin
+  // REST API (manage-users) to create and maintain realm users.
+  KEYCLOAK_API_CLIENT_SECRET: z.string().min(1).default('clavis_api_dev_secret'),
+  // Public client of the SPA: execute-actions emails link back through it.
+  KEYCLOAK_APP_CLIENT_ID: z.string().min(1).default('clavis-app'),
+
+  // --- root user (seeded at boot; the only account not created from the app)
+  ROOT_USERNAME: z.string().min(1).default('root'),
+  ROOT_EMAIL: z.string().min(3).default('root@clavis.local'),
+  ROOT_PASSWORD: z.string().min(8).default('Root123!'),
+  ROOT_DISPLAY_NAME: z.string().min(1).default('Root'),
+
+  // --- public URL of the SPA (redirect target of Keycloak action emails)
+  PUBLIC_APP_URL: z.string().min(1).default('http://localhost:5173'),
 
   // --- valkey
   VALKEY_URL: z.string().min(1).default('redis://localhost:6379'),

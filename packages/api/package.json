@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@azure/storage-blob": "12.33.0",
+    "@clavis/shared": "workspace:*",
     "@fastify/cors": "11.3.0",
     "@fastify/multipart": "10.1.0",
     "@fastify/swagger": "9.8.1",

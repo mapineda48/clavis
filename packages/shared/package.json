@@ -1,0 +1,24 @@
+{
+  "name": "@clavis/shared",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Clavis shared contracts: the typed permission catalog consumed by the API and the SPA",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "engines": {
+    "node": ">=22.23.1 <23"
+  },
+  "scripts": {
+    "dev": "tsc -p tsconfig.json --watch --preserveWatchOutput",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3"
+  }
+}

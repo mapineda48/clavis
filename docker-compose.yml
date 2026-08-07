@@ -258,7 +258,17 @@ services:
       KEYCLOAK_ISSUER: "${KEYCLOAK_PUBLIC_URL:-http://localhost:8080}/realms/${KEYCLOAK_REALM:-clavis}"
       KEYCLOAK_INTERNAL_ISSUER: "http://keycloak:8080/realms/${KEYCLOAK_REALM:-clavis}"
       KEYCLOAK_AUDIENCE: ${KEYCLOAK_API_CLIENT_ID:-clavis-api}
+      # The service account of this client manages realm users (Admin REST).
+      KEYCLOAK_API_CLIENT_SECRET: ${KEYCLOAK_API_CLIENT_SECRET:-clavis_api_dev_secret}
+      KEYCLOAK_APP_CLIENT_ID: ${KEYCLOAK_APP_CLIENT_ID:-clavis-app}
       CORS_ORIGINS: "${APP_DEV_URL:-http://localhost:5173},${APP_PROD_URL:-http://localhost:8081}"
+      # --- root user, seeded by the API at boot
+      ROOT_USERNAME: ${ROOT_USERNAME:-root}
+      ROOT_EMAIL: ${ROOT_EMAIL:-root@clavis.local}
+      ROOT_PASSWORD: ${ROOT_PASSWORD:-Root123!}
+      ROOT_DISPLAY_NAME: ${ROOT_DISPLAY_NAME:-Root}
+      # Where Keycloak action emails send the user back to.
+      PUBLIC_APP_URL: ${APP_DEV_URL:-http://localhost:5173}
       # --- storage
       AZURE_STORAGE_CONNECTION_STRING: "${AZURE_STORAGE_CONNECTION_STRING:-DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;QueueEndpoint=http://azurite:10001/devstoreaccount1;TableEndpoint=http://azurite:10002/devstoreaccount1;}"
       AZURE_STORAGE_CONTAINER: ${AZURE_STORAGE_CONTAINER:-clavis-attachments}

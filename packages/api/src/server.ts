@@ -9,8 +9,10 @@ import { adminRoutes } from './modules/admin/index.js'
 import { healthRoutes } from './modules/health/index.js'
 import { meRoutes } from './modules/me/index.js'
 import { authPlugin } from './plugins/auth.js'
+import { bootstrapPlugin } from './plugins/bootstrap.js'
 import { cachePlugin } from './plugins/cache.js'
 import { dbPlugin } from './plugins/db.js'
+import { keycloakAdminPlugin } from './plugins/keycloak-admin.js'
 import { mailerPlugin } from './plugins/mailer.js'
 import { storagePlugin } from './plugins/storage.js'
 
@@ -108,6 +110,9 @@ export async function buildServer(): Promise<FastifyInstance> {
   await app.register(cachePlugin)
   await app.register(storagePlugin)
   await app.register(mailerPlugin)
+  await app.register(keycloakAdminPlugin)
+  // Seeds the permission catalog, the system role and root before any request.
+  await app.register(bootstrapPlugin)
   await app.register(authPlugin)
 
   // --- Routes

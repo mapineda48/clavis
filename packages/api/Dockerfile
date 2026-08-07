@@ -27,15 +27,18 @@ WORKDIR /repo
 COPY pnpm-workspace.yaml pnpm-lock.yaml package.json tsconfig.base.json ./
 COPY packages/api/package.json packages/api/package.json
 COPY packages/app/package.json packages/app/package.json
+COPY packages/shared/package.json packages/shared/package.json
 
 # Install only the dependency subtree the API needs.
 RUN pnpm install --frozen-lockfile --filter @clavis/api...
 
 # Now the package source (including migrations/, which must ship in the image
-# because the migrator reads them at runtime).
+# because the migrator reads them at runtime). @clavis/shared comes along and
+# the `...` filter builds it first, topologically.
+COPY packages/shared packages/shared
 COPY packages/api packages/api
 
-RUN pnpm --filter @clavis/api build
+RUN pnpm --filter @clavis/api... build
 
 # Production reinstall: drops the devDependencies from node_modules.
 RUN pnpm install --frozen-lockfile --prod --filter @clavis/api...
