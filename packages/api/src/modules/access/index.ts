@@ -4,12 +4,18 @@
 import type { FastifyPluginAsync } from 'fastify'
 // Pulls in the @fastify/swagger type augmentation (tags, summary, security inside `schema`).
 import type {} from '@fastify/swagger'
-import { ACCESS_NAMESPACE, assertNotSelf, loadAccessContext } from '../../lib/access.js'
+import {
+  ACCESS_NAMESPACE,
+  addedMembers,
+  assertMayGrant,
+  assertNotSelf,
+  loadAccessContext,
+} from '../../lib/access.js'
 import type { Executor } from '../../lib/executor.js'
 import { mutate } from '../../lib/mutate.js'
 import { badRequest, conflict, forbidden, notFound } from '../../lib/errors.js'
 import { errorResponses } from '../shared/schemas.js'
-import { findOverrideTarget } from './repository.js'
+import { findOverrideTarget, permissionsForRoles } from './repository.js'
 
 interface IdParamsInput {
   id: string
@@ -234,8 +240,9 @@ export const accessRoutes: FastifyPluginAsync = async (app) => {
         summary: 'Replace the permission exceptions of one user',
         description:
           'The full set is replaced in one write: grants add permissions the roles do not give, ' +
-          'revokes remove permissions they do. Root accepts no overrides, and nobody may edit ' +
-          'their own.',
+          'revokes remove permissions they do. Root accepts no overrides; a grant of a ' +
+          'permission the caller does not hold is refused (403 PRIVILEGE_ESCALATION), and ' +
+          'nobody may rewrite their own (403 SELF_MODIFICATION).',
         security: [{ bearerAuth: [] }],
         params: IdParams,
         body: {
@@ -261,10 +268,6 @@ export const accessRoutes: FastifyPluginAsync = async (app) => {
       if (target.isRoot) {
         throw forbidden('Root bypasses the permission system; overrides do not apply.', 'ROOT_IMMUTABLE')
       }
-      // The matching self-lockout of the delta check below: a revoke on your own
-      // account takes away, and taking away is what needs a second pair of hands.
-      assertNotSelf(request.auth.sub, target.id, 'change your own permission overrides')
-
       const overrides = request.body.overrides
       const keys = overrides.map((override) => override.permissionKey)
       if (new Set(keys).size !== keys.length) {
@@ -274,6 +277,18 @@ export const accessRoutes: FastifyPluginAsync = async (app) => {
       if (unknown.length > 0) {
         throw badRequest(`Unknown permissions: ${unknown.join(', ')}.`, 'UNKNOWN_PERMISSIONS')
       }
+
+      // The shortest path to the effective union in the whole API: a grant
+      // writes one permission key straight onto an account. The delta rule runs
+      // first, and it runs on the grants only — a revoke takes away, which is
+      // the self check's business, not this one's.
+      assertMayGrant(
+        request.access,
+        overrides.filter((o) => o.effect === 'grant').map((o) => o.permissionKey),
+      )
+      // …and that self check is now purely about lockout: a revoke on your own
+      // account is one, and it needs a second pair of hands.
+      assertNotSelf(request.auth.sub, target.id, 'change your own permission overrides')
 
       await mutate(app, {
         run: async (client) => {
@@ -320,6 +335,9 @@ export const accessRoutes: FastifyPluginAsync = async (app) => {
       schema: {
         tags: ['access'],
         summary: 'Create a role',
+        description:
+          'The initial permission set may not reach beyond what the caller holds ' +
+          '(403 PRIVILEGE_ESCALATION).',
         security: [{ bearerAuth: [] }],
         body: {
           type: 'object',
@@ -351,6 +369,12 @@ export const accessRoutes: FastifyPluginAsync = async (app) => {
       if (existing.rows.length > 0) {
         throw conflict(`A role with slug "${slug}" already exists.`, 'ROLE_EXISTS')
       }
+
+      // A new role starts empty, so its whole initial set is added. Nobody
+      // holds the role yet, but minting one that carries more than the author
+      // does is the first half of an escalation whose second half is a single
+      // assignment, and the assignment routes cannot see how the role was born.
+      assertMayGrant(request.access, permissions)
 
       await mutate(app, {
         run: async (client) => {
@@ -389,7 +413,10 @@ export const accessRoutes: FastifyPluginAsync = async (app) => {
       schema: {
         tags: ['access'],
         summary: 'Replace the permission set of a role',
-        description: 'System roles are seeded at boot and cannot be edited.',
+        description:
+          'System roles are seeded at boot and cannot be edited. Keys the edit ADDS may not ' +
+          'reach beyond what the caller holds (403 PRIVILEGE_ESCALATION); removing keys, and ' +
+          'keeping the ones already there, is unrestricted.',
         security: [{ bearerAuth: [] }],
         params: SlugParams,
         body: {
@@ -421,6 +448,15 @@ export const accessRoutes: FastifyPluginAsync = async (app) => {
       if (unknown.length > 0) {
         throw badRequest(`Unknown permissions: ${unknown.join(', ')}.`, 'UNKNOWN_PERMISSIONS')
       }
+
+      // `role_permissions` is the first branch of the effective union, so
+      // raising a role raises every one of its holders — the caller included,
+      // which is how this route escalated with no self-id anywhere in the
+      // request. The delta is what keeps it usable: only the keys this edit
+      // ADDS have to be held, so reducing a role, or reordering one you hold in
+      // part, still goes through.
+      const added = addedMembers(await permissionsForRoles(app.db, [slug]), permissions)
+      assertMayGrant(request.access, added)
 
       await mutate(app, {
         run: async (client) => {

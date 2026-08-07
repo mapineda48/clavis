@@ -4,10 +4,17 @@
 import type { FastifyPluginAsync } from 'fastify'
 // Pulls in the @fastify/swagger type augmentation (tags, summary, security inside `schema`).
 import type {} from '@fastify/swagger'
-import { ACCESS_NAMESPACE, assertNotSelf, contextHasPermission } from '../../lib/access.js'
+import {
+  ACCESS_NAMESPACE,
+  addedMembers,
+  assertMayGrant,
+  assertNotSelf,
+  contextHasPermission,
+} from '../../lib/access.js'
 import { AppError, badRequest, conflict, forbidden, notFound } from '../../lib/errors.js'
 import { mutate } from '../../lib/mutate.js'
 import { KeycloakAdminError } from '../../plugins/keycloak-admin.js'
+import { permissionsForRoles } from '../access/repository.js'
 import { recordAuditBestEffort } from '../shared/audit.js'
 import { errorResponses } from '../shared/schemas.js'
 import { toIso } from '../shared/serialize.js'
@@ -236,7 +243,8 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
           'Registers the user in Keycloak first (which assigns the id and owns the credentials), ' +
           'then sets the temporary password and stores the application user and their roles. ' +
           'If any of those fails the Keycloak user is deleted again, so the two systems cannot ' +
-          'drift on creation. A non-empty `roles` additionally requires `access:manage`.',
+          'drift on creation. A non-empty `roles` additionally requires `access:manage`, and ' +
+          'may not carry permissions the caller does not hold (403 PRIVILEGE_ESCALATION).',
         security: [{ bearerAuth: [] }],
         body: CreateUserBody,
         response: {
@@ -271,6 +279,15 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
       if (unknownRoles.length > 0) {
         throw badRequest(`Unknown roles: ${unknownRoles.join(', ')}.`, 'UNKNOWN_ROLES')
       }
+      // The account starts with nothing, so every role listed is added. This is
+      // what stops `users:create` + `access:manage` from minting an `admin`
+      // account and signing in as it: `admin` carries the whole catalog, and an
+      // actor holding those two keys does not. Before Keycloak is touched, so a
+      // refusal leaves nothing behind to clean up.
+      if (roles.length > 0) {
+        assertMayGrant(request.access, await permissionsForRoles(app.db, roles))
+      }
+
       const taken = await takenField(app.db, email, username)
       if (taken !== null) {
         throw conflict(`A user with that ${taken} already exists.`, 'USER_EXISTS')
@@ -374,8 +391,9 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
         summary: 'Update a user: profile, status or roles',
         description:
           'Disabling a user also disables them in Keycloak. The root user cannot be edited here. ' +
-          'Changing `roles` additionally requires `access:manage`, and nobody may change their ' +
-          'own roles or status.',
+          'Changing `roles` additionally requires `access:manage`, the roles it ADDS may not ' +
+          'carry permissions the caller does not hold (403 PRIVILEGE_ESCALATION), and nobody ' +
+          'may change their own roles or status.',
         security: [{ bearerAuth: [] }],
         params: IdParams,
         body: UpdateUserBody,
@@ -397,12 +415,20 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
       if (blocked.length > 0) {
         assertNotSelf(request.auth.sub, existing.id, `change your own ${blocked.join(' or ')}`)
       }
-      if (body.roles !== undefined) {
+      const nextRoles = body.roles === undefined ? undefined : [...new Set(body.roles)]
+      if (nextRoles !== undefined) {
         assertMayAssignRoles(request.access)
-        const unknownRoles = await missingRoles(app.db, body.roles)
+        const unknownRoles = await missingRoles(app.db, nextRoles)
         if (unknownRoles.length > 0) {
           throw badRequest(`Unknown roles: ${unknownRoles.join(', ')}.`, 'UNKNOWN_ROLES')
         }
+        // `roles` is sent whole, so the delta is what makes the rule usable:
+        // only the roles this edit ADDS are an indirect grant, and stripping a
+        // role the actor does not hold the permissions of stays possible. The
+        // delta runs after the slugs are known to exist, because resolving them
+        // to permissions is a query against those very rows.
+        const added = addedMembers(existing.roles, nextRoles)
+        assertMayGrant(request.access, await permissionsForRoles(app.db, added))
       }
 
       // Keycloak first, so a refusal leaves the database untouched. Outside the
@@ -429,8 +455,8 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
                 [existing.id, body.displayName ?? null, body.status ?? null],
               )
             }
-            if (body.roles !== undefined) {
-              await replaceRoles(client, existing.id, [...new Set(body.roles)])
+            if (nextRoles !== undefined) {
+              await replaceRoles(client, existing.id, nextRoles)
             }
           },
           audit: () => ({

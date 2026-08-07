@@ -144,6 +144,58 @@ export function contextHasPermission(context: AccessContext, key: PermissionKey)
 }
 
 /**
+ * Refuses an operation that would introduce a capability the actor does not
+ * hold. **The guard against privilege escalation.**
+ *
+ *   No actor may grant a permission they do not themselves hold.
+ *
+ * Three tables feed the union at the top of this file, each written by its own
+ * route, and each route used to carry its own idea of what a caller may do.
+ * That asymmetry is what produced two escalations: one route compared identity
+ * with a bypassable id, another related the write to the caller not at all.
+ * The question those guards were reaching for is not "are you editing
+ * yourself?" — that is answerable only about one of the three tables, and two
+ * accounts defeat it by editing each other. It is "may you hand out this
+ * capability?", which is a statement about the permission set, so it holds
+ * whoever the target is and whichever table the write lands in.
+ *
+ * Called with the keys an edit **adds**, never the ones it removes: removal is
+ * the lockout direction and belongs to `assertNotSelf`. Root short-circuits,
+ * because root holds the catalog by definition.
+ *
+ * `keys` is `string[]` rather than `PermissionKey[]` on purpose. A key outside
+ * the catalog is then refused (nobody holds it) instead of needing a narrowing
+ * step at every call site — and a narrowing step is exactly where a `filter`
+ * that silently drops the unrecognised key would end up, which fails open.
+ */
+export function assertMayGrant(actor: AccessContext, keys: readonly string[]): void {
+  if (actor.user.isRoot) return
+  const held = new Set<string>(actor.permissions)
+  const missing = [...new Set(keys)].filter((key) => !held.has(key))
+  if (missing.length === 0) return
+  throw forbidden(
+    `You cannot grant permissions you do not hold yourself: ${missing.join(', ')}.`,
+    'PRIVILEGE_ESCALATION',
+    { missing },
+  )
+}
+
+/**
+ * The members of `next` that `current` does not already contain — the *added*
+ * side of a replacement.
+ *
+ * Both routes that replace a set need it, and both need only this side of it:
+ * a role's permission set and a user's role list are sent whole, so without the
+ * delta an administrator could not so much as reduce a role they partly hold.
+ * It is a plain set difference over strings, used for permission keys and for
+ * role slugs alike.
+ */
+export function addedMembers(current: readonly string[], next: readonly string[]): string[] {
+  const present = new Set<string>(current)
+  return next.filter((member) => !present.has(member))
+}
+
+/**
  * Refuses an operation a caller is aiming at their own account.
  *
  * `phrase` completes "You cannot …", so it carries the verb: `'change your own
