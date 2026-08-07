@@ -10,6 +10,7 @@ import { mutate } from '../../lib/mutate.js'
 import { KeycloakAdminError } from '../../plugins/keycloak-admin.js'
 import { recordAudit } from '../shared/audit.js'
 import { errorResponses } from '../shared/schemas.js'
+import { toIso } from '../shared/serialize.js'
 import {
   findUser,
   insertUser,
@@ -130,11 +131,6 @@ const IdParams = {
   type: 'object',
   required: ['id'],
   properties: { id: { type: 'string', minLength: 1 } },
-}
-
-/** Converts a pg timestamptz to ISO 8601. */
-function toIso(value: Date | string): string {
-  return value instanceof Date ? value.toISOString() : new Date(value).toISOString()
 }
 
 function serializeUser(row: UserRecord) {

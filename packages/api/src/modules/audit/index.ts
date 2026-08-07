@@ -3,6 +3,7 @@ import type { FastifyPluginAsync } from 'fastify'
 // Pulls in the @fastify/swagger type augmentation (tags, summary, security inside `schema`).
 import type {} from '@fastify/swagger'
 import { errorResponses } from '../shared/schemas.js'
+import { toIso } from '../shared/serialize.js'
 
 interface ListQueryInput {
   limit?: number
@@ -44,11 +45,6 @@ const AuditResponse = {
     },
   },
   required: ['items'],
-}
-
-/** Converts a pg timestamptz to ISO 8601. */
-function toIso(value: Date | string): string {
-  return value instanceof Date ? value.toISOString() : new Date(value).toISOString()
 }
 
 export const auditRoutes: FastifyPluginAsync = async (app) => {
