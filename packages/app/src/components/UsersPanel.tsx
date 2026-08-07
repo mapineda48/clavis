@@ -260,9 +260,13 @@ function UserRowActions({ user, availableRoles }: { user: SystemUser; availableR
 
   const busy = updateUser.isPending || deleteUser.isPending || resendInvite.isPending
 
-  // The API refuses these three: roles are an `access:manage` operation, and
-  // nobody changes their own roles or status or deletes their own account.
+  // The API refuses these: roles are an `access:manage` operation, the status
+  // flip and the invitation resend are `users:update` ones, and nobody changes
+  // their own roles or status or deletes their own account. `users:delete`
+  // alone opens this editor, so without the `canUpdate` check it would offer
+  // two buttons the server answers 403 to.
   const isSelf = me?.user.id === user.id
+  const canUpdate = has('users:update')
   const canAssignRoles = has('access:manage') && !isSelf
   const canDelete = has('users:delete') && !isSelf
 
@@ -287,14 +291,16 @@ function UserRowActions({ user, availableRoles }: { user: SystemUser; availableR
         </div>
       )}
       <div className="row-actions__buttons">
-        {!isSelf && (
+        {canUpdate && !isSelf && (
           <button type="button" className="btn btn--ghost" disabled={busy} onClick={toggleStatus}>
             {user.status === 'active' ? t('users.disableButton') : t('users.enableButton')}
           </button>
         )}
-        <button type="button" className="btn btn--ghost" disabled={busy} onClick={invite}>
-          {t('users.resendInviteButton')}
-        </button>
+        {canUpdate && (
+          <button type="button" className="btn btn--ghost" disabled={busy} onClick={invite}>
+            {t('users.resendInviteButton')}
+          </button>
+        )}
         {canDelete && (
           <button type="button" className="btn btn--ghost btn--danger" disabled={busy} onClick={remove}>
             {t('users.deleteButton')}
