@@ -1,0 +1,11 @@
+{
+  // The build config compiles `src` alone, with `rootDir: src`, so `dist` keeps
+  // its shape and the tests never ship. They still have to typecheck, which is
+  // what this file is for: same options, wider `include`, nothing emitted.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "noEmit": true
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts"]
+}

@@ -34,7 +34,7 @@ interface CreateUserInput {
   temporaryPassword?: string
 }
 
-interface UpdateUserInput {
+export interface UpdateUserInput {
   displayName?: string
   status?: 'active' | 'disabled'
   roles?: string[]
@@ -133,7 +133,7 @@ const IdParams = {
   properties: { id: { type: 'string', minLength: 1 } },
 }
 
-function serializeUser(row: UserRecord) {
+export function serializeUser(row: UserRecord) {
   return {
     id: row.id,
     username: row.username,
@@ -154,7 +154,7 @@ function serializeUser(row: UserRecord) {
  * `roles` and `status` do — self-granting a role is escalation and
  * self-disabling is a lockout — so they need a second pair of hands.
  */
-function selfBlockedFields(body: UpdateUserInput): string[] {
+export function selfBlockedFields(body: UpdateUserInput): string[] {
   const blocked: string[] = []
   if (body.roles !== undefined) blocked.push('roles')
   if (body.status !== undefined) blocked.push('status')
@@ -170,7 +170,7 @@ function selfBlockedFields(body: UpdateUserInput): string[] {
  * the whole catalog — and the catalog's split between `users:*` and `access:*`
  * would exist only on paper.
  */
-function assertMayAssignRoles(access: Parameters<typeof contextHasPermission>[0]): void {
+export function assertMayAssignRoles(access: Parameters<typeof contextHasPermission>[0]): void {
   if (!contextHasPermission(access, 'access:manage')) {
     throw forbidden(
       'Assigning roles requires the access:manage permission.',

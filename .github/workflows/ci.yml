@@ -46,6 +46,11 @@ jobs:
       - name: Build
         run: pnpm -r build
 
+      # Unit tests only: pure logic, `node:test`, no service of any kind.
+      # Everything that needs Keycloak or PostgreSQL is the `verify` job below.
+      - name: Test
+        run: pnpm -r test
+
   verify:
     name: End-to-end verification
     runs-on: ubuntu-24.04
