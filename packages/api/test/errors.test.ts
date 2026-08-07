@@ -38,13 +38,23 @@ describe('mapSqlState', () => {
     assert.equal(mapSqlState('ECONNREFUSED'), null)
   })
 
-  it('ignores anything that is not a five-character uppercase code', () => {
+  it('ignores anything that is not one of the codes it maps', () => {
     assert.equal(mapSqlState(undefined), null)
     assert.equal(mapSqlState(23505), null)
     assert.equal(mapSqlState('2350'), null)
     assert.equal(mapSqlState('235055'), null)
     // pg always reports SQLSTATE in upper case.
     assert.equal(mapSqlState('22p02'), null)
+  })
+
+  it('does not answer with something inherited from Object.prototype', () => {
+    // The reason the table is a Map: an object literal answers
+    // `map['toString']` with the inherited function, which is truthy, and the
+    // error handler would then read `statusCode` off it and reply with
+    // `undefined`.
+    assert.equal(mapSqlState('toString'), null)
+    assert.equal(mapSqlState('constructor'), null)
+    assert.equal(mapSqlState('__proto__'), null)
   })
 
   it('never returns a message carrying schema internals', () => {

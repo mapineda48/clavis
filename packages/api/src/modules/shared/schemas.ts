@@ -36,8 +36,13 @@ export function registerSharedSchemas(app: FastifyInstance): void {
   app.addSchema(errorEnvelope)
 }
 
-/** The error envelope, as a route's `response` entry refers to it. */
-export const ErrorResponse = { $ref: `${ERROR_RESPONSE_ID}#` }
+/**
+ * The error envelope, as a route's `response` entry refers to it.
+ *
+ * Not exported: every route reaches it through `errorResponses(...)` below, and
+ * an exported alternative is an invitation to hand-build the map again.
+ */
+const ErrorResponse = { $ref: `${ERROR_RESPONSE_ID}#` }
 
 /**
  * The `response` entries for a set of error statuses:
