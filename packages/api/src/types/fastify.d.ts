@@ -31,10 +31,18 @@ declare module 'fastify' {
       client: Redis
       get<T>(key: string): Promise<T | null>
       set(key: string, value: unknown, ttlSeconds?: number): Promise<void>
-      /** Current version of the namespace (created at 1 when missing). */
-      version(namespace: string): Promise<number>
-      /** INCR of the version: invalidates every derived key. */
-      bumpVersion(namespace: string): Promise<number>
+      /**
+       * Current version of the namespace (created at 1 when missing).
+       * `null` when it could not be read: fail closed and bypass the cache
+       * rather than compose a key from a guessed version.
+       */
+      version(namespace: string): Promise<number | null>
+      /**
+       * INCR of the version: invalidates every derived key.
+       * `null` when the invalidation was lost even after a retry — logged at
+       * `error`, because stale entries then survive until their TTL.
+       */
+      bumpVersion(namespace: string): Promise<number | null>
       ping(): Promise<boolean>
     }
 

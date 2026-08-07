@@ -120,13 +120,23 @@ export const authPlugin = fp(
 
       // Cache first: the key embeds the namespace version, so bumping the
       // namespace after any role/override mutation makes every entry stale.
+      //
+      // A `null` version means the version could not be read, and without it
+      // there is no way to tell a fresh entry from one that predates several
+      // invalidations. The request is then resolved from Postgres and nothing
+      // is written back: slower, but never with permissions that were revoked.
       const version = await app.cache.version(ACCESS_NAMESPACE)
-      const cacheKey = accessCacheKey(version, sub)
-      let access = await app.cache.get<AccessContext>(cacheKey)
-      if (access === null) {
+      let access: AccessContext | null
+      if (version === null) {
         access = await loadAccessContext(app.db, sub)
-        if (access !== null) {
-          await app.cache.set(cacheKey, access, env.CACHE_TTL_SECONDS)
+      } else {
+        const cacheKey = accessCacheKey(version, sub)
+        access = await app.cache.get<AccessContext>(cacheKey)
+        if (access === null) {
+          access = await loadAccessContext(app.db, sub)
+          if (access !== null) {
+            await app.cache.set(cacheKey, access, env.CACHE_TTL_SECONDS)
+          }
         }
       }
 

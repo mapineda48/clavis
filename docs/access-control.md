@@ -396,7 +396,15 @@ very next request**, from any client, with the same token. `verify-api.sh` asser
 > reproduce. The bump belongs next to the audit write, not in the handler's happy path.
 
 Cache failures degrade to a miss rather than an error: if Valkey is down, every request resolves
-from PostgreSQL.
+from PostgreSQL. Degrading is not guessing, though, and the version is where the difference
+matters:
+
+- **`version()` returns `null` when it could not be read**, and `authenticate` then goes straight
+  to PostgreSQL and writes nothing back. Answering `1` instead would compose a `v1` key, and a
+  surviving `v1` entry can hold permissions that several bumps ago took away.
+- **`bumpVersion()` retries once and, if it still fails, returns `null` and logs at `error`.** A
+  lost invalidation leaves every derived entry readable until its TTL expires, which is exactly
+  the window a revoke is supposed to close.
 
 ---
 
