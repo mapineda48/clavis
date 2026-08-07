@@ -6,6 +6,7 @@ import type { FastifyPluginAsync } from 'fastify'
 import type {} from '@fastify/swagger'
 import { ACCESS_NAMESPACE, contextHasPermission } from '../../lib/access.js'
 import { AppError, badRequest, conflict, forbidden, notFound } from '../../lib/errors.js'
+import { mutate } from '../../lib/mutate.js'
 import { KeycloakAdminError } from '../../plugins/keycloak-admin.js'
 import { recordAudit } from '../shared/audit.js'
 import { ErrorResponse } from '../shared/schemas.js'
@@ -290,17 +291,26 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
       }
 
       try {
-        // The two statements belong together, so they share one transaction.
-        // The Keycloak calls above are deliberately outside it: no network I/O
-        // to another system while a transaction is open.
-        await app.db.tx(async (client) => {
-          await insertUser(client, {
-            id: keycloakId,
-            username,
-            email,
-            displayName: body.displayName,
-            roles,
-          })
+        // The row, its roles and the audit entry share one transaction. The
+        // Keycloak calls are deliberately outside it: no network I/O to another
+        // system while a transaction is open.
+        await mutate(app, {
+          run: (client) =>
+            insertUser(client, {
+              id: keycloakId,
+              username,
+              email,
+              displayName: body.displayName,
+              roles,
+            }),
+          audit: () => ({
+            actorId: request.auth.sub,
+            action: 'user.created',
+            entity: 'user',
+            entityId: keycloakId,
+            payload: { username, email, roles, credentialMode: body.credentialMode },
+          }),
+          invalidate: ACCESS_NAMESPACE,
         })
       } catch (error) {
         // Compensation: without the application row the Keycloak user is an
@@ -322,19 +332,6 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
           request.log.warn({ err: error, keycloakId }, 'The invitation email could not be sent')
         }
       }
-
-      await recordAudit(
-        app.db,
-        {
-          actorId: request.auth.sub,
-          action: 'user.created',
-          entity: 'user',
-          entityId: keycloakId,
-          payload: { username, email, roles, credentialMode: body.credentialMode },
-        },
-        request.log,
-      )
-      await app.cache.bumpVersion(ACCESS_NAMESPACE)
 
       const created = await findUser(app.db, keycloakId)
       if (!created) throw new AppError(500, 'INTERNAL_ERROR', 'The user vanished after creation.')
@@ -400,33 +397,30 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
         }
       }
 
-      await app.db.tx(async (client) => {
-        if (body.displayName !== undefined || body.status !== undefined) {
-          await client.query(
-            `UPDATE clavis.users
-                SET display_name = COALESCE($2, display_name),
-                    status = COALESCE($3, status)
-              WHERE id = $1`,
-            [existing.id, body.displayName ?? null, body.status ?? null],
-          )
-        }
-        if (body.roles !== undefined) {
-          await replaceRoles(client, existing.id, [...new Set(body.roles)])
-        }
-      })
-
-      await recordAudit(
-        app.db,
-        {
+      await mutate(app, {
+        run: async (client) => {
+          if (body.displayName !== undefined || body.status !== undefined) {
+            await client.query(
+              `UPDATE clavis.users
+                  SET display_name = COALESCE($2, display_name),
+                      status = COALESCE($3, status)
+                WHERE id = $1`,
+              [existing.id, body.displayName ?? null, body.status ?? null],
+            )
+          }
+          if (body.roles !== undefined) {
+            await replaceRoles(client, existing.id, [...new Set(body.roles)])
+          }
+        },
+        audit: () => ({
           actorId: request.auth.sub,
           action: 'user.updated',
           entity: 'user',
           entityId: existing.id,
           payload: { changes: body },
-        },
-        request.log,
-      )
-      await app.cache.bumpVersion(ACCESS_NAMESPACE)
+        }),
+        invalidate: ACCESS_NAMESPACE,
+      })
 
       const updated = await findUser(app.db, existing.id)
       if (!updated) throw notFound('User not found.')
@@ -478,20 +472,17 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
           mapKeycloakError(error)
         }
       }
-      await app.db.query(`DELETE FROM clavis.users WHERE id = $1`, [existing.id])
-
-      await recordAudit(
-        app.db,
-        {
+      await mutate(app, {
+        run: (client) => client.query(`DELETE FROM clavis.users WHERE id = $1`, [existing.id]),
+        audit: () => ({
           actorId: request.auth.sub,
           action: 'user.deleted',
           entity: 'user',
           entityId: existing.id,
           payload: { username: existing.username },
-        },
-        request.log,
-      )
-      await app.cache.bumpVersion(ACCESS_NAMESPACE)
+        }),
+        invalidate: ACCESS_NAMESPACE,
+      })
 
       return reply.code(204).send()
     },
@@ -535,17 +526,16 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
         request.log.warn({ err: error, userId: existing.id }, 'The invitation email could not be sent')
       }
 
-      await recordAudit(
-        app.db,
-        {
-          actorId: request.auth.sub,
-          action: 'user.invite_resent',
-          entity: 'user',
-          entityId: existing.id,
-          payload: { sent: invite.sent },
-        },
-        request.log,
-      )
+      // Not a `mutate`: nothing is written but the audit row itself, and
+      // nothing derives from it, so there is no transaction and no namespace
+      // to invalidate.
+      await recordAudit(app.db, {
+        actorId: request.auth.sub,
+        action: 'user.invite_resent',
+        entity: 'user',
+        entityId: existing.id,
+        payload: { sent: invite.sent },
+      })
 
       return { invite }
     },

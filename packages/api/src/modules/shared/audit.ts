@@ -1,6 +1,11 @@
 // Audit trail of the domain writes.
-// It must never bring the request down: if the INSERT fails a warning is logged and we move on.
-import type { FastifyBaseLogger } from 'fastify'
+//
+// The insert runs on the caller's executor and its errors PROPAGATE. Inside
+// `lib/mutate.ts` that executor is the transaction client, so the audit row and
+// the write it describes commit together or not at all: a trail that can
+// silently miss a privileged change is not a trail. The trade is deliberate —
+// an `audit_log` insert failure now fails the user's write, and in an
+// access-control system an unaudited privileged write is the worse of the two.
 import type { Executor } from '../../lib/executor.js'
 
 /** Entry persisted into `clavis.audit_log`. */
@@ -17,28 +22,17 @@ export interface AuditEntry {
   payload?: Record<string, unknown>
 }
 
-/**
- * Inserts an audit row. Errors are caught and logged: the audit trail is
- * informative and must never break the response sent to the client.
- */
-export async function recordAudit(
-  db: Executor,
-  entry: AuditEntry,
-  logger?: FastifyBaseLogger,
-): Promise<void> {
-  try {
-    await db.query(
-      `INSERT INTO clavis.audit_log (actor_id, action, entity, entity_id, payload)
-       VALUES ($1, $2, $3, $4, $5::jsonb)`,
-      [
-        entry.actorId,
-        entry.action,
-        entry.entity,
-        entry.entityId ?? null,
-        JSON.stringify(entry.payload ?? {}),
-      ],
-    )
-  } catch (err) {
-    logger?.warn({ err, action: entry.action, entity: entry.entity }, 'Could not record the audit entry')
-  }
+/** Inserts an audit row on the caller's executor. Errors propagate. */
+export async function recordAudit(db: Executor, entry: AuditEntry): Promise<void> {
+  await db.query(
+    `INSERT INTO clavis.audit_log (actor_id, action, entity, entity_id, payload)
+     VALUES ($1, $2, $3, $4, $5::jsonb)`,
+    [
+      entry.actorId,
+      entry.action,
+      entry.entity,
+      entry.entityId ?? null,
+      JSON.stringify(entry.payload ?? {}),
+    ],
+  )
 }

@@ -106,6 +106,18 @@ Every one of these cost a real failure. Do not rediscover them.
   Valkey `access` namespace (versioned keys). **Every mutation of users, roles
   or overrides must `cache.bumpVersion('access')`** or the change waits out the
   TTL. `is_root` bypasses everything and root is immutable through the API.
+- Request mutations go through `mutate()` (`lib/mutate.ts`): one transaction
+  carrying the write **and** its `audit_log` row, then the bump after COMMIT.
+  So an `audit_log` insert failure fails the user's write — deliberate: in an
+  access-control system an unaudited privileged write is worse than a failed
+  one. Bumping before the commit would let a concurrent request repopulate the
+  new version with the pre-commit state.
+- **Tripwire: partition `clavis.audit_log` by month before it carries real
+  volume.** It is the only unbounded table in the schema, its
+  `created_at DESC` index is monotonic (so its rightmost page is a contention
+  point), and every domain write now waits on that insert. Retrofitting a
+  partition onto a large live table is the expensive version of this job; doing
+  it while the table is small is not.
 - Users are created FROM the app: Keycloak first (the id it assigns is the PK of
   `clavis.users`), database second, compensating delete on failure. The realm is
   re-imported with `--override` on every prod deploy, so app-created Keycloak

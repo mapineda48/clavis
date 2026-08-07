@@ -387,8 +387,7 @@ their own.
 > **The rule: every mutation that can change somebody's permissions bumps the namespace.**
 
 That is: creating, updating and deleting users, replacing overrides, creating a role, replacing
-a role's permissions, deleting a role, and the boot catalog sync. Each of those calls
-`app.cache.bumpVersion(ACCESS_NAMESPACE)` after its transaction commits.
+a role's permissions, deleting a role, and the boot catalog sync.
 
 The observable contract is the point of the whole design: **a permission change applies on the
 very next request**, from any client, with the same token. `verify-api.sh` asserts exactly that
@@ -396,7 +395,26 @@ very next request**, from any client, with the same token. `verify-api.sh` asser
 
 > **Trap.** Adding a mutating route and forgetting the bump produces a bug that is invisible for
 > up to `CACHE_TTL_SECONDS` and then fixes itself, which is the hardest possible shape to
-> reproduce. The bump belongs next to the audit write, not in the handler's happy path.
+> reproduce.
+
+That is why the seven request mutations do not each remember to do it. They all go through
+`mutate()` (`packages/api/src/lib/mutate.ts`), which is the whole convention in one place:
+
+1. open `app.db.tx()`;
+2. run the write on that client;
+3. insert the `audit_log` row **on the same client**, inside the same transaction;
+4. COMMIT;
+5. **then** `bumpVersion`.
+
+Each step earns its position. The audit row is inside the transaction because it used to run
+after the commit and swallow its own errors, so the trail could silently miss a change that is
+permanently in the database — the exact failure an audit trail exists to rule out. They now
+commit together or not at all, which means **an `audit_log` insert failure fails the user's
+write**: a deliberate trade, since an unaudited privileged write is worse than a failed one.
+The bump is after COMMIT because bumping first opens a window in which a concurrent request
+repopulates the new version with the pre-commit state — precisely the staleness it exists to
+prevent. And `invalidate` is a required field rather than an optional one, so adding a mutation
+forces its author to decide rather than forget.
 
 Cache failures degrade to a miss rather than an error: if Valkey is down, every request resolves
 from PostgreSQL. Degrading is not guessing, though, and the version is where the difference
