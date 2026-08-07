@@ -36,7 +36,9 @@ jobs:
             dockerfile: packages/api/Dockerfile
           - name: app
             dockerfile: packages/app/Dockerfile
-          - name: keycloak
+          # Published as `auth` to match the public surface (app/api/auth);
+          # what it runs is Keycloak, built from infra/keycloak.
+          - name: auth
             dockerfile: infra/keycloak/Dockerfile
     steps:
       - name: Checkout
@@ -118,7 +120,7 @@ jobs:
       - name: Assemble digests.json
         run: |
           repo=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')
-          for image in api app keycloak; do
+          for image in api app auth; do
             test -s "digests/$image" || { echo "missing digest for $image"; exit 1; }
           done
           jq -n \
@@ -126,13 +128,13 @@ jobs:
             --arg registry "ghcr.io/$repo" \
             --arg api "$(cat digests/api)" \
             --arg app "$(cat digests/app)" \
-            --arg keycloak "$(cat digests/keycloak)" \
+            --arg auth "$(cat digests/auth)" \
             '{
                commit: $commit,
                images: {
-                 api:      "\($registry)/api@\($api)",
-                 app:      "\($registry)/app@\($app)",
-                 keycloak: "\($registry)/keycloak@\($keycloak)"
+                 api:  "\($registry)/api@\($api)",
+                 app:  "\($registry)/app@\($app)",
+                 auth: "\($registry)/auth@\($auth)"
                }
              }' > digests.json
           cat digests.json
