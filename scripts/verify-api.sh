@@ -13,11 +13,14 @@
 # proves the cache invalidation: a change must be visible on the very next
 # request, not a token refresh later.
 #
-# The last two sections check the boundaries that are not about having a
+# The last three sections check the boundaries that are not about having a
 # permission at all: that a revoke override beats the role granting the same
 # permission, and the guards that sit BEHIND a permission the caller does hold
-# — role assignment needs `access:manage` on create as well as on update, and
-# nobody edits their own roles, status, overrides or account.
+# — role assignment needs `access:manage` on create as well as on update,
+# nobody edits their own roles, status, overrides or account, and no caller
+# hands out a permission they do not hold themselves. Two of the cases in that
+# last section are escalations that were live: they must fail against the code
+# that shipped before the privilege-delta guard, or they are testing nothing.
 # =============================================================================
 set -uo pipefail
 # shellcheck source=scripts/_common.sh
@@ -32,6 +35,9 @@ BOT_USER="verify.bot"
 BOT_EMAIL="verify.bot@clavis.local"
 BOT_PASSWORD="VerifyBot123!"
 BOT_ROLE="verify-auditors"
+# A second role, created by the throwaway user rather than by root: the
+# privilege-delta section needs a role somebody other than root authored.
+BOT_ROLE2="verify-delegated"
 # A second user, never logged in: something for the first one to try to edit
 # that is neither root (immutable) nor itself (self-modification), so a refusal
 # can only be about the permission being tested.
@@ -93,6 +99,7 @@ items = json.load(sys.stdin)['items']
 print(' '.join(u['id'] for u in items if u['username'] in ('$BOT_USER', '$BOT2_USER', '$BOT3_USER')))")
 for old_id in $OLD_IDS; do api DELETE "/api/users/$old_id" "$T_ROOT"; done
 api DELETE "/api/access/roles/$BOT_ROLE" "$T_ROOT"
+api DELETE "/api/access/roles/$BOT_ROLE2" "$T_ROOT"
 
 api POST /api/users "$T_ROOT" "{\"email\": \"$BOT_EMAIL\", \"displayName\": \"Verification Bot\", \"username\": \"$BOT_USER\", \"credentialMode\": \"temporary_password\", \"temporaryPassword\": \"$BOT_PASSWORD\"}"
 CREATED="$API_BODY"
@@ -237,6 +244,12 @@ chk "$(printf '%s' "$API_BODY" | jget error.code)" SELF_MODIFICATION "refused as
 # The overrides route reaches further than PATCH does — it writes permission
 # keys one by one — so it carries the same self check. Granting access:manage
 # is what makes the refusal come from that check and not from the permission.
+#
+# The key being self-granted is `audit:read` on purpose: the user already holds
+# it through $BOT_ROLE, so the privilege-delta check that runs ahead of the self
+# check (section 13) has nothing to object to and the refusal can only be about
+# the target being the caller. Grant an unheld key here and the answer becomes
+# PRIVILEGE_ESCALATION, which would be a correct refusal for the wrong reason.
 api PUT "/api/access/users/$BOT_ID/overrides" "$T_ROOT" '{"overrides": [{"permissionKey": "access:manage", "effect": "grant"}]}'
 chk "$API_STATUS" 200 "the first user is granted access:manage"
 api PUT "/api/access/users/$BOT_ID/overrides" "$T_BOT" '{"overrides": [{"permissionKey": "audit:read", "effect": "grant"}]}'
@@ -244,12 +257,102 @@ chk "$API_STATUS" 403 "rewriting your own overrides"
 chk "$(printf '%s' "$API_BODY" | jget error.code)" SELF_MODIFICATION "refused as a self-modification"
 
 echo
-echo "=== 13. Cleanup ==="
+echo "=== 13. Nobody hands out a permission they do not hold ==="
+# The guard that replaced the identity check as the PRIMARY one. `assertNotSelf`
+# answers "are you editing yourself?" — answerable about one of the three tables
+# feeding the effective union, silent about the other two, and defeated by two
+# accounts editing each other. This rule is stated over the permission set
+# instead: an actor may only introduce a capability they already hold, whoever
+# the target is and whichever table the write lands in.
+#
+# The first two cases below were LIVE escalations, reproduced against a running
+# stack. They answer 200 on the code that shipped before this guard. A green run
+# of this section means nothing unless it is red against that code.
+api PUT "/api/access/users/$BOT_ID/overrides" "$T_ROOT" '{"overrides": [{"permissionKey": "access:manage", "effect": "grant"}, {"permissionKey": "users:update", "effect": "grant"}, {"permissionKey": "users:create", "effect": "grant"}]}'
+chk "$API_STATUS" 200 "the first user is granted access:manage, users:update and users:create"
+api GET /api/me "$T_BOT"
+HELD=$(printf '%s' "$API_BODY" | python3 -c "import sys, json
+print(','.join(sorted(json.load(sys.stdin)['permissions'])))")
+chk "$HELD" "access:manage,audit:read,users:create,users:update" "and holds exactly those plus audit:read from the role"
+
+# --- Live escalation 1: a self-override addressed with a case-varied uuid.
+# PostgreSQL resolves 'A1B2…'::uuid and 'a1b2…'::uuid to the same row, so this
+# id reaches the caller's own account while a string comparison sees somebody
+# else — which is how one request used to write the whole catalog onto it. The
+# delta rule does not ask whose row it is, so the trick buys nothing.
+UPPER_ID=$(printf '%s' "$BOT_ID" | tr 'a-f' 'A-F')
+api PUT "/api/access/users/$UPPER_ID/overrides" "$T_BOT" '{"overrides": [{"permissionKey": "audit:read", "effect": "grant"}, {"permissionKey": "users:read", "effect": "grant"}, {"permissionKey": "users:delete", "effect": "grant"}]}'
+chk "$API_STATUS" 403 "granting yourself the catalog through a case-varied uuid"
+chk "$(printf '%s' "$API_BODY" | jget error.code)" PRIVILEGE_ESCALATION "refused as a privilege escalation"
+api GET /api/me "$T_BOT"
+ESCALATED=$(printf '%s' "$API_BODY" | python3 -c "import sys, json
+perms = json.load(sys.stdin)['permissions']
+print('unchanged' if 'users:delete' not in perms else 'ESCALATED')")
+chk "$ESCALATED" unchanged "and wrote nothing"
+
+# --- Live escalation 2: raise a non-system role you hold. There is no self-id
+# anywhere in this request, which is exactly why an identity-keyed check never
+# saw it: role_permissions is the first branch of the union, so raising the role
+# raises every holder — the caller included.
+api PUT "/api/access/roles/$BOT_ROLE/permissions" "$T_BOT" '{"permissions": ["audit:read", "users:read", "users:delete"]}'
+chk "$API_STATUS" 403 "raising a role you hold beyond your own permissions"
+chk "$(printf '%s' "$API_BODY" | jget error.code)" PRIVILEGE_ESCALATION "refused as a privilege escalation"
+api GET /api/me "$T_BOT"
+ESCALATED=$(printf '%s' "$API_BODY" | python3 -c "import sys, json
+perms = json.load(sys.stdin)['permissions']
+print('unchanged' if 'users:delete' not in perms else 'ESCALATED')")
+chk "$ESCALATED" unchanged "and wrote nothing"
+
+# --- It is a DELTA, not a ban. These sets are replaced whole, so a rule stated
+# over the result would stop an administrator trimming a role, or even resaving
+# an unchanged one, whenever the role carried anything they lack.
+api PUT "/api/access/roles/$BOT_ROLE/permissions" "$T_BOT" '{"permissions": ["audit:read", "access:manage"]}'
+chk "$API_STATUS" 200 "adding to that same role a key you DO hold"
+api PUT "/api/access/roles/$BOT_ROLE/permissions" "$T_BOT" '{"permissions": ["audit:read"]}'
+chk "$API_STATUS" 200 "and reducing it again"
+
+# --- The same rule on the other writers of the union. Delegating what you hold
+# still works, which is the honest bound: two accounts can pool what they have
+# between them, and no more.
+api PUT "/api/access/users/$BOT2_ID/overrides" "$T_BOT" '{"overrides": [{"permissionKey": "audit:read", "effect": "grant"}]}'
+chk "$API_STATUS" 200 "granting another user a permission you hold"
+api PUT "/api/access/users/$BOT2_ID/overrides" "$T_BOT" '{"overrides": [{"permissionKey": "users:delete", "effect": "grant"}]}'
+chk "$API_STATUS" 403 "granting another user one you do not"
+chk "$(printf '%s' "$API_BODY" | jget error.code)" PRIVILEGE_ESCALATION "refused as a privilege escalation"
+
+# Assigning a role grants everything it carries, and `admin` carries the whole
+# catalog. This is the `users:create` + `access:manage` path the docs used to
+# concede: promote an account into `admin`, or create one already holding it
+# with a password you chose, and sign in as it.
+api PATCH "/api/users/$BOT2_ID" "$T_BOT" '{"roles": ["admin"]}'
+chk "$API_STATUS" 403 "assigning a role that carries more than you hold"
+chk "$(printf '%s' "$API_BODY" | jget error.code)" PRIVILEGE_ESCALATION "refused as a privilege escalation"
+api POST /api/users "$T_BOT" "{\"email\": \"$BOT3_EMAIL\", \"displayName\": \"Escalation Attempt\", \"username\": \"$BOT3_USER\", \"credentialMode\": \"temporary_password\", \"temporaryPassword\": \"$BOT_PASSWORD\", \"roles\": [\"admin\"]}"
+chk "$API_STATUS" 403 "creating an account that already carries it"
+chk "$(printf '%s' "$API_BODY" | jget error.code)" PRIVILEGE_ESCALATION "refused as a privilege escalation"
+api GET '/api/users?limit=500' "$T_ROOT"
+LEFTOVER=$(printf '%s' "$API_BODY" | python3 -c "import sys, json
+items = json.load(sys.stdin)['items']
+print('absent' if all(u['username'] != '$BOT3_USER' for u in items) else 'present')")
+chk "$LEFTOVER" absent "the refusal came before Keycloak, so no user was left behind"
+
+# A role is created empty, so its whole initial set is what it adds. Without
+# this the rule would be one hop away from useless: mint the role, then assign it.
+api POST /api/access/roles "$T_BOT" "{\"slug\": \"$BOT_ROLE2\", \"name\": \"Escalation Attempt\", \"permissions\": [\"users:delete\"]}"
+chk "$API_STATUS" 403 "creating a role carrying a permission you do not hold"
+chk "$(printf '%s' "$API_BODY" | jget error.code)" PRIVILEGE_ESCALATION "refused as a privilege escalation"
+api POST /api/access/roles "$T_BOT" "{\"slug\": \"$BOT_ROLE2\", \"name\": \"Delegated auditors\", \"permissions\": [\"audit:read\"]}"
+chk "$API_STATUS" 201 "creating one that stays within them"
+
+echo
+echo "=== 14. Cleanup ==="
 api DELETE "/api/users/$BOT_ID" "$T_ROOT"
 chk "$API_STATUS" 204 "throwaway user deleted"
 api DELETE "/api/users/$BOT2_ID" "$T_ROOT"
 chk "$API_STATUS" 204 "second throwaway user deleted"
 api DELETE "/api/access/roles/$BOT_ROLE" "$T_ROOT"
 chk "$API_STATUS" 204 "throwaway role deleted"
+api DELETE "/api/access/roles/$BOT_ROLE2" "$T_ROOT"
+chk "$API_STATUS" 204 "the role the throwaway user created deleted too"
 
 summary "API"
