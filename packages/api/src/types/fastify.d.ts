@@ -1,7 +1,10 @@
+import type { PermissionKey } from '@clavis/shared'
 import type { preHandlerHookHandler } from 'fastify'
 import type { Redis } from 'ioredis'
 import type { Pool, PoolClient, QueryResult, QueryResultRow } from 'pg'
-import type { AuthContext, Permission } from '../lib/permissions.js'
+import type { AccessContext } from '../lib/access.js'
+import type { AuthContext } from '../plugins/auth.js'
+import type { KeycloakCreateUser, KeycloakUser } from '../plugins/keycloak-admin.js'
 
 /**
  * Fastify declaration merging: this is where the types of every decorator
@@ -9,11 +12,11 @@ import type { AuthContext, Permission } from '../lib/permissions.js'
  */
 declare module 'fastify' {
   interface FastifyInstance {
-    /** Verifies the Bearer token and fills `request.auth`. */
+    /** Verifies the Bearer token, resolves the access context and fills `request.auth`/`request.access`. */
     authenticate: preHandlerHookHandler
 
-    /** Demands every listed permission (logical AND); answers 403 if any is missing. */
-    requirePermissions(...perms: Permission[]): preHandlerHookHandler
+    /** Demands every listed permission (logical AND); answers 403 if any is missing. Root bypasses. */
+    requirePermissions(...perms: PermissionKey[]): preHandlerHookHandler
 
     /** Access to PostgreSQL. */
     db: {
@@ -43,6 +46,21 @@ declare module 'fastify' {
       ping(): Promise<boolean>
     }
 
+    /** Keycloak Admin REST client (service account of the confidential client). */
+    keycloakAdmin: {
+      /** Bounded wait until the service account can authenticate. */
+      ready(attempts?: number, retryMs?: number): Promise<void>
+      /** Creates a realm user and returns the id Keycloak assigned. */
+      createUser(user: KeycloakCreateUser): Promise<string>
+      findUserByUsername(username: string): Promise<KeycloakUser | null>
+      getUser(id: string): Promise<KeycloakUser>
+      setPassword(id: string, value: string, temporary: boolean): Promise<void>
+      /** Sends the required-actions email (e.g. UPDATE_PASSWORD) for the user. */
+      sendExecuteActionsEmail(id: string, actions: string[]): Promise<void>
+      setEnabled(id: string, enabled: boolean): Promise<void>
+      deleteUser(id: string): Promise<void>
+    }
+
     /** Email delivery (Resend or dry-run mode). */
     mailer: {
       enabled: boolean
@@ -58,7 +76,10 @@ declare module 'fastify' {
   }
 
   interface FastifyRequest {
-    /** Context of the authenticated user; available after `fastify.authenticate`. */
+    /** Token identity of the caller; available after `fastify.authenticate`. */
     auth: AuthContext
+
+    /** What the caller may do, resolved from the database; available after `fastify.authenticate`. */
+    access: AccessContext
   }
 }

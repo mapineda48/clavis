@@ -1,28 +1,22 @@
 # Clavis
 
-**Clavis** (Latin for *key*) is a **working, reproducible** access-control lab: a small
-task-management application whose access control lives entirely in **Keycloak**. The application
-stores no passwords, defines no users and decides no roles: it only reads the permissions that
-arrive signed inside the *access token*.
+**Clavis** (Latin for *key*) is a **working, reproducible** access-control lab. Keycloak
+authenticates: it owns credentials, sessions and password recovery. The application authorises:
+it owns users, roles, permissions and per-user exceptions, in its own PostgreSQL schema. The
+token proves **who** you are and carries no permissions at all.
 
 The whole stack comes up with `docker compose` and behaves the same on every machine: pinned
 versions, images with exact tags, a realm imported declaratively and database migrations
 versioned with checksums.
-
-![Sign-in screen of the lab](docs/img/login.png)
-
-> The login screen is a **custom Freemarker theme**, not Keycloak's. The cheat sheet on the left
-> lists the three demo users with their permissions and fills the form when you press "Use": the
-> whole point of the lab is that you compare, on the same screen, what changes depending on who
-> you sign in as.
 
 ---
 
 > [!WARNING]
 > **This is a learning lab, not a production template.**
 >
-> - The credentials in `.env.example` (`Admin123!`, `clavis_dev_password`, `clavis_api_dev_secret`…)
->   are **local development values in plain sight for everyone**. Never reuse them.
+> - The credentials in `.env.example` (`Root123!`, `admin_dev_password`, `clavis_dev_password`,
+>   `clavis_api_dev_secret`…) are **local development values in plain sight for everyone**.
+>   Never reuse them.
 > - The realm uses `sslRequired: "none"` and Keycloak runs in `start-dev`: no HTTPS, the admin
 >   console wide open on `localhost:8080`, and no theme cache.
 > - `bruteForceProtected` is off and sessions are long, so a demo never gets interrupted.
@@ -34,34 +28,45 @@ versioned with checksums.
 
 ## What it demonstrates
 
-- **OIDC + PKCE `S256`** from a React SPA against a public client (`clavis-app`).
-- **Business roles kept apart from technical permissions**: the realm roles
-  (`clavis-user`, `clavis-manager`, `clavis-admin`) are *composite* and pull in *client roles* of
-  `clavis-api` that act as fine-grained permissions (`todos:read`, `todos:delete`, `admin:manage`,
-  …). Adding a permission does not force you to reassign users.
-- **Token validation in the backend without a Keycloak library**: `jose` + remote JWKS, checking
-  `iss` and `aud`.
-- **Real authorization on the server** (`requirePermissions`) and **cosmetic authorization in the
-  client** (`<Can perm="…">`): the UI hides, the API forbids.
-- **Row-level visibility rules**: without `todos:read:all` you only see what is yours or what has
-  been assigned to you; with that permission you see everything.
-- **JIT user provisioning**: the first authenticated request creates/updates the row in
-  `clavis.users` using the token's `sub` as primary key.
-- **Custom Freemarker login theme**: split screen with the demo user cheat sheet, inheriting from
-  `base` and with no external dependencies ([detail](#custom-login-theme)).
-- **Complete "I forgot my password" flow**: sent by Keycloak over SMTP, with the screens **and
-  the email** styled by that same theme
-  ([detail](#password-reset-i-forgot-my-password)).
-- **English and Spanish on both front ends**, English by default
-  ([detail](#interface-language)).
-- Supporting infrastructure: **PostgreSQL 17**, **Valkey** (cache invalidated by version),
-  **Azurite** (attachments in blob storage) and **Resend** (email, with a *dry-run* mode).
+- **Authentication by Keycloak, authorization by the application.** OIDC + PKCE `S256` from a
+  React SPA against a public client (`clavis-app`), and a token that is an identity document —
+  no roles, no permissions, nothing to keep in sync with the product.
+- **A permission model that lives in the database.** Roles are sets of permission keys,
+  per-user `grant` / `revoke` exceptions sit on top, and `revoke` wins. A change applies **on
+  the very next request**: no token refresh, no sign-out.
+- **The catalog is code.** `PERMISSION_DEFS` in `@clavis/shared` is the single source of truth
+  for which permission keys exist; the API syncs it into the database at boot and both packages
+  import the same `PermissionKey` union, so a typo is a compile error.
+- **The full user lifecycle, driven from the application.** A user is created from the Users
+  screen: the API registers them in Keycloak first (through the API client's service account),
+  keeps the id Keycloak assigns as its own primary key, and offers either a temporary password
+  or an emailed invitation.
+- **Permission-driven navigation.** One `NAV_ITEMS` manifest feeds both the sidebar and the
+  route guards, so a user without a permission does not see a disabled link — they see a
+  shorter menu, and the direct URL redirects too.
+- **Token validation without a Keycloak library**: `jose` + remote JWKS, checking `iss`, `aud`
+  and `exp`.
+- **Custom Freemarker login theme**, inheriting from `base` with no external dependencies
+  ([detail](#custom-login-theme)).
+- **Complete "I forgot my password" flow**, sent by Keycloak over SMTP, with the screens **and
+  the email** styled by that same theme ([detail](#password-reset-i-forgot-my-password)).
+- **English and Spanish on both front ends**, English by default ([detail](#interface-language)).
+- Supporting infrastructure: **PostgreSQL 17**, **Valkey** (access contexts cached by namespace
+  version), **Azurite** (blob storage, wired and health-checked) and **Resend** (email, with a
+  *dry-run* mode).
 
 Detailed documentation:
 
-- [`docs/architecture.md`](docs/architecture.md) — monorepo, components, database, cache and storage.
-- [`docs/authentication.md`](docs/authentication.md) — roles, permissions, token contents and how to add a new permission.
-- [`docs/operations.md`](docs/operations.md) — day-to-day commands, inspection and troubleshooting.
+- [`docs/access-control.md`](docs/access-control.md) — **the source of truth**: the permission
+  model, the data model, and how to add a permission end to end.
+- [`docs/authentication.md`](docs/authentication.md) — what Keycloak does: clients, the OIDC
+  flow, token validation, first login and password reset.
+- [`docs/architecture.md`](docs/architecture.md) — monorepo, components, database, cache and
+  storage.
+- [`docs/operations.md`](docs/operations.md) — day-to-day commands, inspection and
+  troubleshooting.
+- [`docs/deployment.md`](docs/deployment.md) — how the lab runs on a real host, and every trap
+  that cost a failure getting there.
 
 ---
 
@@ -107,7 +112,7 @@ echo "Keycloak ready"
 pnpm --filter @clavis/app dev
 ```
 
-7. Open **<http://localhost:5173>** and sign in with any of the [demo users](#demo-users).
+7. Open **<http://localhost:5173>** and sign in as [root](#the-root-account).
 
 Quick check that the backend is complete:
 
@@ -146,64 +151,97 @@ In that mode the frontend configuration does not travel inside the bundle: nginx
 | SPA in development (Vite) | <http://localhost:5173> | `pnpm --filter @clavis/app dev` |
 | Compiled SPA (nginx, `full` profile) | <http://localhost:8081> | Only with `--profile full` |
 | PostgreSQL | `localhost:5432` | Databases `clavis` (application) and `keycloak` (identity) |
-| Valkey | `localhost:6379` | Cache for todo listings |
+| Valkey | `localhost:6379` | Cache of resolved access contexts |
 | Azurite — Blob | `http://localhost:10000/devstoreaccount1` | Container `clavis-attachments` |
 | Azurite — Queue | `localhost:10001` | Unused, exposed for completeness |
 | Azurite — Table | `localhost:10002` | Unused, exposed for completeness |
 
 ---
 
-## Demo users
+<a id="the-root-account"></a>
 
-The three users are created declaratively when the realm is imported. **Their passwords are in
-`.env.example`** (variables `DEMO_ADMIN_PASSWORD`, `DEMO_MANAGER_PASSWORD`,
-`DEMO_USER_PASSWORD`); they are deliberately not repeated here, so that the environment file
-stays the only place where they live.
+## The root account
 
-| User | Realm role | Effective permissions (client roles of `clavis-api`) | What they can do in the demo |
-|---|---|---|---|
-| `worker` | `clavis-user` | `todos:read`, `todos:write` | See and edit **only their own** tasks and the ones assigned to them. Create, upload attachments, send email. **Cannot** delete or use `scope=all`. |
-| `manager` | `clavis-manager` | `clavis-user` + `todos:read:all`, `todos:delete`, `users:read` | Everything above + see **all** tasks (`scope=all`), delete them and list users. No administration panel. |
-| `admin` | `clavis-admin` | `clavis-manager` + `admin:manage` | Everything above + statistics and audit log (`/api/admin/*`) and the Administration section of the SPA. |
+A fresh stack has **exactly one account**: `root`. Nothing is pre-seeded and the realm imports no
+people at all — everybody else is created from inside the application.
 
-All three are created with `emailVerified: true`, `enabled: true` and a **non-temporary** password
-(no forced change on first login). The realm's default role (`default-roles-clavis`) includes
-`clavis-user`, so any new user is born with the basic permissions.
+Root is seeded by the API at boot, from `.env`:
 
-Emails: `DEMO_*_EMAIL` in `.env.example` (`admin@clavis.local`, `manager@clavis.local`,
-`worker@clavis.local`). They are fictional domains: good enough to exercise the notification flow,
-useless for receiving real mail.
+| Variable | Default in `.env.example` | What it sets |
+|---|---|---|
+| `ROOT_USERNAME` | `root` | The Keycloak username |
+| `ROOT_EMAIL` | `root@clavis.local` | Its email. **Change it to a real address** to exercise password reset |
+| `ROOT_PASSWORD` | `Root123!` | Re-applied on every boot, non-temporary |
+| `ROOT_DISPLAY_NAME` | `Root` | The display name |
+
+The password is deliberately **not repeated here**: `.env` stays the only place it lives.
+
+Root is a **column** in the database (`clavis.users.is_root`), not a role. It bypasses every
+permission check, reports the full catalog as its effective permissions, and is refused by every
+route that would edit it (`403 ROOT_IMMUTABLE`). It is break-glass: the account that creates the
+first real users and grants them the first roles. The reasoning is in
+[`docs/access-control.md`](docs/access-control.md#root).
+
+---
+
+<a id="who-decides-what"></a>
+
+## Two questions, two systems
+
+```mermaid
+flowchart LR
+    U["Browser"] -->|"1. OIDC + PKCE S256"| KC["Keycloak<br/>realm clavis"]
+    KC -->|"2. access_token<br/>sub, username, email — no permissions"| U
+    U -->|"3. Bearer token"| API["@clavis/api"]
+    API -->|"4. JWKS, internal issuer"| KC
+    API -->|"5. who is this sub?"| VK[("Valkey<br/>clavis:vN:access:user:sub")]
+    VK -.->|"miss"| PG[("PostgreSQL<br/>users · roles · overrides")]
+    API -->|"6. requirePermissions(...)"| API
+    API -->|"7. 200 / 403"| U
+```
+
+| Question | Answered by | Where the answer lives |
+|---|---|---|
+| **Who are you?** | Keycloak | The signed token: `sub`, `preferred_username`, `email` |
+| **What may you do?** | The application | `clavis.users`, `clavis.roles`, `clavis.user_permission_overrides` |
+
+The effective permissions of a user are `union(role permissions) ∪ grants − revokes`, with
+`is_root` short-circuiting to the whole catalog. They are resolved on **every request**, cached
+in Valkey under a versioned key, and every mutation that could change them bumps that version —
+which is what makes a permission change visible on the next call rather than after the next
+sign-in.
+
+An important detail of the wiring: the SPA gets its token from **`http://localhost:8080`**
+(public issuer), while the API downloads the JWKS from **`http://keycloak:8080`** (internal
+issuer on the Docker network). That is why there are two variables, `KEYCLOAK_ISSUER` and
+`KEYCLOAK_INTERNAL_ISSUER`, explained in
+[`docs/architecture.md`](docs/architecture.md#6-public-issuer-vs-internal-issuer).
+
+Full model in [`docs/access-control.md`](docs/access-control.md).
 
 ---
 
 ## Custom login theme
 
 The sign-in screen is **not the one Keycloak ships**: the `clavis` realm uses its own Freemarker
-theme called **`clavis`**, hand-written and free of external dependencies (no CDNs, no remote fonts).
+theme called **`clavis`**, hand-written and free of external dependencies (no CDNs, no remote
+fonts, no JavaScript of its own).
 
 ### What you see
 
 A **split screen**:
 
-- **Left** — branding panel with a gradient: inline SVG logo, the *Clavis* title, a line
-  reminding you that Keycloak governs access, three bullet points (composite roles, per-resource
-  permissions, JWT tokens) and the **demo user cheat sheet**: `admin`, `manager` and `worker`,
-  each with its realm role and its permissions as *chips*. Every card carries a button that
-  **fills in the username field** and moves focus to the password.
+- **Left** — branding panel with a gradient: inline SVG logo, the *Clavis* title, a tagline and
+  three bullet points about the access model.
 - **Right** — the card with the sign-in form, vertically centred.
 
-Below 900 px it collapses into a single column: the branding panel shrinks to a header
-(logo + title) and the cheat sheet stays reachable under the form. There is a light and a dark
-theme via `prefers-color-scheme`, and an **English/Spanish** language selector, because the realm
-is imported with `internationalizationEnabled: true`, `supportedLocales: ["en", "es"]` and
-`defaultLocale: "en"`.
+Below 900 px it collapses into a single column, with the branding panel shrinking to a header.
+There is a light and a dark theme via `prefers-color-scheme`, and an **English/Spanish** language
+selector, because the realm is imported with `internationalizationEnabled: true`,
+`supportedLocales: ["en", "es"]` and `defaultLocale: "en"`.
 
-<p align="center">
-  <img src="docs/img/login-mobile.png" alt="The same sign-in screen at 390 px wide" width="360">
-</p>
-
-> **The theme contains no passwords.** The cheat sheet only writes the username; the demo users'
-> passwords still live exclusively in `.env.example`.
+> **The theme contains no credentials and no hints.** There are no demo accounts to advertise:
+> the only account on a fresh stack is root, and its password lives in `.env` alone.
 
 To see it without going through the SPA, open <http://localhost:8080/realms/clavis/account> in a
 private window: the realm's account console demands a sign-in and uses this very theme.
@@ -212,19 +250,17 @@ private window: the realm's account console demands a sign-in and uses this very
 
 ```
 infra/keycloak/themes/clavis/
-├── theme.properties            # types=login
+├── theme.properties            # types=login,email
 ├── email/                      # password reset email (HTML + text) and its messages
 └── login/
-    ├── theme.properties        # parent=base, styles, scripts, locales and kc* class mapping
+    ├── theme.properties        # parent=base, styles, locales and kc* class mapping
     ├── template.ftl            # split-screen layout (registrationLayout macro)
-    ├── login.ftl               # sign-in form + demo user cheat sheet
+    ├── login.ftl               # sign-in form
     ├── footer.ftl  error.ftl  info.ftl
     ├── login-page-expired.ftl  logout-confirm.ftl
     ├── login-reset-password.ftl  login-update-password.ftl
     ├── messages/               # messages_en.properties + messages_es.properties
-    └── resources/
-        ├── css/clavis-login.css
-        └── js/clavis-login.js
+    └── resources/css/clavis-login.css
 ```
 
 The directory is mounted into the container from `docker-compose.yml`:
@@ -245,8 +281,8 @@ listed above. Everything else is still served by Keycloak's `base` theme:
 
 - The pages we do not touch (OTP, update password, verify email, select authenticator…) still
   look like the rest of Clavis thanks to the **property mapping**
-  (`kcInputClass=clavis-input`, `kcButtonClass=clavis-btn`, `kcAlertClass=clavis-alert`, …) declared in
-  `login/theme.properties`.
+  (`kcInputClass=clavis-input`, `kcButtonClass=clavis-btn`, `kcAlertClass=clavis-alert`, …)
+  declared in `login/theme.properties`.
 - The server's own JavaScript resources (`authChecker.js` to detect a session started in another
   tab, `menu-button-links.js`, `passwordVisibility.js`) are resolved through the inheritance
   chain: `${url.resourcesPath}/js/…` still points at the `base` theme's files.
@@ -262,10 +298,10 @@ Keycloak runs with `start-dev`, and in that mode **themes are not cached**, so t
 
 | What you change | What it takes |
 |---|---|
-| A `.ftl`, `resources/css/clavis-login.css` or `resources/js/clavis-login.js` | **Nothing**: save and reload the browser (`Ctrl+Shift+R` to skip the browser cache) |
+| A `.ftl` or `resources/css/clavis-login.css` | **Nothing**: save and reload the browser (`Ctrl+Shift+R` to skip the browser cache) |
 | Either of the two `theme.properties` | `docker compose restart keycloak` |
 | Adding a new file or directory to the theme | `docker compose restart keycloak` |
-| The value of `KEYCLOAK_LOGIN_THEME` | Re-import the realm (`docker compose down -v && docker compose up -d --build`) or apply it live with `kcadm.sh` — see [`docs/operations.md`](docs/operations.md#login-theme) |
+| The value of `KEYCLOAK_LOGIN_THEME` | Re-import the realm (`pnpm run reset && pnpm run up`) or apply it live with `kcadm.sh` — see [`docs/operations.md`](docs/operations.md#8-login-theme) |
 
 Check that the mount reached the container:
 
@@ -282,13 +318,13 @@ KEYCLOAK_LOGIN_THEME=keycloak      # or keycloak.v2; clavis to come back to the 
 ```
 
 ```bash
-docker compose down -v && docker compose up -d --build
+pnpm run reset && pnpm run up
 ```
 
 An **already imported** realm does not change its theme just because you edited the template:
-Keycloak only imports a realm that does not exist yet. If you do not want to lose the demo data,
+Keycloak only imports a realm that does not exist yet. If you do not want to lose your data,
 apply it live with `kcadm.sh` following
-[`docs/operations.md`](docs/operations.md#login-theme).
+[`docs/operations.md`](docs/operations.md#8-login-theme).
 
 ---
 
@@ -310,40 +346,6 @@ browser language, and it hands the current one to Keycloak when you sign in or o
 were already reading.
 
 ---
-
-## Authentication flow
-
-```mermaid
-sequenceDiagram
-    autonumber
-    participant U as Browser
-    participant S as SPA @clavis/app 5173
-    participant K as Keycloak realm clavis 8080
-    participant A as API @clavis/api 3000
-
-    U->>S: Opens http://localhost:5173
-    S->>K: init check-sso + PKCE S256 (client_id=clavis-app)
-    K-->>S: No session
-    U->>S: Clicks "Sign in with Keycloak"
-    S->>K: /protocol/openid-connect/auth (code + code_challenge)
-    U->>K: Demo user credentials
-    K-->>S: Redirect with authorization code
-    S->>K: /protocol/openid-connect/token (code + code_verifier)
-    K-->>S: access_token (aud=clavis-api) + refresh_token
-    S->>A: GET /api/todos with Authorization Bearer
-    A->>K: GET /realms/clavis/protocol/openid-connect/certs (JWKS, internal network)
-    K-->>A: Public keys (cached by jose)
-    A->>A: Verifies signature, iss, aud, exp
-    A->>A: JIT provisioning in clavis.users + permission check
-    A-->>S: 200 with data + X-Cache header
-    S-->>U: Board rendered according to their permissions
-```
-
-An important detail: the SPA gets the token from **`http://localhost:8080`** (public issuer), but
-the API downloads the JWKS from **`http://keycloak:8080`** (internal issuer on the Docker
-network). That is why there are two separate variables, `KEYCLOAK_ISSUER` and
-`KEYCLOAK_INTERNAL_ISSUER`. It is explained in
-[`docs/architecture.md`](docs/architecture.md#public-issuer-vs-internal-issuer).
 
 ## Service topology
 
@@ -374,6 +376,7 @@ flowchart LR
     KCR -->|"writes /import/realm-clavis.json<br/>keycloak-import volume"| KC
     KC --> PG
     API -->|"internal JWKS"| KC
+    API -->|"Admin REST, service account"| KC
     API --> PG
     API --> VK
     API --> AZ
@@ -386,17 +389,17 @@ Persistent volumes: `pg-data`, `valkey-data`, `azurite-data`, `keycloak-import`.
 
 ## Email with Resend
 
-Sending email (`POST /api/todos/:id/notify`) is designed to work **without configuring anything**.
-The API picks its provider at startup:
+The API picks its provider at startup and works **without configuring anything**:
 
 | Situation | `mailer.provider` | Behaviour |
 |---|---|---|
-| `RESEND_API_KEY` empty (the `.env.example` value) | `dry-run` | Logs the whole message (`to`, `subject`, body) and returns `{ delivered: false, provider: 'dry-run', reason: … }`. **The request answers 200; it never fails.** |
+| `RESEND_API_KEY` empty (the `.env.example` value) | `dry-run` | Logs the whole message (`to`, `subject`, body) instead of sending it. Requests still answer normally. |
 | `RESEND_API_KEY` set | `resend` | Really sends it and returns the message `id`. |
 | `MAIL_ENABLED=false` | `dry-run` | Manual switch to silence email even when a key is present. |
 
 `GET /api/health/ready` reports the *mailer* status, so you can tell which mode you are in without
-reading the logs.
+reading the logs. It is **not** a critical check: email being unavailable never makes the service
+unready.
 
 ### Turning on real delivery
 
@@ -443,8 +446,8 @@ email paths**, not one.
 
 | Who sends | How | What it sends |
 |---|---|---|
-| The API (`@clavis/api`) | Resend's **HTTP** API (`resend` SDK) | Task notifications |
-| **Keycloak** | **SMTP** | Password reset, email verification, account notices |
+| The API (`@clavis/api`) | Resend's **HTTP** API (`resend` SDK) | Application email |
+| **Keycloak** | **SMTP** | Password reset, invitations, email verification |
 
 Keycloak cannot talk to Resend's HTTP API: it only sends over SMTP. That is why the realm
 configures Resend's SMTP relay (`smtp.resend.com:587`, STARTTLS) and `docker-compose.yml` reuses
@@ -455,20 +458,19 @@ KEYCLOAK_SMTP_USER: ${KEYCLOAK_SMTP_USER:-resend}
 KEYCLOAK_SMTP_PASSWORD: ${RESEND_API_KEY:-not-configured}
 ```
 
+That same path carries the **invitations** the Users screen sends: an *execute-actions* email
+with a link to choose a password.
+
 ### What it takes to work
 
 1. `RESEND_API_KEY` set in `.env`.
 2. `KEYCLOAK_SMTP_FROM` with an address on a **verified domain** in Resend (`resend domains`
    tells you). With the `onboarding@resend.dev` test domain you can only write to the address you
    signed up with.
-3. The user needs a **real email address**. The `*@clavis.local` ones from `.env.example` receive
-   nothing: change `DEMO_ADMIN_EMAIL` in your `.env` to an address of yours before trying it.
+3. The user needs a **real email address**. `root@clavis.local` from `.env.example` receives
+   nothing: change `ROOT_EMAIL` in your `.env` to an address of yours before trying it.
 
 ### The walkthrough
-
-| Requesting the link | The email that arrives |
-|---|---|
-| ![Password reset screen](docs/img/password-reset.png) | ![Password reset email](docs/img/password-reset-email.png) |
 
 1. On the login screen, the **"Forgot your password?"** link (it shows up because the realm has
    `resetPasswordAllowed: true`).
@@ -484,80 +486,87 @@ The three screens and the email all use the custom theme: they live in
 
 > The realm only reads `smtpServer`, `resetPasswordAllowed` and `emailTheme` **when it is
 > imported**. If your realm already exists, apply them live with `kcadm.sh` (see
-> `docs/operations.md`) or recreate the stack with `docker compose down -v`.
+> [`docs/operations.md`](docs/operations.md#10-password-reset-and-keycloak-email)) or recreate the stack with
+> `pnpm run reset`.
 
 ---
 
 ## Demo script
 
-A 10-minute session that walks the permission model end to end. Use a private browser window per
+Ten minutes that walk the access model end to end. Use a private browser window for the second
 user (or sign out between steps), because Keycloak keeps the SSO session.
 
-### 1. `worker` — the missing permission is felt
+### 1. `root` — the only door on a fresh stack
 
-1. Go to <http://localhost:5173> and sign in as **`worker`** (password in `.env.example`).
-2. The board comes up empty: press **"Create sample data"** (`POST /api/todos/seed-demo`).
-3. Look at the application header: it shows the `clavis-user` role.
-4. **There is no delete button** on any card: the SPA wraps it in `<Can perm="todos:delete">`.
-5. The scope selector does not offer **"Whole team"**, only "My tasks".
-6. Prove that the UI is not the one in charge — try to delete from the terminal and get a **403**:
+1. Go to <http://localhost:5173> and sign in as **`root`** (password in `.env`).
+2. **Home** shows the username, a `root` chip instead of roles, and a note that root holds every
+   permission. The sidebar shows all four sections.
+3. Look at the token if you want the point driven home — it mentions none of that:
 
    ```bash
-   # See docs/authentication.md for the get_token function
-   curl -i -X DELETE http://localhost:3000/api/todos/<id> \
-     -H "Authorization: Bearer $WORKER_TOKEN"
-   # HTTP/1.1 403  {"error":{"code":"FORBIDDEN","message":"…","statusCode":403}}
+   # see docs/authentication.md for the get_token helper
+   echo "$ROOT_TOKEN" | jq -R 'split(".")[1] | @base64d | fromjson' | jq '.realm_access, .resource_access'
    ```
 
-### 2. `manager` — the "whole team" scope
+   The permissions come from the database, not the JWT.
 
-1. Sign out and sign in as **`manager`**.
-2. Switch the scope filter to **"Whole team"**: now you also see `worker`'s tasks. That selector
-   calls `GET /api/todos?scope=all`, which requires `todos:read:all`.
-3. The **delete** button appears (`todos:delete` permission). Delete one of `worker`'s tasks:
-   `manager` can touch data that is not theirs, `worker` cannot.
-4. There is no **Administration** section: `admin:manage` is missing.
+### 2. Create a user with a temporary password
 
-### 3. `admin` — administration panel
+1. Open **Users** → *Create user*.
+2. Fill in an email and a display name, choose **temporary password**, and set one.
+3. The row appears immediately. Behind it: the API registered the account in Keycloak through the
+   API client's service account, kept the id Keycloak assigned as its own primary key, and
+   inserted the application row in a transaction.
 
-1. Sign in as **`admin`**.
-2. Open the **Administration** section: statistics (`GET /api/admin/stats`), users
-   (`GET /api/admin/users`) and audit (`GET /api/admin/audit`).
-3. The audit log shows the actions from the previous steps (`todo.created`, `todo.deleted`, …)
-   with each user's `actor_id`.
+### 3. The new session is forced to change the password
 
-### 4. The `X-Cache` header
-
-1. With any user, reload the listing twice: the badge in the interface goes from **`MISS`** to
-   **`HIT`**.
-2. From the terminal, under the same conditions:
+1. In a private window, sign in as the new user.
+2. Keycloak intercepts with the **update password** screen — the `UPDATE_PASSWORD` required
+   action that comes with a temporary credential. Choose a new one.
+3. You land in the application. **Only Home is in the sidebar**: the user has no roles and no
+   exceptions, so `NAV_ITEMS` renders one entry.
+4. Try a direct URL — <http://localhost:5173/admin/users> — and the route guard redirects to the
+   forbidden view. Try the API and it is a real `403`:
 
    ```bash
-   curl -si http://localhost:3000/api/todos -H "Authorization: Bearer $TOKEN" | grep -i x-cache
-   # X-Cache: MISS   (first time)
-   # X-Cache: HIT    (within CACHE_TTL_SECONDS = 60 s)
+   curl -s -o /dev/null -w '%{http_code}\n' http://localhost:3000/api/users \
+     -H "Authorization: Bearer $NEW_USER_TOKEN"
+   # 403
    ```
 
-3. Create or edit a task: the next read is a **`MISS`** again. No keys are deleted; the version of
-   the `todos` *namespace* is incremented and the old keys expire on their own.
+### 4. Grant an exception and watch the navigation change
 
-### 5. Attachments
+1. Back in the root window, open **Access** → the per-user tab, and select the new user. (Root is
+   not in that list — it has nothing to grant.)
+2. Set `users:read` to **grant**. It applies as soon as you choose it; the third column shows the
+   resulting effective value.
+3. In the other window, reload. **Users has appeared in the sidebar** — with the same token, no
+   sign-out, no token refresh. That is the versioned cache being bumped by the write.
+4. The same call from the terminal is now a `200`, on the very next request.
 
-1. Open a task and upload a file (limit `MAX_UPLOAD_BYTES` = 10 MiB).
-2. Download it from the attachment list: the API serves it from Azurite with its `content_type`.
-3. Check that the blob really exists (see
-   [`docs/operations.md`](docs/operations.md#list-azurite-blobs)).
+### 5. Revoke, and prove that revoke wins
 
-### 6. Email
+1. Still in root: create a role in **Access** → *Create role*, then tick `users:read` and
+   `audit:read` in its column of the catalog matrix. Assign it to the user from the Users screen.
+2. Both sections appear for them.
+3. Now set a `revoke` exception on `audit:read` for that user. Audit disappears again: the
+   exception is applied after the union, so it beats the role.
 
-1. Press **"Notify by email"** on a task.
-2. Without `RESEND_API_KEY`, look at the log and you will see the rendered message:
+### 6. Disable, delete, and the audit trail
 
-   ```bash
-   docker compose logs -f api | grep -i mail
-   ```
+1. Disable the user from the Users screen. Their next request is `403 ACCOUNT_DISABLED` — the
+   application refuses them even though Keycloak would still authenticate the identity.
+2. Re-enable, then delete. The Keycloak account goes with the row.
+3. Open **Audit**: every step above is there — `user.created`, `access.overrides_replaced`,
+   `role.created`, `user.updated`, `user.deleted` — with the actor's id.
 
-3. With a key configured, the email arrives and the response carries Resend's `id`.
+### 7. Everything above, from the outside
+
+```bash
+./scripts/verify-api.sh
+```
+
+The same walk in 33 assertions, no browser involved. See [Verification](#verification).
 
 ---
 
@@ -573,11 +582,15 @@ This repository is built to produce **exactly the same result** on any machine a
 - **Images with exact tags**: `postgres:17.6-alpine`, `quay.io/keycloak/keycloak:26.4.0`,
   `valkey/valkey:8.1.3-alpine`, `mcr.microsoft.com/azure-storage/azurite:3.35.0`,
   `node:22.23.1-alpine`, `nginx:1.29-alpine`.
-- **Declarative realm**: the Keycloak configuration (clients, roles, compositions, mappers and
-  demo users) lives in `infra/keycloak/realm-clavis.template.json` and is imported at startup.
-  Nothing is configured by hand in the console; if you change something there, it is gone after
-  `docker compose down -v`. The renderer exits with a non-zero code if any `__VARIABLE__`
-  placeholder is left unsubstituted, so an incomplete `.env` is caught immediately.
+- **Declarative realm**: the Keycloak configuration (clients, the service account, the user
+  profile, SMTP and the themes) lives in `infra/keycloak/realm-clavis.template.json` and is
+  imported at startup. Nothing is configured by hand in the console; if you change something
+  there, it is gone after `pnpm run reset`. The renderer exits with a non-zero code if any
+  `__VARIABLE__` placeholder is left unsubstituted, so an incomplete `.env` is caught
+  immediately.
+- **The permission catalog is code**, not configuration: `PERMISSION_DEFS` in `@clavis/shared`,
+  synced into the database at boot. Two environments cannot disagree about which permissions
+  exist.
 - **Migrations versioned with checksums**: every file in `packages/api/migrations/` is applied
   once, in lexicographic order, and its hash is stored in `clavis.schema_migrations`. If somebody
   edits a migration that has already been applied, startup fails instead of leaving two different
@@ -595,15 +608,17 @@ This repository is built to produce **exactly the same result** on any machine a
 ├── docker-compose.yml          # postgres, keycloak-realm, keycloak, valkey, azurite, api, app
 ├── Makefile                    # shortcuts equivalent to the package.json scripts
 ├── .env.example                # configuration template (no real secrets)
-├── docs/                       # architecture, authentication and operations
+├── docs/                       # access-control, authentication, architecture, operations, deployment
 ├── infra/
 │   ├── keycloak/               # realm template + renderer
-│   │   └── themes/clavis/         # custom login theme (Freemarker + CSS/JS, no dependencies)
+│   │   └── themes/clavis/      # custom login and email theme (Freemarker + CSS, no dependencies)
 │   ├── nginx/                  # SPA config + runtime config injection
 │   └── postgres/               # init of the Keycloak database
+├── scripts/                    # end-to-end verification suites and deployment helpers
 └── packages/
+    ├── shared/                 # @clavis/shared — the typed permission catalog, imported by both
     ├── api/                    # @clavis/api — Fastify 5, strict ESM, SQL migrations
-    └── app/                    # @clavis/app — React 19 + Vite 7 + keycloak-js
+    └── app/                    # @clavis/app — React 19 + Vite 7 + TanStack Router + keycloak-js
 ```
 
 ## Most used commands
@@ -617,14 +632,14 @@ This repository is built to produce **exactly the same result** on any machine a
 | `pnpm run logs` | `make logs` | Follows the logs of every service |
 | `pnpm run ps` | `make ps` | Container status and health |
 | `pnpm dev` | `make dev` | Runs API and SPA in parallel, outside Docker |
-| `pnpm build` | `make build` | Builds both packages |
+| `pnpm build` | `make build` | Builds every package |
 | `pnpm typecheck` | `make typecheck` | Type-checks the whole monorepo |
 | `pnpm run verify` | `make verify` | End-to-end verification (API + login theme) |
 
 > Make does not accept `:` in target names, so the only one that changes name is
 > `up:full` → `up-full`.
 
-Everything else (psql, valkey-cli, blobs, migrations, common problems) is in
+Everything else (psql, valkey-cli, migrations, common problems) is in
 [`docs/operations.md`](docs/operations.md).
 
 ---
@@ -632,28 +647,32 @@ Everything else (psql, valkey-cli, blobs, migrations, common problems) is in
 ## Verification
 
 The lab ships three suites that run **against the running stack**, not against mocks, because the
-three layers it is made of break in ways the compiler cannot see:
+layers it is made of break in ways the compiler cannot see:
 
 ```bash
 pnpm run verify          # API + login theme
-pnpm run verify:api      # permissions, cache, attachments and email
+pnpm run verify:api      # the access model, end to end
 pnpm run verify:theme    # that the Freemarker theme still authenticates
 pnpm run verify:reset    # password reset (needs the resend CLI)
 ```
 
 What they really cover:
 
-- **Permissions exercised from outside**: that `worker` gets a **403** when deleting and when
-  asking for `scope=all`, that `manager` gets into `/admin/users` but not into `/admin/stats`,
-  and that `admin` gets into both. If somebody loosens a `requirePermissions`, this is where it
-  shows.
-- **The whole OIDC flow**: authorization with PKCE `S256` → form → *authorization code* →
-  exchange for an *access token*. A custom theme can render perfectly and still have lost the
-  form's `id`, and then nobody can sign in.
-- **The password reset email for real**: it is requested, **read back through the Resend API**,
-  its link is followed, the password is set and then used to sign in.
+- **`verify-api.sh` — 33 assertions that walk the whole permission model from the outside.**
+  Root proves the bypass and the full catalog; it then creates a throwaway user through the API
+  (which registers it in Keycloak) and shapes that user's access live: the temporary password
+  **blocks the grant** until the first-login change, an override `grant` opens a door **on the
+  very next request**, the `revoke` closes it, a role adds exactly what it declares, `disabled`
+  refuses everything, and root plus the system role stay immutable. If somebody loosens a
+  `requirePermissions` or forgets a cache bump, this is where it shows.
+- **`verify-login-theme.sh` — the whole OIDC flow**: authorization with PKCE `S256` → form →
+  *authorization code* → exchange for an *access token*. A custom theme can render perfectly and
+  still have lost the form's `id`, and then nobody can sign in.
+- **`verify-password-reset.sh` — the reset email for real**: it is requested, **read back through
+  the Resend API**, its link is followed, the password is set and then used to sign in.
 
-Details of each one in [`scripts/README.md`](scripts/README.md).
+All three read root's credentials from `.env`. Details of each one in
+[`scripts/README.md`](scripts/README.md).
 
 ---
 

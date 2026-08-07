@@ -1,29 +1,6 @@
 import { useAuth } from '../auth/AuthProvider'
-import { config } from '../config'
 import { isLocale, LOCALE_LABELS, LOCALES } from '../i18n'
 import { useI18n } from '../i18n/I18nProvider'
-import { PERMISSIONS, PERMISSION_LABEL_KEYS, REALM_ROLE_LABEL_KEYS } from '../lib/types'
-import type { Permission } from '../lib/types'
-
-interface DemoUser {
-  username: string
-  role: string
-  permissions: Permission[]
-}
-
-/**
- * Users created by the imported realm. The passwords are NOT written here: they
- * live in the DEMO_*_PASSWORD variables of the `.env` at the root.
- */
-const DEMO_USERS: DemoUser[] = [
-  { username: 'admin', role: 'clavis-admin', permissions: [...PERMISSIONS] },
-  {
-    username: 'manager',
-    role: 'clavis-manager',
-    permissions: ['todos:read', 'todos:read:all', 'todos:write', 'todos:delete', 'users:read'],
-  },
-  { username: 'worker', role: 'clavis-user', permissions: ['todos:read', 'todos:write'] },
-]
 
 /**
  * Same control as the one in the shell, repeated here on purpose: the Keycloak
@@ -82,56 +59,6 @@ export function LoginScreen() {
         <button type="button" className="btn btn--primary btn--block" onClick={login}>
           {t('auth.loginButton')}
         </button>
-
-        <div className="login__hint">
-          <p>{t('auth.realmHint', { realm: config.keycloakRealm, url: config.keycloakUrl })}</p>
-          <p>{t('auth.demoPasswordHint')}</p>
-        </div>
-
-        <div className="table-wrap">
-          <table className="table">
-            <caption className="table__caption">{t('auth.demoUsersCaption')}</caption>
-            <thead>
-              <tr>
-                <th scope="col">{t('auth.demoUserColumn')}</th>
-                <th scope="col">{t('auth.demoRoleColumn')}</th>
-                <th scope="col">{t('auth.demoPermissionsColumn')}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {DEMO_USERS.map((user) => {
-                const roleLabelKey = REALM_ROLE_LABEL_KEYS[user.role]
-                return (
-                  <tr key={user.username}>
-                    <th scope="row">
-                      <code>{user.username}</code>
-                    </th>
-                    <td>
-                      <span className="chip chip--role">{user.role}</span>
-                      <span className="muted">
-                        {' '}
-                        {roleLabelKey === undefined ? '' : t(roleLabelKey)}
-                      </span>
-                    </td>
-                    <td>
-                      <ul className="chips">
-                        {user.permissions.map((perm) => (
-                          <li key={perm}>
-                            <span className="chip" title={t(PERMISSION_LABEL_KEYS[perm])}>
-                              {perm}
-                            </span>
-                          </li>
-                        ))}
-                      </ul>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-
-        <p className="login__foot">{t('auth.demoFooter')}</p>
       </section>
     </div>
   )

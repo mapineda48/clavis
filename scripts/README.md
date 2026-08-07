@@ -6,14 +6,13 @@ different ways, and none of those breakages shows up at compile time.
 
 | Script | What it protects | Duration |
 |---|---|---|
-| [`verify-api.sh`](verify-api.sh) | Permission model, cache, attachments and email | ~15 s |
+| [`verify-api.sh`](verify-api.sh) | Authentication and the permission model | ~10 s |
 | [`verify-login-theme.sh`](verify-login-theme.sh) | That the Freemarker theme **still authenticates** | ~10 s |
 | [`verify-password-reset.sh`](verify-password-reset.sh) | Password recovery, email included | ~1 min |
 
 ```bash
 pnpm run verify                     # the two suites that need no external CLI
 ./scripts/verify-api.sh             # just one
-MAIL_TEST_TO=you@example.com ./scripts/verify-api.sh   # exercising real delivery
 ```
 
 They all resolve the repository root from their own location, so they work from
@@ -26,20 +25,21 @@ fails, and `2` when a tool is missing or the stack is not answering.
 - A `.env` at the root (`cp .env.example .env`).
 - `curl` and `python3`.
 - **For `verify-password-reset.sh` only**: the [`resend`](https://resend.com) CLI
-  authenticated, the realm with SMTP configured, and `DEMO_ADMIN_EMAIL` pointing
+  authenticated, the realm with SMTP configured, and `ROOT_EMAIL` pointing
   at a real address.
 
 ## Why they check what they check
 
-**`verify-api.sh`** does not stop at "it returns 200". It asserts that `worker`
-gets **403** when deleting and when asking for `scope=all`, that `manager` gets
-403 on `/admin/stats` but 200 on `/admin/users`, and that `admin` gets into both.
-It is the permission model exercised from the outside: if somebody loosens a
-`requirePermissions`, it shows up here.
-
-It also checks the `X-Cache` header (`MISS` and then `HIT`), that `seed-demo` is
-idempotent, and that an attachment uploaded to Azurite comes back **byte-for-byte
-identical**.
+**`verify-api.sh`** walks the whole database-backed permission model from the
+outside, 33 assertions long: root proves the bypass and the full catalog, then
+creates a throwaway user through the API (which registers it in Keycloak) and
+shapes that user's access live — the temporary password blocks the grant until
+the first-login change, an override `grant` opens a door **on the very next
+request** (cache invalidation), the `revoke` closes it, a role adds exactly what
+it declares, `disabled` refuses everything, and root plus the system role stay
+immutable. Requests with no token or a malformed one are answered with **401**.
+If somebody loosens a `requirePermissions` or forgets a cache bump, it shows up
+here.
 
 **`verify-login-theme.sh`** walks the entire OIDC flow: PKCE `S256` authorization
 → form → *authorization code* → exchange for an *access token* with the
@@ -57,7 +57,7 @@ verifies that the email is laid out with tables, carries no `<style>` block and
 loads no remote resources — which is what email clients demand.
 
 > It sets the password back to the value already in `.env`, so it can be run as
-> many times as needed without leaving the demo inconsistent.
+> many times as needed without leaving the lab inconsistent.
 
 ## Note
 

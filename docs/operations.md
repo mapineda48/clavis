@@ -4,14 +4,24 @@ Day-to-day commands for working with this stack: start it, inspect it, reset it,
 unstick it. Everything runs from the repository root:
 
 ```bash
-cd /home/mapineda48/Repo/mapineda48/clavis
+cd /path/to/clavis
 ```
 
-Many examples use variables from `.env`. Load them into the session with:
+<a id="envval"></a>
+
+Many examples use variables from `.env`. **Do not `source` it.**
+`AZURE_STORAGE_CONNECTION_STRING` is unquoted and full of `;`, so the shell splits it into
+commands, and `MAIL_FROM` carries `<…>`. Read single values instead, the same way
+`scripts/_common.sh` does:
 
 ```bash
-set -a; source .env; set +a
+envval() { sed -n "s/^$1=//p" .env | head -1 | sed 's/^"//; s/"$//'; }
+
+envval ROOT_USERNAME          # root
+POSTGRES_USER=$(envval POSTGRES_USER)
 ```
+
+Define that function once per shell session; the examples below assume it.
 
 ---
 
@@ -37,11 +47,16 @@ The `package.json` scripts and the `Makefile` targets are equivalent; use whiche
 ### Working on a single package
 
 ```bash
+pnpm --filter @clavis/shared build     # build this FIRST: both other packages import it
 pnpm --filter @clavis/app dev          # only the SPA (http://localhost:5173)
 pnpm --filter @clavis/api dev          # only the API with tsx watch (needs the rest of the stack up)
 pnpm --filter @clavis/api typecheck
 pnpm --filter @clavis/app build
 ```
+
+`@clavis/shared` compiles to `dist/`, so a stale build shows up as a type error about
+`PermissionKey` in whichever package you touched next. `pnpm dev` builds it before starting the
+other two; running a single package by hand does not.
 
 The usual workflow is **infrastructure in Docker + SPA locally**: `docker compose up -d --build`
 brings up postgres, keycloak, valkey, azurite and the API; `pnpm --filter @clavis/app dev` gives you
@@ -63,7 +78,8 @@ at `localhost`.
 
 ```bash
 docker compose up -d --build api        # rebuild and recreate only the API
-docker compose restart api              # quick restart (re-runs the migrations)
+docker compose restart api              # quick restart: re-runs the migrations AND the boot
+                                        #   sequence (catalog sync, admin role, root)
 docker compose stop keycloak            # stop without deleting anything
 docker compose ps                       # status + health of every service
 docker compose config                   # the compose file already interpolated with .env (very useful)
@@ -74,7 +90,7 @@ docker compose config                   # the compose file already interpolated 
 
 Iterating on the **login theme** (`infra/keycloak/themes/clavis`) needs none of these commands: with
 `start-dev` themes are not cached, so reloading the browser is enough unless you touch
-`theme.properties` or add files. Details in [section 8](#login-theme).
+`theme.properties` or add files. Details in [section 8](#8-login-theme).
 
 ### Health checks
 
@@ -119,16 +135,31 @@ The one-shot `keycloak-realm` service does run on every `up`, so the `/import/re
 inside the `keycloak-import` volume is **always up to date** with the template and with `.env`.
 What does not refresh without `-v` is whatever Keycloak already stored in Postgres.
 
-Rule of thumb: **any change to `infra/keycloak/realm-clavis.template.json` or to the `DEMO_*`,
-`KEYCLOAK_*`, `APP_*_URL` variables requires `down -v`.** That includes `KEYCLOAK_LOGIN_THEME`,
+Rule of thumb: **any change to `infra/keycloak/realm-clavis.template.json` or to the
+`KEYCLOAK_*` / `APP_*_URL` variables requires `down -v`.** That includes `KEYCLOAK_LOGIN_THEME`,
 which feeds the realm's `loginTheme` field; for that particular case there is a live alternative
-with `kcadm.sh` that destroys no data, in [section 8](#login-theme).
+with `kcadm.sh` that destroys no data, in [section 8](#8-login-theme).
 
-The login theme files (`infra/keycloak/themes/`) are **not** covered by that rule: they arrive via
-bind mount, not through the realm, and reload without re-importing anything.
+Two things that are **not** covered by that rule and are worth knowing, because they save a
+reset:
 
-A reset also wipes the tasks, the attachments and the audit log. To repopulate, open the SPA and
-press "Create sample data", or call `POST /api/todos/seed-demo`.
+- **The login theme files** (`infra/keycloak/themes/`) arrive via bind mount, not through the
+  realm, and reload without re-importing anything.
+- **The `ROOT_*` variables** are read by the API at every boot, not by the realm import. Changing
+  `ROOT_PASSWORD` and restarting the API is enough: the boot sequence re-applies it. Changing
+  `ROOT_USERNAME` creates a new Keycloak user and re-points the `is_root` row at it, leaving the
+  old account behind — harmless in a lab, worth deleting by hand if it bothers you.
+- **Adding a permission** needs neither a re-import nor a migration. See
+  [`access-control.md`](access-control.md#add-a-permission).
+
+A reset wipes the application database too: every user created from the app, the roles, the
+exceptions and the audit trail. What comes back on the next boot is the permission catalog, the
+`admin` system role and root — see [section 7](#add-a-migration).
+
+> **The migration history was reset** when authorization moved into the database. A `pg-data`
+> volume created before that commit holds `clavis.schema_migrations` rows whose checksums no
+> longer match, and the API refuses to start rather than diverge. `docker compose down -v` is the
+> fix, and it is the only time this is not optional.
 
 ### Selective reset
 
@@ -141,7 +172,7 @@ docker compose up -d --build
 # Only the cache (harmless: it rebuilds itself)
 docker compose exec valkey valkey-cli FLUSHALL
 
-# Only the attachments
+# Only the blob storage
 docker compose down
 docker volume rm clavis_azurite-data
 docker compose up -d
@@ -188,13 +219,11 @@ out readable and coloured.
 ## 4. PostgreSQL with psql
 
 ```bash
-set -a; source .env; set +a
-
 # Application database
-docker compose exec -it postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+docker compose exec -it postgres psql -U "$(envval POSTGRES_USER)" -d "$(envval POSTGRES_DB)"
 
 # Keycloak database (identity)
-docker compose exec -it postgres psql -U "$POSTGRES_USER" -d "$KEYCLOAK_DB_NAME"
+docker compose exec -it postgres psql -U "$(envval POSTGRES_USER)" -d "$(envval KEYCLOAK_DB_NAME)"
 ```
 
 With literal values, if you would rather not load `.env`:
@@ -207,39 +236,69 @@ Inside `psql`:
 
 ```sql
 \dn                          -- schemas
-\dt clavis.*                    -- tables in the clavis schema
-\d clavis.todos                 -- structure of a table
-\di clavis.*                    -- indexes
+\dt clavis.*                 -- tables in the clavis schema
+\d clavis.users              -- structure of a table
+\di clavis.*                 -- indexes
 \x on                        -- vertical output, handy for wide rows
 
 SELECT version, applied_at FROM clavis.schema_migrations ORDER BY version;
 
-SELECT id, username, email, last_seen_at FROM clavis.users ORDER BY last_seen_at DESC NULLS LAST;
+-- Who exists, and who is root
+SELECT username, email, display_name, is_root, status, last_seen_at
+  FROM clavis.users
+ ORDER BY is_root DESC, username;
 
-SELECT t.id, t.title, t.status, t.priority, o.username AS owner, a.username AS assignee
-  FROM clavis.todos t
-  JOIN clavis.users o ON o.id = t.owner_id
-  LEFT JOIN clavis.users a ON a.id = t.assignee_id
- ORDER BY t.created_at DESC
- LIMIT 20;
+-- The catalog, as the last boot synced it
+SELECT key, module, description FROM clavis.permissions ORDER BY module, key;
 
-SELECT * FROM clavis.v_todo_stats;
+-- Roles and their permission sets
+SELECT r.slug, r.is_system, string_agg(rp.permission_key, ', ' ORDER BY rp.permission_key) AS perms
+  FROM clavis.roles r
+  LEFT JOIN clavis.role_permissions rp ON rp.role_slug = r.slug
+ GROUP BY r.slug, r.is_system
+ ORDER BY r.is_system DESC, r.slug;
+
+-- Who has which role
+SELECT u.username, ur.role_slug
+  FROM clavis.user_roles ur
+  JOIN clavis.users u ON u.id = ur.user_id
+ ORDER BY u.username, ur.role_slug;
+
+-- The exceptions, which is usually where a surprise 403 comes from
+SELECT u.username, o.permission_key, o.effect, o.created_at
+  FROM clavis.user_permission_overrides o
+  JOIN clavis.users u ON u.id = o.user_id
+ ORDER BY u.username, o.permission_key;
 
 SELECT created_at, actor_id, action, entity, entity_id
   FROM clavis.audit_log
  ORDER BY created_at DESC
  LIMIT 20;
-
-SELECT a.file_name, a.content_type, a.size_bytes, a.blob_name
-  FROM clavis.todo_attachments a
- ORDER BY a.created_at DESC;
 ```
+
+The same effective set the API resolves, for one user — `union(roles) ∪ grants − revokes`:
+
+```sql
+SELECT rp.permission_key FROM clavis.user_roles ur
+  JOIN clavis.role_permissions rp ON rp.role_slug = ur.role_slug
+ WHERE ur.user_id = :id
+UNION
+SELECT permission_key FROM clavis.user_permission_overrides
+ WHERE user_id = :id AND effect = 'grant'
+EXCEPT
+SELECT permission_key FROM clavis.user_permission_overrides
+ WHERE user_id = :id AND effect = 'revoke';
+```
+
+…remembering that a user with `is_root = true` short-circuits all of it and holds the whole
+catalog. Comparing this against `GET /api/me` is the fastest way to tell a stale cache from a
+wrong assignment.
 
 One-off queries without opening an interactive session:
 
 ```bash
-docker compose exec postgres psql -U clavis -d clavis -c "SELECT count(*) FROM clavis.todos;"
-docker compose exec postgres psql -U clavis -d clavis -Atc "SELECT status, count(*) FROM clavis.todos GROUP BY status;"
+docker compose exec postgres psql -U clavis -d clavis -c "SELECT username, status, is_root FROM clavis.users;"
+docker compose exec postgres psql -U clavis -d clavis -Atc "SELECT count(*) FROM clavis.audit_log;"
 ```
 
 Backup and restore:
@@ -259,47 +318,61 @@ docker compose exec -it valkey valkey-cli
 
 Useful commands inside the session (or with `docker compose exec valkey valkey-cli <command>`):
 
+What is in there is one entry per user: their resolved **access context** — the user row, their
+role slugs and their effective permissions.
+
 ```bash
-PING                                    # PONG
-DBSIZE                                  # number of keys
+PING                                       # PONG
+DBSIZE                                     # number of keys
 SCAN 0 MATCH 'clavis:*' COUNT 100          # walk the keys without blocking the server
-KEYS 'clavis:v*:todos:*'                   # convenient in development, avoid it in production
-TTL  'clavis:v3:todos:<sub>:mine:_:_:1:20' # seconds left (= CACHE_TTL_SECONDS when created)
-GET  'clavis:v3:todos:<sub>:mine:_:_:1:20' # the cached JSON
+GET  'clavis:ver:access'                   # the current version of the access namespace
+KEYS 'clavis:v*:access:user:*'             # convenient in development, avoid it in production
+TTL  'clavis:v3:access:user:<sub>'         # seconds left (= CACHE_TTL_SECONDS when created)
+GET  'clavis:v3:access:user:<sub>'         # the cached JSON
 INFO keyspace
-MONITOR                                 # watch every command live (Ctrl-C to quit)
-FLUSHALL                                # empty the whole cache
+MONITOR                                    # watch every command live (Ctrl-C to quit)
+FLUSHALL                                   # empty the whole cache
 ```
 
 Version-based invalidation, demonstrated step by step:
 
 ```bash
-# 1. Look at the current version of the 'todos' namespace and the existing keys
-docker compose exec valkey valkey-cli --scan --pattern 'clavis:*'
+# 1. The current version of the 'access' namespace and the keys built from it
+docker compose exec valkey valkey-cli GET 'clavis:ver:access'
+docker compose exec valkey valkey-cli --scan --pattern 'clavis:v*:access:*'
 
 # 2. In another terminal, watch what the API does, live
 docker compose exec valkey valkey-cli MONITOR
 
-# 3. Run the same listing twice: MISS and then HIT
-curl -si http://localhost:3000/api/todos -H "Authorization: Bearer $TOKEN" | grep -i '^x-cache'
-curl -si http://localhost:3000/api/todos -H "Authorization: Bearer $TOKEN" | grep -i '^x-cache'
+# 3. Any authenticated request populates the entry for that user
+curl -s -o /dev/null http://localhost:3000/api/me -H "Authorization: Bearer $TOKEN"
+docker compose exec valkey valkey-cli --scan --pattern 'clavis:v*:access:user:*'
 
-# 4. Create a task: the API runs INCR on the version (visible in MONITOR)
-curl -s -X POST http://localhost:3000/api/todos -H "Authorization: Bearer $TOKEN" \
-  -H 'Content-Type: application/json' -d '{"title":"cache test"}' >/dev/null
+# 4. Change somebody's access: the API runs INCR on the version (visible in MONITOR)
+curl -s -o /dev/null -X PUT "http://localhost:3000/api/access/users/$USER_ID/overrides" \
+  -H "Authorization: Bearer $ROOT_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"overrides":[{"permissionKey":"audit:read","effect":"grant"}]}'
+docker compose exec valkey valkey-cli GET 'clavis:ver:access'   # one higher
 
-# 5. The same listing is a MISS again, and the keys with the previous version are still there
-#    (orphaned) until their TTL expires
-curl -si http://localhost:3000/api/todos -H "Authorization: Bearer $TOKEN" | grep -i '^x-cache'
+# 5. The next request resolves from PostgreSQL again — with the new permission.
+#    The keys from the previous version are still there, orphaned, until their TTL expires.
+curl -s http://localhost:3000/api/me -H "Authorization: Bearer $TOKEN" | jq '.permissions'
 ```
 
-Flushing the cache **never** loses data: it only forces the next listing to go to PostgreSQL.
+Flushing the cache **never** loses data and never grants anything: it only forces the next
+request to resolve from PostgreSQL. If the cache and the database ever disagree about what
+somebody may do, `FLUSHALL` is the safe first move and a missing
+[`bumpVersion`](access-control.md#cache-bump) is the likely cause.
 
 ---
 
 <a id="list-azurite-blobs"></a>
 
 ## 6. Listing Azurite blobs
+
+The storage plugin is wired and health-checked, but **no feature writes to it today** — the
+access-control base has nothing to store. Expect the container to be empty; the commands are here
+because the first module that needs a file will need them.
 
 The most direct way is to use the SDK from the API container itself, which already has it installed
 and has the connection string in its environment:
@@ -321,32 +394,24 @@ If module resolution fails, force the package's working directory:
 docker compose exec -w /repo/packages/api api node --input-type=module -e "…"
 ```
 
-Listing only the attachments of one task (the prefix is part of the naming convention,
-`todos/<todo_id>/…`):
+Listing under a prefix, once something writes one:
 
 ```bash
 docker compose exec api node --input-type=module -e "
 import { BlobServiceClient } from '@azure/storage-blob';
 const svc = BlobServiceClient.fromConnectionString(process.env.AZURE_STORAGE_CONNECTION_STRING);
 const c = svc.getContainerClient(process.env.AZURE_STORAGE_CONTAINER);
-for await (const b of c.listBlobsFlat({ prefix: 'todos/' + process.argv[1] + '/' })) console.log(b.name);
-" "<todo_id>"
-```
-
-Cross-check it against what the database says (they must match one to one):
-
-```bash
-docker compose exec postgres psql -U clavis -d clavis -Atc \
-  "SELECT blob_name FROM clavis.todo_attachments ORDER BY blob_name;"
+for await (const b of c.listBlobsFlat({ prefix: process.argv[1] })) console.log(b.name);
+" "<prefix>/"
 ```
 
 With the **Azure CLI** installed on the host it also works, replacing the internal host `azurite`
 with `127.0.0.1` in the connection string:
 
 ```bash
-set -a; source .env; set +a
-CONN="${AZURE_STORAGE_CONNECTION_STRING//azurite/127.0.0.1}"
-az storage blob list --container-name "$AZURE_STORAGE_CONTAINER" --connection-string "$CONN" -o table
+CONN="$(envval AZURE_STORAGE_CONNECTION_STRING)"
+az storage blob list --container-name "$(envval AZURE_STORAGE_CONTAINER)" \
+  --connection-string "${CONN//azurite/127.0.0.1}" -o table
 ```
 
 Azurite data persists in the `azurite-data` volume; to throw it away, delete that volume (see
@@ -358,26 +423,31 @@ Azurite data persists in the `azurite-data` volume; to throw it away, delete tha
 
 ## 7. Adding a migration
 
+> **Adding a *permission* is not this.** The permission catalog lives in code and is synced into
+> the database at boot; it needs no migration, no realm re-import and no manual `INSERT`. The
+> five steps are in [`access-control.md`](access-control.md#add-a-permission). Use a migration
+> when the **schema** changes — a new table for a new business module, a new column, an index.
+
 Migrations live in `packages/api/migrations/` following the `NNNN_name.sql` pattern and are applied
 **in lexicographic order** when the API starts. Each one is recorded in `clavis.schema_migrations`
-with its **checksum**.
+with its **checksum**. There is currently one, `0001_init.sql`.
 
 ### Procedure
 
 1. Create the next file in the sequence (four digits, descriptive name):
 
    ```
-   packages/api/migrations/0003_add_todo_tags.sql
+   packages/api/migrations/0002_add_user_phone.sql
    ```
 
 2. Write SQL that is **idempotent where it makes sense**, and always inside the `clavis` schema:
 
    ```sql
-   -- 0003: free-form tags for tasks
-   ALTER TABLE clavis.todos
-     ADD COLUMN IF NOT EXISTS tags text[] NOT NULL DEFAULT '{}';
+   -- 0002: optional contact number on a user
+   ALTER TABLE clavis.users
+     ADD COLUMN IF NOT EXISTS phone text;
 
-   CREATE INDEX IF NOT EXISTS todos_tags_idx ON clavis.todos USING gin (tags);
+   COMMENT ON COLUMN clavis.users.phone IS 'Optional contact number.';
    ```
 
 3. Apply it by restarting the API (the migrator runs at startup):
@@ -401,13 +471,15 @@ with its **checksum**.
 - **Never edit a migration that has already been applied.** The checksum would stop matching and
   startup would fail with a "migration modified" error. Always fix things with a new file.
 - **Do not create `clavis.schema_migrations`** in a migration: the migrator creates it itself.
+- **Do not seed the permission catalog or the `admin` role** from a migration: the boot sequence
+  owns both and would fight you every restart.
 - **Do not add extensions** for UUIDs: `gen_random_uuid()` is native in PostgreSQL 17.
 - If you get the migration wrong while still in development, the clean way out is
   `docker compose down -v && docker compose up -d --build`. As a last resort, delete the row:
 
   ```bash
   docker compose exec postgres psql -U clavis -d clavis -c \
-    "DELETE FROM clavis.schema_migrations WHERE version = '0003_add_todo_tags';"
+    "DELETE FROM clavis.schema_migrations WHERE version = '0002_add_user_phone';"
   ```
 
   …but remember to also undo by hand whatever the migration had already applied.
@@ -424,18 +496,23 @@ The realm's sign-in screen uses a custom Freemarker theme called **`clavis`**.
 
 ```
 infra/keycloak/themes/clavis/
-├── theme.properties            # types=login
+├── theme.properties            # types=login,email
+├── email/                      # password-reset email (HTML + text) and its messages
 └── login/
-    ├── theme.properties        # parent=base, styles, scripts, locales and kc* class mapping
+    ├── theme.properties        # parent=base, styles, locales and kc* class mapping
     ├── template.ftl            # split-screen layout (registrationLayout macro)
-    ├── login.ftl               # sign-in form + demo user cheat sheet
+    ├── login.ftl               # sign-in form
     ├── footer.ftl  error.ftl  info.ftl
     ├── login-page-expired.ftl  logout-confirm.ftl
+    ├── login-reset-password.ftl  login-update-password.ftl
     ├── messages/               # messages_en.properties + messages_es.properties
-    └── resources/
-        ├── css/clavis-login.css
-        └── js/clavis-login.js
+    └── resources/css/clavis-login.css
 ```
+
+The theme has **no JavaScript of its own** and carries **no credential hints**: the cheat sheet
+and the autofill script that used to sit in the branding panel went away together with the
+accounts they advertised. Password visibility is still handled by the `base` theme's
+`passwordVisibility.js`, resolved through the inheritance chain.
 
 The `keycloak` service in `docker-compose.yml` mounts it read-only:
 
@@ -471,7 +548,7 @@ Keycloak starts with `start-dev`, and in that mode **themes are not cached**:
 
 | What you touch | What is needed |
 |---|---|
-| A `.ftl`, `resources/css/clavis-login.css`, `resources/js/clavis-login.js` | Nothing. Save and reload the browser with `Ctrl+Shift+R` |
+| A `.ftl` or `resources/css/clavis-login.css` | Nothing. Save and reload the browser with `Ctrl+Shift+R` |
 | A `messages_*.properties` | Nothing, reload the page |
 | Either of the two `theme.properties` | `docker compose restart keycloak` |
 | Adding a new file or directory | `docker compose restart keycloak` |
@@ -494,38 +571,36 @@ KEYCLOAK_LOGIN_THEME=clavis          # the custom theme
 
 And then **one of these two routes**:
 
-**A) Re-import the realm** (clean, but it wipes the demo data):
+**A) Re-import the realm** (clean, but it wipes every account created from the app):
 
 ```bash
 docker compose down -v
 docker compose up -d --build
 ```
 
-**B) Apply it live with `kcadm.sh`** (keeps users, tasks, attachments and audit log).
+**B) Apply it live with `kcadm.sh`** (keeps the users, the roles and the audit trail).
 A realm that already exists is **not** imported again, so editing the template is not enough:
 
 ```bash
-set -a; source .env; set +a
-
 # 1. Authenticate against the master realm with the bootstrap admin.
 #    --config sets where the token is stored; /tmp is always writable in the container.
 docker compose exec keycloak /opt/keycloak/bin/kcadm.sh config credentials \
   --config /tmp/kcadm.config \
   --server http://localhost:8080 \
   --realm master \
-  --user "$KC_BOOTSTRAP_ADMIN_USERNAME" \
-  --password "$KC_BOOTSTRAP_ADMIN_PASSWORD"
+  --user "$(envval KC_BOOTSTRAP_ADMIN_USERNAME)" \
+  --password "$(envval KC_BOOTSTRAP_ADMIN_PASSWORD)"
 
 # 2. Apply theme and languages to the clavis realm (touching nothing else)
-docker compose exec keycloak /opt/keycloak/bin/kcadm.sh update "realms/$KEYCLOAK_REALM" \
+docker compose exec keycloak /opt/keycloak/bin/kcadm.sh update "realms/$(envval KEYCLOAK_REALM)" \
   --config /tmp/kcadm.config \
-  -s "loginTheme=$KEYCLOAK_LOGIN_THEME" \
+  -s "loginTheme=$(envval KEYCLOAK_LOGIN_THEME)" \
   -s 'internationalizationEnabled=true' \
   -s 'supportedLocales=["en","es"]' \
   -s 'defaultLocale=en'
 
 # 3. Verify
-docker compose exec keycloak /opt/keycloak/bin/kcadm.sh get "realms/$KEYCLOAK_REALM" \
+docker compose exec keycloak /opt/keycloak/bin/kcadm.sh get "realms/$(envval KEYCLOAK_REALM)" \
   --config /tmp/kcadm.config \
   --fields realm,loginTheme,internationalizationEnabled,supportedLocales,defaultLocale
 # {
@@ -541,7 +616,8 @@ The change takes effect the next time the login screen loads; no restart needed.
 
 Notes:
 
-- This is the console admin (`KC_BOOTSTRAP_ADMIN_*`), not a demo user of the `clavis` realm.
+- This is the console admin (`KC_BOOTSTRAP_ADMIN_*`) on the `master` realm, not root and not any
+  account of the `clavis` realm.
 - The `kcadm` token lives in `/tmp/kcadm.config` **inside** the container: it is lost when the
   container is recreated, and then you have to repeat step 1.
 - The same thing can be done from the console: <http://localhost:8080/admin> → realm `clavis` →
@@ -598,7 +674,7 @@ second one is a `pnpm typecheck` failure, not a blank label discovered in produc
 
 The Keycloak side is independent: it lives in the realm (`supportedLocales`, `defaultLocale`) and in
 the theme catalogs `messages_en.properties` / `messages_es.properties`, covered in
-[section 8](#login-theme).
+[section 8](#8-login-theme).
 
 ---
 
@@ -610,12 +686,18 @@ the theme catalogs `messages_en.properties` / `messages_es.properties`, covered 
 
 | Who sends it | How | What it sends |
 |---|---|---|
-| The API (`@clavis/api`) | Resend's **HTTP** API | Task notifications |
-| **Keycloak** | **SMTP** | Password reset, email verification |
+| The API (`@clavis/api`) | Resend's **HTTP** API | Application email |
+| **Keycloak** | **SMTP** | Password reset, **invitations**, email verification |
 
 Keycloak does not speak Resend's HTTP API, only SMTP. That is why the realm points at
 `smtp.resend.com:587` (STARTTLS) and `docker-compose.yml` reuses `RESEND_API_KEY` as the SMTP
 password: one secret for both paths.
+
+The invitation the Users screen sends (`credentialMode: "invite"`, and
+`POST /api/users/:id/resend-invite`) travels this same path: the API asks Keycloak for an
+*execute-actions* email and Keycloak mails it. If SMTP is not configured, user creation still
+succeeds and the response says `invite.sent: false` with the reason — see
+[`access-control.md`](access-control.md#6-user-lifecycle).
 
 ### What each variable controls
 
@@ -625,7 +707,8 @@ password: one secret for both paths.
 | `KEYCLOAK_SMTP_USER` | Always `resend` on the Resend relay |
 | `KEYCLOAK_SMTP_FROM` | Sender; it **must** belong to a verified domain |
 | `KEYCLOAK_EMAIL_THEME` | Theme for the emails (`clavis` = the custom one) |
-| `DEMO_ADMIN_EMAIL` | Must be a real address for the flow to be testable |
+| `ROOT_EMAIL` | Must be a real address for the flow to be testable; `verify-password-reset.sh` recovers this account |
+| `PUBLIC_APP_URL` | Where the invitation link sends the user back to after the action |
 
 The SMTP password is not in `.env`: it comes from `RESEND_API_KEY`.
 
@@ -647,11 +730,9 @@ PY
 For a running realm, without losing data:
 
 ```bash
-set -a; source .env; set +a
-
 docker compose exec keycloak /opt/keycloak/bin/kcadm.sh config credentials \
   --server http://localhost:8080 --realm master \
-  --user "$KC_BOOTSTRAP_ADMIN_USERNAME" --password "$KC_BOOTSTRAP_ADMIN_PASSWORD"
+  --user "$(envval KC_BOOTSTRAP_ADMIN_USERNAME)" --password "$(envval KC_BOOTSTRAP_ADMIN_PASSWORD)"
 
 # Reset flow + email theme + link lifetime (30 min)
 docker compose exec keycloak /opt/keycloak/bin/kcadm.sh update realms/clavis \
@@ -661,17 +742,23 @@ docker compose exec keycloak /opt/keycloak/bin/kcadm.sh update realms/clavis \
 
 # SMTP (careful: it is a JSON object, not individual fields)
 docker compose exec keycloak /opt/keycloak/bin/kcadm.sh update realms/clavis \
-  -s "smtpServer={\"host\":\"$KEYCLOAK_SMTP_HOST\",\"port\":\"$KEYCLOAK_SMTP_PORT\",\"from\":\"$KEYCLOAK_SMTP_FROM\",\"fromDisplayName\":\"$KEYCLOAK_SMTP_FROM_DISPLAY_NAME\",\"ssl\":\"false\",\"starttls\":\"true\",\"auth\":\"true\",\"user\":\"$KEYCLOAK_SMTP_USER\",\"password\":\"$RESEND_API_KEY\"}"
+  -s "smtpServer={\"host\":\"$(envval KEYCLOAK_SMTP_HOST)\",\"port\":\"$(envval KEYCLOAK_SMTP_PORT)\",\"from\":\"$(envval KEYCLOAK_SMTP_FROM)\",\"fromDisplayName\":\"$(envval KEYCLOAK_SMTP_FROM_DISPLAY_NAME)\",\"ssl\":\"false\",\"starttls\":\"true\",\"auth\":\"true\",\"user\":\"$(envval KEYCLOAK_SMTP_USER)\",\"password\":\"$(envval RESEND_API_KEY)\"}"
 ```
 
-Changing a user's email address:
+Changing root's email address without a reset — `ROOT_EMAIL` in `.env` is the versioned way, but
+this applies it to a realm that already exists:
 
 ```bash
 UID=$(docker compose exec -T keycloak /opt/keycloak/bin/kcadm.sh get users -r clavis \
-        -q username=admin --fields id | grep -o '"id" : "[^"]*"' | cut -d'"' -f4)
+        -q "username=$(envval ROOT_USERNAME)" --fields id | grep -o '"id" : "[^"]*"' | cut -d'"' -f4)
 docker compose exec keycloak /opt/keycloak/bin/kcadm.sh update "users/$UID" -r clavis \
   -s 'email=you@example.com' -s 'emailVerified=true'
 ```
+
+> Update `ROOT_EMAIL` in `.env` as well, or the two will disagree. The boot sequence only sets
+> the email in **Keycloak** when it *creates* the account, but it rewrites `clavis.users.email`
+> from `ROOT_EMAIL` on **every** boot — so a change made only through `kcadm` survives in
+> Keycloak and is reverted in the database at the next API restart.
 
 `actionTokenGeneratedByUserLifespan` is a **top-level** realm field, not an `attributes.*` one:
 with `-s attributes.actionToken…` it is not applied and nothing warns you.
@@ -756,6 +843,59 @@ Symptom: login works, but every call to `/api/*` returns `401`.
    **character for character** (watch out for `127.0.0.1` versus `localhost`, and for the trailing
    slash).
 
+<a id="unexpected-403"></a>
+
+### A `403` where you expected a `200`
+
+The token is fine — a `403` means authentication succeeded. Read the `code` in the envelope,
+because the three cases have nothing to do with each other:
+
+| `code` | Meaning | Where to look |
+|---|---|---|
+| `USER_NOT_PROVISIONED` | Keycloak knows the identity, `clavis.users` has no row for that `sub` | Create the user from the app. There is **no** just-in-time provisioning |
+| `ACCOUNT_DISABLED` | The row exists with `status = 'disabled'` | Re-enable it from the Users screen |
+| `FORBIDDEN` | The permission is genuinely missing; the message names which | The roles and the overrides |
+
+For the last one, compare the two sides:
+
+```bash
+# What the API resolves right now
+curl -s http://localhost:3000/api/me -H "Authorization: Bearer $TOKEN" | jq '.roles, .permissions'
+
+# What the database says (see section 4 for the effective-set query)
+docker compose exec postgres psql -U clavis -d clavis -c \
+  "SELECT u.username, o.permission_key, o.effect
+     FROM clavis.user_permission_overrides o JOIN clavis.users u ON u.id = o.user_id;"
+```
+
+If they disagree, it is the cache. Either a `revoke` is doing exactly its job — it beats the role
+— or a mutating route forgot to bump the `access` namespace:
+
+```bash
+docker compose exec valkey valkey-cli GET 'clavis:ver:access'   # should rise on every change
+docker compose exec valkey valkey-cli FLUSHALL                  # safe: it grants nothing
+```
+
+The rule and its consequences are in
+[`access-control.md`](access-control.md#cache-bump).
+
+### The API cannot create users (`502 KEYCLOAK_ERROR`)
+
+Every user the application creates goes through the `clavis-api` **service account**. Two things
+break it:
+
+1. `KEYCLOAK_API_CLIENT_SECRET` no longer matches the secret in the realm — usually because the
+   client was edited by hand, or the realm was imported with a different `.env`.
+2. The service account lost `realm-management` `manage-users` / `view-users`.
+
+```bash
+docker compose logs api | grep -i 'keycloak admin'    # the configured admin base URL
+docker compose config | grep KEYCLOAK_API_CLIENT
+```
+
+The realm template declares both the secret and the two client roles, so `pnpm run reset` fixes
+it; applying it live means editing the client in the console.
+
 ### CORS errors in the browser
 
 Typical message: *"has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header"*.
@@ -808,8 +948,9 @@ docker compose down --remove-orphans
 
 ### The realm is not re-imported because the volume already exists
 
-Symptom: you change `realm-clavis.template.json` (or a `DEMO_*` variable), restart, and **nothing
-happens**: the new user does not exist, the new permission does not appear in the token.
+Symptom: you change `realm-clavis.template.json` (or a `KEYCLOAK_*` / `APP_*_URL` variable),
+restart, and **nothing happens**: the redirect URI is still the old one, the theme has not
+changed, the user profile still rejects the account.
 
 Cause: Keycloak only imports a realm that does **not** already exist in its database, and that
 database lives in the `pg-data` volume, which `docker compose down` (without `-v`) keeps.
@@ -826,16 +967,20 @@ docker compose logs keycloak | grep -i "import"
 docker compose logs keycloak-realm            # the render must finish with no pending markers
 ```
 
-If you do not want to lose the demo data, the alternative is to apply the change by hand in the
-admin console (<http://localhost:8080/admin>) **and also** mirror it in the template, so the next
-clean start keeps it.
+If you do not want to lose the accounts created from the app, the alternative is to apply the
+change by hand in the admin console (<http://localhost:8080/admin>) **and also** mirror it in the
+template, so the next clean start keeps it.
+
+> This does **not** apply to permissions, roles or users: none of those live in the realm any
+> more. If you are reaching for `down -v` to make a new permission appear, see
+> [`access-control.md`](access-control.md#add-a-permission) — a restart of the API is enough.
 
 ### The login screen renders unstyled (or with the Keycloak theme)
 
 Work through this in order; each step rules out a different cause.
 
 **1. Browser cache.** The server does not cache themes under `start-dev`, but the browser does
-cache `clavis-login.css` and `clavis-login.js` by URL. Reload with `Ctrl+Shift+R`, or open dev tools →
+cache `clavis-login.css` by URL. Reload with `Ctrl+Shift+R`, or open dev tools →
 *Network* tab → *Disable cache*, or use a private window. In *Network*, `clavis-login.css` must answer
 **200**; a **404** means the file is not where `styles=` in `login/theme.properties` says it is.
 
@@ -859,8 +1004,7 @@ recreated.
 **3. Which theme does the realm actually have?**
 
 ```bash
-set -a; source .env; set +a
-docker compose exec keycloak /opt/keycloak/bin/kcadm.sh get "realms/$KEYCLOAK_REALM" \
+docker compose exec keycloak /opt/keycloak/bin/kcadm.sh get "realms/$(envval KEYCLOAK_REALM)" \
   --config /tmp/kcadm.config --fields realm,loginTheme
 ```
 
@@ -872,7 +1016,7 @@ change theme just because you edited the template**. Keycloak only imports a rea
 exist yet in its database, and that database lives in the `pg-data` volume. Two ways out:
 
 ```bash
-# Re-import from scratch (wipes the demo data)
+# Re-import from scratch (wipes every account created from the app)
 docker compose down -v && docker compose up -d --build
 ```
 
@@ -918,7 +1062,8 @@ docker compose build api
 ```
 
 If the error mentions a `package.json` that "does not exist", make sure the Dockerfile copies **the
-`package.json` of both packages**: the lockfile describes the whole workspace.
+`package.json` of every package** — including `packages/shared` — because the lockfile describes
+the whole workspace.
 
 ### `api` starts and crashes in a loop
 
@@ -931,30 +1076,25 @@ Typical causes, in order of frequency:
 1. **Invalid or missing environment variable** — zod aborts the startup with the exact variable
    name. Compare your `.env` against `.env.example`.
 2. **Failed migration** — the message names the file. See [section 7](#add-a-migration).
-3. **Modified migration checksum** — you edited a migration that was already applied. The
-   migrator refuses to continue and names the file.
+3. **Modified migration checksum** — the migrator refuses to continue and names the file.
 
-   > This is exactly what happens when you pull the commit that translated the repository to
-   > English: the `COMMENT ON` statements inside `0001_init.sql` and `0002_views.sql` changed, so
-   > their sha256 changed too. An environment created before that commit will refuse to start.
-   > The fix for a lab is `make reset` (`docker compose down -v`), which rebuilds the database
-   > from scratch. If you need to keep the data, update the stored checksum by hand instead:
+   > This is exactly what happens when you pull the commit that moved authorization into the
+   > database: the migration history was reset, so `0001_init.sql` is a different file with a
+   > different sha256 and the old `0002_views.sql` no longer exists. **Any environment created
+   > before that commit will refuse to start.** The fix is `make reset`
+   > (`docker compose down -v`), which rebuilds the database from scratch; there is nothing worth
+   > keeping, since the tables it held are gone too. On a database you cannot drop volumes for,
+   > the equivalent is one `DROP SCHEMA clavis CASCADE` before the first boot.
    >
    > ```sql
-   > SELECT version, checksum FROM clavis.schema_migrations;
+   > SELECT version, checksum, applied_at FROM clavis.schema_migrations;
    > ```
 
-4. **Unhealthy dependency** — `docker compose ps` will show which service is `unhealthy`.
-
-### The listing always returns `X-Cache: MISS`
-
-- Every write bumps the namespace version: if something (or someone) is writing continuously, there
-  will never be a `HIT`.
-- `CACHE_TTL_SECONDS` too low. Check the effective value with
-  `docker compose config | grep CACHE_TTL`.
-- Valkey down: `curl -s http://localhost:3000/api/health/ready | jq '.checks.cache'`.
-- Remember the key includes `sub`, scope, filters and pagination: changing any filter is
-  legitimately a new key and therefore a `MISS`.
+4. **Keycloak not answering yet** — the boot sequence needs the service account before it can
+   seed root, so the API logs `Keycloak is not issuing service-account tokens yet; retrying` and
+   gives up after ten attempts. Under Compose this cannot normally happen (`api` depends on
+   `keycloak` being healthy); outside Docker, start Keycloak first.
+5. **Unhealthy dependency** — `docker compose ps` will show which service is `unhealthy`.
 
 ### The email does not arrive
 
@@ -965,8 +1105,8 @@ Typical causes, in order of frequency:
    docker compose logs api | grep -i mail
    ```
 
-2. With `provider: "dry-run"` the email is **never sent** and the request still answers `200`: that
-   is the expected behaviour without `RESEND_API_KEY`.
+2. With `provider: "dry-run"` the email is **never sent** and the request still succeeds: that is
+   the expected behaviour without `RESEND_API_KEY`.
 3. With `provider: "resend"` and no verified domain, Resend only allows sending to the address you
    signed up with. Check your domains with `resend domains` and adjust `MAIL_FROM`.
 4. After changing `RESEND_API_KEY` the container has to be recreated; a `restart` is not enough:
@@ -974,6 +1114,12 @@ Typical causes, in order of frequency:
    ```bash
    docker compose up -d --force-recreate api
    ```
+
+5. **Invitations and password resets do not go through this mailer at all**: Keycloak sends them
+   over SMTP. `checks.mailer` says nothing about them. Look at `docker compose logs keycloak`
+   instead, and remember that the realm reads `smtpServer` only at import time — the live fix is
+   [section 10](#10-password-reset-and-keycloak-email). A failed invitation shows up as `invite.sent: false` in the API
+   response, with the reason.
 
 ### `InvalidHeaderValue: The API version … is not supported by Azurite`
 
@@ -989,8 +1135,7 @@ command:
 ```
 
 It is the emulator's official workaround and it has no effect on real Azure. If the error comes
-back while uploading an attachment, check that the flag is still in `command` and recreate the
-container:
+back, check that the flag is still in `command` and recreate the container:
 
 ```bash
 docker compose up -d --force-recreate azurite

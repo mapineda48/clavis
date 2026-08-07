@@ -53,9 +53,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
-      # The suites read the demo usernames and passwords straight from .env.
-      # The template values are the development ones, which is exactly what the
-      # stack boots with here.
+      # The suites read the root credentials straight from .env. The template
+      # values are the development ones, which is exactly what the stack boots
+      # (and seeds root) with here.
       - name: Create .env from the template
         run: cp .env.example .env
 

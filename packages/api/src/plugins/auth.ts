@@ -1,15 +1,29 @@
+import type { PermissionKey } from '@clavis/shared'
 import type { FastifyInstance, FastifyRequest, preHandlerHookHandler } from 'fastify'
 import fp from 'fastify-plugin'
 import { type JWTPayload, createRemoteJWKSet, jwtVerify } from 'jose'
 import { env } from '../config/env.js'
-import { forbidden, unauthorized } from '../lib/errors.js'
 import {
-  type AuthContext,
-  type Permission,
-  extractPermissions,
-  extractRealmRoles,
-  hasPermission,
-} from '../lib/permissions.js'
+  ACCESS_NAMESPACE,
+  type AccessContext,
+  accessCacheKey,
+  contextHasPermission,
+  loadAccessContext,
+} from '../lib/access.js'
+import { forbidden, unauthorized } from '../lib/errors.js'
+
+/**
+ * Identity carried by the verified token. Authorization does NOT live here:
+ * Keycloak proves who the caller is, the database decides what they may do
+ * (see `lib/access.ts`).
+ */
+export interface AuthContext {
+  sub: string
+  username: string
+  email: string | null
+  name: string | null
+  token: string
+}
 
 /** Strips trailing slashes from a URL so paths can be appended safely. */
 function trimTrailingSlash(value: string): string {
@@ -23,12 +37,17 @@ function readStringClaim(payload: JWTPayload, claim: string): string | null {
 }
 
 /**
- * Authentication plugin.
+ * Authentication and authorization plugin.
  *
  * The JWKS is downloaded from the **internal** issuer
  * (`http://keycloak:8080/...`, the docker network), while the `iss` check uses
  * the **public** issuer (`http://localhost:8080/...`), which is the one carried
  * inside the token.
+ *
+ * `authenticate` resolves the caller's access context from the database (with
+ * a Valkey cache keyed by the `access` namespace version), so a permission
+ * change takes effect as soon as the namespace is bumped — no token refresh
+ * involved.
  */
 export const authPlugin = fp(
   async (app: FastifyInstance) => {
@@ -46,9 +65,10 @@ export const authPlugin = fp(
       cacheMaxAge: 600000,
     })
 
-    // `auth` is declared as a request property so that it always exists;
-    // routes must only read it after going through `authenticate`.
+    // Declared as request properties so they always exist; routes must only
+    // read them after going through `authenticate`.
     app.decorateRequest('auth', null as unknown as AuthContext)
+    app.decorateRequest('access', null as unknown as AccessContext)
 
     /** Extracts the token from the `Authorization: Bearer <jwt>` header. */
     const readBearerToken = (request: FastifyRequest): string => {
@@ -65,8 +85,8 @@ export const authPlugin = fp(
     }
 
     /**
-     * preHandler: verifies the token, provisions the user in `clavis.users`
-     * (just in time) and leaves the context in `request.auth`.
+     * preHandler: verifies the token, resolves the access context from the
+     * database (cache first) and leaves both on the request.
      */
     const authenticate: preHandlerHookHandler = async function authenticate(request) {
       const token = readBearerToken(request)
@@ -90,39 +110,54 @@ export const authPlugin = fp(
         throw unauthorized('The token does not contain the "sub" claim.')
       }
 
-      const auth: AuthContext = {
+      request.auth = {
         sub,
         username: readStringClaim(payload, 'preferred_username') ?? sub,
         email: readStringClaim(payload, 'email'),
         name: readStringClaim(payload, 'name'),
-        realmRoles: extractRealmRoles(payload),
-        permissions: extractPermissions(payload, env.KEYCLOAK_AUDIENCE),
         token,
       }
 
-      // JIT provisioning: the user exists in the database as soon as they use the API.
-      await app.db.query(
-        `INSERT INTO clavis.users (id, username, email, display_name, last_seen_at)
-         VALUES ($1, $2, $3, $4, now())
-         ON CONFLICT (id) DO UPDATE
-           SET username     = EXCLUDED.username,
-               email        = EXCLUDED.email,
-               display_name = EXCLUDED.display_name,
-               last_seen_at = now()`,
-        [auth.sub, auth.username, auth.email, auth.name],
-      )
+      // Cache first: the key embeds the namespace version, so bumping the
+      // namespace after any role/override mutation makes every entry stale.
+      const version = await app.cache.version(ACCESS_NAMESPACE)
+      const cacheKey = accessCacheKey(version, sub)
+      let access = await app.cache.get<AccessContext>(cacheKey)
+      if (access === null) {
+        access = await loadAccessContext(app.db, sub)
+        if (access !== null) {
+          await app.cache.set(cacheKey, access, env.CACHE_TTL_SECONDS)
+        }
+      }
 
-      request.auth = auth
+      if (access === null) {
+        // A valid Keycloak identity without an application user: authentication
+        // succeeded, authorization has nothing to grant.
+        throw forbidden(
+          'This identity has no user in the application.',
+          'USER_NOT_PROVISIONED',
+        )
+      }
+      if (access.user.status === 'disabled') {
+        throw forbidden('This account is disabled.', 'ACCOUNT_DISABLED')
+      }
+
+      // Best-effort presence mark; never worth failing the request over.
+      app.db
+        .query(`UPDATE clavis.users SET last_seen_at = now() WHERE id = $1`, [sub])
+        .catch((error) => request.log.warn({ err: error }, 'Could not update last_seen_at'))
+
+      request.access = access
     }
 
     /** Returns a preHandler that demands every listed permission (logical AND). */
-    const requirePermissions = (...perms: Permission[]): preHandlerHookHandler => {
+    const requirePermissions = (...perms: PermissionKey[]): preHandlerHookHandler => {
       return async function requirePermissionsHandler(request) {
-        const auth: AuthContext | null = request.auth ?? null
-        if (auth === null) {
+        const access: AccessContext | null = request.access ?? null
+        if (access === null) {
           throw unauthorized('This operation requires authentication.')
         }
-        const missing = perms.filter((perm) => !hasPermission(auth, perm))
+        const missing = perms.filter((perm) => !contextHasPermission(access, perm))
         if (missing.length > 0) {
           throw forbidden(
             `You do not have enough permissions. Missing: ${missing.join(', ')}.`,
@@ -136,7 +171,7 @@ export const authPlugin = fp(
     app.decorate('authenticate', authenticate)
     app.decorate('requirePermissions', requirePermissions)
   },
-  { name: 'clavis-auth', dependencies: ['clavis-db'] },
+  { name: 'clavis-auth', dependencies: ['clavis-db', 'clavis-cache'] },
 )
 
 export default authPlugin

@@ -23,15 +23,18 @@ WORKDIR /repo
 COPY pnpm-workspace.yaml pnpm-lock.yaml package.json tsconfig.base.json ./
 COPY packages/api/package.json packages/api/package.json
 COPY packages/app/package.json packages/app/package.json
+COPY packages/shared/package.json packages/shared/package.json
 
 RUN pnpm install --frozen-lockfile --filter @clavis/app...
 
+COPY packages/shared packages/shared
 COPY packages/app packages/app
 
 # `build` runs typecheck + vite build and leaves the output in packages/app/dist.
+# The `...` filter builds @clavis/shared first, topologically.
 # The Keycloak and API configuration is NOT baked in here: it arrives at runtime
 # through /config.js (window.__CLAVIS_CONFIG__).
-RUN pnpm --filter @clavis/app build
+RUN pnpm --filter @clavis/app... build
 
 # ------------------------------------------------------------------------------
 # Stage 2: static server.

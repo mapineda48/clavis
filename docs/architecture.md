@@ -3,8 +3,9 @@
 Technical description of the monorepo: what each package contains, how the services talk to each
 other, how the database is modelled and why some decisions are the way they are.
 
-The identity model (roles, permissions, token contents) has its own document:
-[`authentication.md`](authentication.md).
+Two things have their own documents and are only referenced here: what Keycloak does
+([`authentication.md`](authentication.md)) and how the application decides what a user may do
+([`access-control.md`](access-control.md)).
 
 ---
 
@@ -30,14 +31,27 @@ Managed with **pnpm workspaces**. `pnpm-workspace.yaml` declares a single patter
 │   │   └── 40-clavis-runtime-config.sh  # writes window.__CLAVIS_CONFIG__ at startup
 │   └── postgres/
 │       └── 00-init-databases.sh      # creates Keycloak's role and database
+├── scripts/                          # verification suites and deployment helpers
 └── packages/
-    ├── api/   → @clavis/api
-    └── app/   → @clavis/app
+    ├── shared/ → @clavis/shared
+    ├── api/    → @clavis/api
+    └── app/    → @clavis/app
 ```
 
-There is no `shared` package: the two packages talk **only over HTTP** and through the contract
-published in Swagger. That is deliberate — it keeps the frontend from depending on backend types
-and keeps the demo understandable by reading one package at a time.
+### `@clavis/shared`
+
+The **only** thing the two runtime packages share, and it exists for one reason: the permission
+catalog has to be identical on both sides of the HTTP boundary.
+
+`src/permissions.ts` exports `PERMISSION_DEFS` — six entries of `{ key, module, description }`,
+declared `as const satisfies readonly PermissionDef[]` — plus `PermissionKey`, derived from it as
+a union of string literals. The API types `requirePermissions()` with that union; the SPA types
+`NAV_ITEMS[].required` and `<Can perm=…>` with it. A permission that does not exist cannot be
+required, and a route and a menu entry cannot disagree about how one is spelled.
+
+Everything else still travels **only over HTTP**, through the contract published in Swagger: the
+package carries no DTOs, no client and no business logic. It compiles to `dist/` with plain
+`tsc`, which is why `pnpm dev` builds it before starting the other two in parallel.
 
 ### `@clavis/api`
 
@@ -48,10 +62,12 @@ which forces **every relative import to carry the `.js` extension** even though 
 | Area | Responsibility |
 |---|---|
 | `src/config/env.ts` | Reads and validates the environment with **zod**. It is the **only** place zod is used. If a required variable is missing the process dies at startup with a clear message. |
-| `src/plugins/` | Fastify plugins that decorate the instance: `db`, `cache`, `storage`, `mailer`, `auth`. All wrapped in `fastify-plugin` so the decorators reach the root scope. |
-| `src/lib/permissions.ts` | The literal `PERMISSIONS` list, the `Permission` type, `AuthContext`, `hasPermission()`, `canSeeAllTodos()`. |
+| `src/plugins/` | Fastify plugins that decorate the instance: `db`, `cache`, `storage`, `mailer`, `keycloak-admin`, `bootstrap`, `auth`. All wrapped in `fastify-plugin` so the decorators reach the root scope. |
+| `src/lib/access.ts` | `AccessUser`, `AccessContext`, the single query that resolves a user's effective permissions, the `access` cache namespace and its key format. |
+| `src/plugins/keycloak-admin.ts` | Admin REST client over plain `fetch`: `client_credentials` with the API client's service account, single-flight token cache, and the five user operations the application needs. |
+| `src/plugins/bootstrap.ts` | Runs once at startup: syncs the permission catalog, re-seeds the `admin` system role, links root. |
 | `src/lib/errors.ts` | `AppError` with `statusCode` and `code`, plus the `badRequest`, `unauthorized`, `forbidden`, `notFound`, `conflict` helpers. The global *error handler* always answers `{ error: { code, message, statusCode } }`. |
-| `src/modules/` | One directory per domain (`health`, `me`, `todos`, `attachments`, `admin`), each exporting a `FastifyPluginAsync`. |
+| `src/modules/` | One directory per domain (`health`, `me`, `users`, `access`, `audit`), each exporting a `FastifyPluginAsync`. |
 | `src/lib/migrator.ts` | Home-grown migrator: reads `migrations/*.sql`, computes a checksum and applies what is pending. |
 | `migrations/` | Versioned SQL, `NNNN_name.sql`, lexicographic order. |
 
@@ -62,14 +78,21 @@ cannot drift away from the validation that actually runs.
 Decorators available across the whole application:
 
 ```ts
-fastify.authenticate                       // preHandler: verifies the Bearer and fills request.auth
-fastify.requirePermissions(...perms)       // preHandler: logical AND over the permissions
-request.auth                               // AuthContext, available after authenticate
+fastify.authenticate                       // preHandler: verifies the Bearer, then resolves the access context
+fastify.requirePermissions(...perms)       // preHandler: logical AND over the permissions; root bypasses
+request.auth                               // AuthContext — identity from the token
+request.access                             // AccessContext — user, roles and permissions from the database
 fastify.db                                 // pg pool + query() + tx() + ping()
 fastify.cache                              // ioredis + get/set/version/bumpVersion/ping
 fastify.storage                            // Azure Blob: upload/download/remove/ping
+fastify.keycloakAdmin                      // Admin REST: ready/createUser/findUserByUsername/getUser/
+                                           //   setPassword/sendExecuteActionsEmail/setEnabled/deleteUser
 fastify.mailer                             // Resend or dry-run: send()
 ```
+
+The split between `request.auth` and `request.access` is the whole architecture in two lines:
+the first comes from the token and answers *who*, the second comes from PostgreSQL and answers
+*what*.
 
 ### `@clavis/app`
 
@@ -81,18 +104,28 @@ support through `prefers-color-scheme`.
 |---|---|
 | `src/config.ts` | Resolves configuration at runtime: `window.__CLAVIS_CONFIG__` → `import.meta.env.VITE_*` → development defaults. |
 | `src/auth/keycloak.ts` | **Singleton** `keycloak-js` instance and an `init()` promise **memoised at module level**. |
-| `src/auth/AuthProvider.tsx` | Context + `useAuth()`: `{ ready, authenticated, profile, realmRoles, permissions, has(perm), login(), logout(), token() }`. |
-| `src/auth/Can.tsx` | `<Can perm="todos:delete">…</Can>`, with an optional `fallback`. |
+| `src/auth/AuthProvider.tsx` | Context + `useAuth()`: `{ ready, authenticated, me, meStatus, meError, roles, permissions, isRoot, has(perm), login(), logout(), token() }`. |
+| `src/auth/Can.tsx` | `<Can perm="users:create">…</Can>`, with an optional `fallback`. |
+| `src/router.tsx` | The `NAV_ITEMS` manifest, the code-based TanStack Router route tree and the `beforeLoad` permission guards. |
 | `src/api/client.ts` | `apiFetch<T>()`: injects `Authorization: Bearer`, unwraps the error envelope and throws `ApiError` with `status` and `code`. |
-| `src/api/todos.ts` | Types + React Query hooks (`useTodos`, `useCreateTodo`, …). |
+| `src/api/{me,users,access,audit}.ts` | Types + React Query hooks, one file per API module. |
 | `src/i18n/` | Hand-written English/Spanish catalogues and the `I18nProvider` that exposes `useI18n()`. |
 
-Two details that are a classic source of bugs and are solved here on purpose:
+Routing is **code-based**, not file-based: `@tanstack/react-router` route definitions live in one
+file next to the manifest they are generated from, so a section and its guard cannot drift apart.
+The router context carries the auth value, and `App.tsx` calls `router.invalidate()` whenever
+`permissions` or `isRoot` changes, so a revoked permission re-runs the guards and ejects the user
+from the screen they are on.
+
+Three details that are a classic source of bugs and are solved here on purpose:
 
 - **React 19 StrictMode mounts effects twice.** Calling `keycloak.init()` twice throws, which is
   why the init promise is memoised outside the component tree.
 - **`token()` is asynchronous** and runs `updateToken(30)` before returning the JWT, so a request
   never leaves with a token that is about to expire.
+- **A `403` on `/api/me` is a decision, not a failure.** The provider surfaces it as
+  `meStatus: 'blocked'` and `App.tsx` renders a screen explaining it (disabled account, or an
+  identity with no application user) with a sign-out button, instead of an empty application.
 
 ### Configuration: a single `.env`
 
@@ -116,12 +149,17 @@ drift apart. Compose also **derives** values that are never written by hand:
 ```mermaid
 flowchart TB
     subgraph client["Client"]
-        SPA["@clavis/app<br/>React 19 · keycloak-js · React Query"]
+        SPA["@clavis/app<br/>React 19 · TanStack Router · keycloak-js · React Query"]
     end
+
+    SH["@clavis/shared<br/>PERMISSION_DEFS · PermissionKey"]
 
     subgraph api["@clavis/api — Fastify 5"]
         AUTH["auth plugin<br/>jose + remote JWKS<br/>authenticate / requirePermissions"]
-        MOD["modules<br/>health · me · todos · attachments · admin"]
+        ACC["lib/access<br/>effective permissions"]
+        BOOT["bootstrap plugin<br/>catalog · admin role · root"]
+        KA["keycloak-admin plugin<br/>service account · Admin REST"]
+        MOD["modules<br/>health · me · users · access · audit"]
         DB["db plugin<br/>pg.Pool · query · tx"]
         CACHE["cache plugin<br/>ioredis · version per namespace"]
         STO["storage plugin<br/>@azure/storage-blob"]
@@ -138,15 +176,24 @@ flowchart TB
 
     RS["Resend<br/>(external, optional)"]
 
+    SH -.->|"PermissionKey"| SPA
+    SH -.->|"PermissionKey"| MOD
+    SH -.->|"catalog"| BOOT
     SPA -->|"OIDC PKCE S256"| KC
     SPA -->|"Bearer JWT"| AUTH
+    AUTH --> ACC
+    ACC --> CACHE
+    ACC --> DB
     AUTH --> MOD
     AUTH -->|"internal JWKS"| KC
-    AUTH -->|"JIT provisioning into clavis.users"| DB
+    BOOT --> DB
+    BOOT --> KA
+    MOD --> KA
+    KA -->|"Admin REST, client_credentials"| KC
     MOD --> DB
     MOD --> CACHE
-    MOD --> STO
     MOD --> MAIL
+    MOD --> STO
     MIG --> PG
     DB --> PG
     CACHE --> VK
@@ -158,15 +205,26 @@ flowchart TB
 ### Lifecycle of an authenticated request
 
 1. `authenticate` pulls the `Bearer` out of the `Authorization` header.
-2. `jose` verifies the signature (JWKS), `iss`, `aud` and `exp`.
-3. The `AuthContext` is built from `sub`, `preferred_username`, `email`, `name`,
-   `realm_access.roles` and `resource_access['clavis-api'].roles`.
-4. **JIT provisioning**: `INSERT … ON CONFLICT (id) DO UPDATE` into `clavis.users`, refreshing
-   `username`, `email`, `display_name` and `last_seen_at`. The application never has an "unknown"
-   user behind its foreign keys and needs no periodic sync with Keycloak.
-5. `requirePermissions(...)` checks the AND of the permissions the route demands; on failure it
-   returns 403 with the standard error envelope.
-6. The handler runs the business logic, applying the data-level **visibility rule** on top.
+2. `jose` verifies the signature (JWKS from the internal issuer), `iss`, `aud` and `exp`, with a
+   5-second `clockTolerance`.
+3. `request.auth` is built from `sub`, `preferred_username`, `email` and `name`. **That is all
+   the token contributes** — it carries no roles and no permissions.
+4. The **access context** is resolved for that `sub`: read from Valkey under
+   `clavis:v<version>:access:user:<sub>`, and on a miss from PostgreSQL in a single query that
+   returns the user row, their role slugs and their effective permissions. The result is cached
+   for `CACHE_TTL_SECONDS`.
+5. Two refusals happen here, both `403` because authentication already succeeded: no row in
+   `clavis.users` → `USER_NOT_PROVISIONED`; `status = 'disabled'` → `ACCOUNT_DISABLED`. There is
+   **no just-in-time provisioning**: an identity does not become a user by showing up.
+6. `request.access` is set, and `last_seen_at` is refreshed fire-and-forget — never worth failing
+   a request over.
+7. `requirePermissions(...)` checks the AND of the permissions the route demands (root bypasses);
+   on failure it returns `403` with the standard envelope, naming the missing keys.
+8. The handler runs. Every handler that mutates roles, users or overrides bumps the `access`
+   namespace after committing, so the change is visible on the **next** request.
+
+The full model, including the effective-permission formula and the bump rule, is in
+[`access-control.md`](access-control.md).
 
 ---
 
@@ -176,49 +234,61 @@ Schema `clavis` in the `clavis` database. Keycloak uses a **separate** database 
 PostgreSQL instance, created idempotently by `infra/postgres/00-init-databases.sh`. They share a
 server but **not** a schema: identity and business data do not mix.
 
+Seven tables, and every one of them exists to answer "what may this person do".
+
 ```mermaid
 erDiagram
-    users ||--o{ todos : "owner_id"
-    users ||--o{ todos : "assignee_id"
-    users ||--o{ todo_attachments : "uploaded_by"
-    todos ||--o{ todo_attachments : "todo_id"
+    users ||--o{ user_roles : "user_id"
+    roles ||--o{ user_roles : "role_slug"
+    roles ||--o{ role_permissions : "role_slug"
+    permissions ||--o{ role_permissions : "permission_key"
+    users ||--o{ user_permission_overrides : "user_id"
+    permissions ||--o{ user_permission_overrides : "permission_key"
 
     users {
-        uuid id PK "Keycloak sub"
+        uuid id PK "the id Keycloak assigned"
         text username UK
-        text email
+        text email UK
         text display_name
+        boolean is_root
+        text status "CHECK active / disabled"
         timestamptz created_at
         timestamptz updated_at
         timestamptz last_seen_at
     }
-    todos {
-        uuid id PK
-        text title "CHECK not empty"
+    permissions {
+        text key PK "module:action"
+        text module
         text description
-        text status "todo / in_progress / done"
-        smallint priority "1..4"
-        date due_date
-        uuid owner_id FK "ON DELETE CASCADE"
-        uuid assignee_id FK "ON DELETE SET NULL"
+        timestamptz created_at
+    }
+    roles {
+        text slug PK
+        text name
+        text description
+        boolean is_system
         timestamptz created_at
         timestamptz updated_at
-        timestamptz completed_at
     }
-    todo_attachments {
-        uuid id PK
-        uuid todo_id FK "ON DELETE CASCADE"
-        text blob_name UK
-        text file_name
-        text content_type
-        bigint size_bytes
-        uuid uploaded_by FK
+    role_permissions {
+        text role_slug PK "FK CASCADE"
+        text permission_key PK "FK CASCADE"
+    }
+    user_roles {
+        uuid user_id PK "FK CASCADE"
+        text role_slug PK "FK CASCADE"
+    }
+    user_permission_overrides {
+        uuid user_id PK "FK CASCADE"
+        text permission_key PK "FK CASCADE"
+        text effect "CHECK grant / revoke"
+        uuid created_by "no FK"
         timestamptz created_at
     }
     audit_log {
         bigint id PK "GENERATED ALWAYS AS IDENTITY"
-        uuid actor_id
-        text action
+        uuid actor_id "no FK"
+        text action "entity.verb"
         text entity
         text entity_id
         jsonb payload
@@ -228,101 +298,115 @@ erDiagram
 
 ### Modelling decisions
 
-- **`clavis.users.id` is the Keycloak `sub`.** There is no parallel internal ID and no mapping table:
-  the identity identifier *is* the user identifier in the business domain. That makes an ownership
-  check as simple as `owner_id = auth.sub`, with no translation in between.
-- **`owner_id` with `ON DELETE CASCADE`, `assignee_id` with `ON DELETE SET NULL`.** If a user
-  disappears their own tasks go with them, but somebody else's task that happened to be assigned
-  to them is simply left unassigned.
-- **`audit_log` has no foreign key to `users`.** An audit record has to survive the deletion of the
-  actor, which is why `actor_id` is a loose, nullable `uuid`.
+- **`clavis.users.id` is the id Keycloak assigned.** There is no parallel internal ID and no
+  mapping table: the `sub` claim indexes the row directly. It is the only value the two systems
+  share, and the application obtains it by creating the Keycloak user *first* and keeping what
+  comes back.
+- **`clavis.permissions` is a projection of code, not a configuration table.** The boot sync
+  upserts `PERMISSION_DEFS` and deletes anything else, cascading into `role_permissions` and
+  `user_permission_overrides`. It exists so the assignment tables can have real foreign keys and
+  so the UI can render descriptions.
+- **`status` and `effect` are `text` with `CHECK`, not PostgreSQL enums.** A `CHECK` constraint
+  can be altered in a plain migration; an enum type cannot, not without a dance.
+- **`audit_log.actor_id` and `user_permission_overrides.created_by` carry no foreign key.** The
+  record of who did something must survive the deletion of the person who did it.
 - **`gen_random_uuid()` is native in PostgreSQL 17**: neither `pgcrypto` nor `uuid-ossp` is
   installed. One extension fewer is one difference fewer between environments.
-- **Indexes**: `todos(owner_id)`, `todos(assignee_id)`, `todos(status)`,
-  `todo_attachments(todo_id)` and `audit_log(created_at DESC)`. They cover exactly the access
-  patterns of the filtered listing, the attachments panel and the audit log paginated by date
-  descending.
+- **Indexes**: `user_roles(role_slug)` and `role_permissions(permission_key)` for the reverse
+  lookups the Access screen makes, and `audit_log(created_at DESC)` for the trail paginated by
+  date descending. The forward lookups are covered by the composite primary keys.
 - **`updated_at` is maintained by the database**, not by the application: the
-  `clavis.set_updated_at()` function plus `BEFORE UPDATE` triggers on `clavis.users` and `clavis.todos`.
+  `clavis.set_updated_at()` function plus `BEFORE UPDATE` triggers on `clavis.users` and
+  `clavis.roles`.
+
+The formula that reads all of this — `union(role permissions) ∪ grants − revokes`, with
+`is_root` short-circuiting — is one query in `src/lib/access.ts` and is explained in
+[`access-control.md`](access-control.md#2-the-data-model).
 
 ### Migrations
 
 - Files under `packages/api/migrations/NNNN_name.sql`, applied in **lexicographic order**.
-  - `0001_init.sql` — schema, tables, indexes, function and triggers.
-  - `0002_views.sql` — the `clavis.v_todo_stats` view with counts by status and priority, which feeds
-    `GET /api/admin/stats`.
+  Currently one: `0001_init.sql` — schema, the seven tables, indexes, function and triggers.
 - The `clavis.schema_migrations (version, checksum, applied_at)` registry **is created by the migrator
-  itself**, not by a migration; that way the migrator can start against an empty database.
+  itself**, not by a migration; that way the migrator can start against an empty database. It
+  takes a PostgreSQL advisory lock first, so two API replicas starting at once do not race.
 - Each migration is applied exactly once and its **checksum** is stored. Editing a file that has
   already been applied fails at startup instead of silently diverging between environments. To
   change something you add a new migration (see
   [`operations.md`](operations.md#add-a-migration)).
 
+> **The migration history was reset** when authorization moved into the database: the previous
+> `0001`/`0002` pair is gone and `0001_init.sql` is a fresh file with a different checksum. An
+> environment created before that commit refuses to start; the fix is `pnpm run reset` locally,
+> and it needed a one-time `DROP SCHEMA clavis CASCADE` on the production database.
+
 ---
 
 ## 4. Versioned cache in Valkey
 
-The `GET /api/todos` listing is the most frequent read and the most expensive one (filters +
-pagination + total count). It is cached in Valkey with a **namespace version** strategy rather
-than key deletion.
+The most frequent read in the system is not a business query: it is **the access context**, which
+every authenticated request resolves before it does anything else. It is cached in Valkey with a
+**namespace version** strategy rather than key deletion.
 
-**List key:**
+**Key:**
 
 ```
-clavis:v<version>:todos:<sub>:<effectiveScope>:<status|_>:<q|_>:<page>:<pageSize>
+clavis:v<version>:access:user:<sub>          TTL = CACHE_TTL_SECONDS (60 s)
 ```
 
-- `<version>` — integer counter for the `todos` namespace, obtained with `cache.version('todos')`
-  (created as `1` if it does not exist).
-- `<sub>` — the user, because **the same query returns different rows depending on who is asking**
-  (visibility rule). Caching without the `sub` would be a data leak.
-- `<effectiveScope>` — `mine` or `all` **already resolved** after checking permissions, not the raw
-  query value.
-- `<status|_>` and `<q|_>` — filters; `_` when they are not applied, so the key is never ambiguous.
-- TTL = `CACHE_TTL_SECONDS` (60 s by default).
+- `<version>` — integer counter for the `access` namespace, obtained with
+  `cache.version('access')` (created as `1` if it does not exist).
+- `<sub>` — the user. One entry per person, holding the user row, their role slugs and their
+  effective permission list.
 
-**Invalidation:** every domain write (`POST`, `PATCH`, `DELETE`, `seed-demo`) calls
-`cache.bumpVersion('todos')`, which runs `INCR` on the counter. From that moment on every new key
-is built with `v<version+1>` and **the old ones are orphaned**: nobody reads them and they expire
-on their own by TTL.
+**Invalidation:** every write that could change somebody's permissions calls
+`cache.bumpVersion('access')`, which runs `INCR` on the counter. From that moment on every new
+key is built with `v<version+1>` and **the old ones are orphaned**: nobody reads them and they
+expire on their own by TTL.
+
+The writes that bump it: creating, updating and deleting a user; replacing a user's overrides;
+creating a role, replacing its permissions or deleting it; and the boot catalog sync.
 
 ```mermaid
 sequenceDiagram
-    participant C as Client
+    participant B as Bob's client
     participant A as API
     participant V as Valkey
+    participant R as Root's client
 
-    C->>A: GET /api/todos?status=todo
-    A->>V: version('todos') → 7
-    A->>V: GET clavis:v7:todos:[sub]:mine:todo:_:1:20
-    V-->>A: null
-    A->>A: query PostgreSQL
-    A->>V: SET key (TTL 60 s)
-    A-->>C: 200 · X-Cache MISS
+    B->>A: GET /api/users
+    A->>V: version('access') → 7
+    A->>V: GET clavis:v7:access:user:bob → null
+    A->>A: resolve from PostgreSQL, cache it
+    A-->>B: 403 (no users:read)
 
-    C->>A: POST /api/todos
-    A->>V: bumpVersion('todos') → 8
+    R->>A: PUT /api/access/users/bob/overrides  (grant users:read)
+    A->>V: bumpVersion('access') → 8
 
-    C->>A: GET /api/todos?status=todo
-    A->>V: version('todos') → 8
-    A->>V: GET clavis:v8:… → null
-    A-->>C: 200 · X-Cache MISS (fresh data)
+    B->>A: GET /api/users
+    A->>V: version('access') → 8
+    A->>V: GET clavis:v8:access:user:bob → null
+    A->>A: resolve from PostgreSQL (now with the grant)
+    A-->>B: 200
 ```
 
-Why a version instead of `DEL` by pattern:
+Bob never refreshed his token. That is the property the whole design is for.
 
+Why a version instead of `DEL` by key:
+
+- Deleting the right keys means knowing which users a change affected — for a role edit that is a
+  join, and for a catalog sync it is everybody. `INCR` is O(1), atomic, and invalidates all of
+  them at once.
 - Invalidating with `SCAN` + `DEL` over a pattern is O(n) across the whole keyspace and hard to
-  make atomic. `INCR` is O(1) and atomic.
-- One write invalidates **every** filter/page/user combination at once, without having to
-  enumerate them.
+  make atomic.
 - The price is the temporary memory held by dead keys, bounded by the TTL.
 
-The response always carries `X-Cache: HIT|MISS` and the body includes a `cached` field, so the
-behaviour is observable from the UI without opening the dev tools.
+Cache failures **degrade to a miss** rather than an error: every operation in the plugin catches,
+logs and falls through to PostgreSQL, so Valkey being down makes the API slower and not broken.
 
 ---
 
-## 5. Attachments in Azurite
+## 5. Blob storage
 
 Azurite is the official Azure Storage emulator. It is used through `@azure/storage-blob` with the
 standard development connection string (`AZURE_STORAGE_CONNECTION_STRING`), whose account key is
@@ -331,33 +415,16 @@ standard development connection string (`AZURE_STORAGE_CONNECTION_STRING`), whos
 nothing else.
 
 Container: `AZURE_STORAGE_CONTAINER` = `clavis-attachments`, created by the `storage` plugin at
-startup if it does not exist (idempotent).
+startup if it does not exist (idempotent). The plugin exposes `upload`, `download`, `remove` and
+`ping`, and `ping` is one of the four checks behind `GET /api/health/ready`.
 
-### Blob naming convention
+**No feature uses it today.** The access-control base has nothing to attach. It stays wired, and
+in the readiness probe, on purpose: it is the piece a business module would need on day one, and
+a dependency that is only added when it is first needed is a dependency whose Docker wiring,
+health check and production credentials all get debugged under pressure.
 
-```
-todos/<todo_id>/<uuid>-<sanitised-file-name>
-```
-
-Example: `todos/6b0f…/9c1a…-q3_report.pdf`
-
-The reason for each part:
-
-- **The `todos/<todo_id>/` prefix** — Azure has no directories, but the prefix lets you list every
-  attachment of a task in a single call and makes cascade deletion straightforward.
-- **The leading `<uuid>-`** — two users can upload `invoice.pdf` to the same task without
-  overwriting each other. The visible name is kept separately in `file_name`.
-- **Sanitised name** — normalised to `[A-Za-z0-9._-]` so nothing depends on the character set of
-  the storage backend.
-
-The exact value is stored in `clavis.todo_attachments.blob_name` with a **UNIQUE** constraint: the
-database is the source of truth for the blob inventory, and the name is never recomputed on
-download. The download path (`GET /api/attachments/:id`) resolves the row first, checks visibility
-on the parent task and **then** asks for the blob: the blob identifier is never exposed to the
-client nor accepted from it, so there is no way to request an arbitrary blob.
-
-Size limit: `MAX_UPLOAD_BYTES` (10 MiB) enforced by `@fastify/multipart`, which cuts the stream
-instead of reading the whole file into memory before rejecting it.
+`MAX_UPLOAD_BYTES` (10 MiB) still caps the Fastify body limit and `@fastify/multipart`, which cuts
+the stream instead of reading a whole file into memory before rejecting it.
 
 ---
 
@@ -385,7 +452,7 @@ The solution is two variables with two separate uses:
 | Variable | Value | Used for |
 |---|---|---|
 | `KEYCLOAK_ISSUER` | `http://localhost:8080/realms/clavis` | Comparing against the token's `iss` claim (it must match **exactly**, no extra trailing slash) |
-| `KEYCLOAK_INTERNAL_ISSUER` | `http://keycloak:8080/realms/clavis` | Deriving the JWKS URL: `<internal>/protocol/openid-connect/certs` |
+| `KEYCLOAK_INTERNAL_ISSUER` | `http://keycloak:8080/realms/clavis` | Deriving the JWKS URL (`<internal>/protocol/openid-connect/certs`), the service-account token URL and the Admin REST base (`/realms/<realm>` → `/admin/realms/<realm>`) |
 
 ```mermaid
 flowchart LR
@@ -439,6 +506,30 @@ the dependencies use `condition: service_healthy`:
 | `keycloak` | bash with `/dev/tcp` against the management port `9000`, path `/health/ready` | The image ships **neither `curl` nor `wget`** |
 | `azurite`, `api` | `node -e "…"` with `http.get` | Both images ship Node |
 
+### What the API does before it listens
+
+`api` depends on `postgres`, `valkey`, `azurite` **and `keycloak`**, all with
+`condition: service_healthy`. That last one is not decoration: the boot sequence talks to
+Keycloak before the first request arrives.
+
+```mermaid
+flowchart LR
+    M["migrator<br/>migrations/*.sql"] --> C["catalog sync<br/>PERMISSION_DEFS → clavis.permissions"]
+    C --> R["system role 'admin'<br/>re-seeded with the full catalog"]
+    R --> K["root<br/>found or created in Keycloak,<br/>password re-applied, row upserted"]
+    K --> B["bumpVersion('access')"]
+    B --> L["listen"]
+```
+
+Plugin registration order is `db → cache → storage → mailer → keycloak-admin → bootstrap → auth`,
+and every step above is idempotent, so a restart is always safe. `keycloakAdmin.ready()` retries
+the service-account token up to ten times at 1.5-second intervals, because `pnpm dev` outside
+Docker has none of Compose's ordering guarantees.
+
+The consequence to keep in mind: **a fresh database is never empty**. It always has the six
+catalog rows, the `admin` role and root. See
+[`access-control.md`](access-control.md#root).
+
 ---
 
 ## 8. The API image inside a pnpm monorepo
@@ -447,10 +538,11 @@ The `Dockerfile` in `packages/api` is multi-stage and has one quirk worth knowin
 it:
 
 1. It copies `pnpm-workspace.yaml`, `pnpm-lock.yaml`, `package.json`, `tsconfig.base.json` and
-   **the `package.json` of both packages**. If one is missing, `--frozen-lockfile` fails: the
+   **the `package.json` of every package**. If one is missing, `--frozen-lockfile` fails: the
    lockfile describes the whole workspace, not a single package.
-2. It installs with `--filter @clavis/api...` (only the API and its workspace dependencies).
-3. It builds with `tsc`.
+2. It installs with `--filter @clavis/api...` — the trailing `...` is what pulls in
+   `@clavis/shared`, which the API imports.
+3. It builds with `tsc`, `@clavis/shared` first.
 4. It reinstalls with `--prod` to drop the development dependencies.
 5. The final stage copies **all of `/repo`**: the symlinks pnpm creates in `node_modules` are
    **relative**, so they stay valid when the whole tree is copied — but they break if you copy only

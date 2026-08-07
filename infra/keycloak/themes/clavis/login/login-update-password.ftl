@@ -20,8 +20,6 @@
     rendered by a base-theme macro that takes no tabindex, and numbering
     everything else would push it to the end of the sequence. With everything at
     0 the order is document order, which is already the right one on this screen.
-    The cheat-sheet buttons (tabindex 9..11) are disabled by clavis-login.js: there
-    is no #username field here.
 -->
 <#import "template.ftl" as layout>
 <#import "password-commons.ftl" as passwordCommons>

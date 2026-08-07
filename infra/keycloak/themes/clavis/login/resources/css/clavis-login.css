@@ -1,5 +1,5 @@
 /* =============================================================================
-   Clavis demo login theme — the one stylesheet.
+   Clavis login theme — the one stylesheet.
 
    No remote fonts, no CDNs, no dependencies: everything is solved with the
    system font stack and SVG icons embedded as data URIs.
@@ -9,15 +9,14 @@
      2. Dark mode (redefines colour variables only)
      3. Reset scoped to the theme
      4. Structure: layout, brand panel, form panel
-     5. Demo user cheat sheet
-     6. Card, header and language selector
-     7. Forms: fields, inputs, show/hide password, options
-     8. Buttons and links
-     9. Alerts
-    10. Federated identities, info and footer
-    11. Mask-based icons
-    12. Narrow screens
-    13. Reduced motion
+     5. Card, header and language selector
+     6. Forms: fields, inputs, show/hide password, options
+     7. Buttons and links
+     8. Alerts
+     9. Federated identities, info and footer
+    10. Mask-based icons
+    11. Narrow screens
+    12. Reduced motion
    ========================================================================== */
 
 
@@ -346,121 +345,7 @@
 
 
 /* =============================================================================
-   5. Demo user cheat sheet
-   ========================================================================== */
-
-.clavis-users {
-  display: flex;
-  flex-direction: column;
-  gap: var(--clavis-space-2);
-  margin-top: var(--clavis-space-2);
-}
-
-.clavis-users__title {
-  font-size: 0.75rem;
-  font-weight: 700;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
-  color: var(--clavis-on-brand-muted);
-}
-
-.clavis-user {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: var(--clavis-space-1) var(--clavis-space-2);
-  padding: var(--clavis-space-2) var(--clavis-space-3);
-  border: 1px solid var(--clavis-brand-border);
-  border-radius: var(--clavis-radius-md);
-  background-color: var(--clavis-brand-surface);
-  color: var(--clavis-on-brand);
-}
-
-.clavis-user__head {
-  display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-  min-width: 0;
-}
-
-.clavis-user__name {
-  font-family: var(--clavis-font-mono);
-  font-size: 0.9375rem;
-  font-weight: 700;
-}
-
-.clavis-user__role {
-  font-size: 0.75rem;
-  color: var(--clavis-on-brand-muted);
-}
-
-.clavis-user__perms {
-  grid-column: 1 / -1;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.3rem;
-  min-width: 0;
-}
-
-/* Permission chips: pure white on a translucent surface => comfortably AA. */
-.clavis-perm {
-  display: inline-block;
-  padding: 0.1rem 0.45rem;
-  border: 1px solid var(--clavis-brand-border);
-  border-radius: var(--clavis-radius-pill);
-  background-color: var(--clavis-brand-surface-strong);
-  color: var(--clavis-on-brand);
-  font-family: var(--clavis-font-mono);
-  font-size: 0.6875rem;
-  line-height: 1.6;
-  white-space: nowrap;
-}
-
-.clavis-user__use {
-  grid-column: 2;
-  grid-row: 1;
-  justify-self: end;
-  padding: 0.3rem 0.7rem;
-  border: 1px solid var(--clavis-brand-border);
-  border-radius: var(--clavis-radius-pill);
-  background-color: var(--clavis-brand-surface-strong);
-  color: var(--clavis-on-brand);
-  font-size: 0.75rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
-}
-
-.clavis-user__use:hover {
-  background-color: rgba(255, 255, 255, 0.3);
-  border-color: rgba(255, 255, 255, 0.45);
-}
-
-.clavis-user__use:active {
-  transform: translateY(1px);
-}
-
-.clavis-user__use:focus-visible {
-  outline: 2px solid var(--clavis-on-brand);
-  outline-offset: 2px;
-}
-
-.clavis-user__use[disabled] {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-.clavis-users__note {
-  margin-top: var(--clavis-space-1);
-  font-size: 0.75rem;
-  line-height: 1.5;
-  color: var(--clavis-on-brand-muted);
-}
-
-
-/* =============================================================================
-   6. Card, header and language selector
+   5. Card, header and language selector
    ========================================================================== */
 
 .clavis-card {
@@ -626,7 +511,7 @@
 
 
 /* =============================================================================
-   7. Forms
+   6. Forms
    ========================================================================== */
 
 .clavis-field {
@@ -786,7 +671,7 @@
 
 
 /* =============================================================================
-   8. Buttons and links
+   7. Buttons and links
    ========================================================================== */
 
 .clavis-btn {
@@ -872,7 +757,7 @@
 
 
 /* =============================================================================
-   9. Alerts
+   8. Alerts
    ========================================================================== */
 
 /* Our templates emit .clavis-alert--<type>; the templates inherited from the base
@@ -977,7 +862,7 @@
 
 
 /* =============================================================================
-   10. Federated identities, info and footer
+   9. Federated identities, info and footer
    ========================================================================== */
 
 .clavis-social {
@@ -1058,7 +943,7 @@
 
 
 /* =============================================================================
-   11. Mask-based icons
+   10. Mask-based icons
    ========================================================================== */
 
 /* passwordVisibility.js replaces the whole className of the <i> with
@@ -1092,13 +977,13 @@
 
 
 /* =============================================================================
-   12. Narrow screens (< 900 px)
+   11. Narrow screens (< 900 px)
    ========================================================================== */
 
 /* A single column. The brand panel dissolves (display: contents) so its pieces
    land directly on the grid: a compact header on top (logo + title + tagline
-   over the gradient) and the user cheat sheet BELOW the form. The gradient band
-   itself is painted by .clavis-layout::before. */
+   over the gradient) and the form below it. The gradient band itself is painted
+   by .clavis-layout::before. */
 
 @media (max-width: 899.98px) {
   .clavis-layout {
@@ -1166,21 +1051,6 @@
     grid-row: 3;
     padding: clamp(1.25rem, 4vw, 2rem) 1rem;
   }
-
-  /* Outside the gradient: the cheat sheet becomes its own card with the same
-     background, so the translucent chips keep their contrast. */
-  .clavis-users {
-    grid-column: 1 / -1;
-    grid-row: 4;
-    margin: 0 1rem 1.5rem;
-    padding: var(--clavis-space-3);
-    border-radius: var(--clavis-radius-lg);
-    background-image: var(--clavis-brand-gradient);
-    background-repeat: no-repeat;
-    background-size: cover;
-    color: var(--clavis-on-brand);
-    box-shadow: var(--clavis-shadow-md);
-  }
 }
 
 /* Very narrow phones (320 px): nothing may overflow horizontally. */
@@ -1194,24 +1064,6 @@
     padding: 1.25rem 0.75rem;
   }
 
-  .clavis-users {
-    margin-inline: 0.75rem;
-  }
-
-  .clavis-user {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .clavis-user__use {
-    grid-column: 1;
-    grid-row: 3;
-    justify-self: start;
-  }
-
-  .clavis-perm {
-    white-space: normal;
-  }
-
   .clavis-username-echo {
     flex-direction: column;
     align-items: flex-start;
@@ -1220,7 +1072,7 @@
 
 
 /* =============================================================================
-   13. Reduced motion
+   12. Reduced motion
    ========================================================================== */
 
 @media (prefers-reduced-motion: reduce) {
@@ -1233,8 +1085,7 @@
     scroll-behavior: auto !important;
   }
 
-  .clavis-btn:active,
-  .clavis-user__use:active {
+  .clavis-btn:active {
     transform: none;
   }
 }

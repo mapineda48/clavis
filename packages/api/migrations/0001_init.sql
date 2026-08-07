@@ -1,15 +1,23 @@
 -- =============================================================================
--- 0001_init.sql — Initial schema of the Clavis demo.
+-- 0001_init.sql — Access-control base of Clavis.
 -- It is applied exactly once (the migrator stores the checksum in
--- clavis.schema_migrations), but it is written idempotently so that re-running it
--- by hand against an already initialized database breaks nothing.
+-- clavis.schema_migrations), but it is written idempotently so that re-running
+-- it by hand against an already initialized database breaks nothing.
+--
+-- Authorization model: Keycloak authenticates; this schema decides. Permission
+-- KEYS are declared in code (@clavis/shared) and synced into `permissions` at
+-- boot; the database owns the ASSIGNMENTS: roles, role_permissions, user_roles
+-- and per-user overrides. Effective permissions =
+--   union(role permissions) ∪ grants − revokes,
+-- with is_root short-circuiting to the full catalog.
+--
 -- gen_random_uuid() is built into PostgreSQL 17: no extension is installed.
 -- =============================================================================
 
 CREATE SCHEMA IF NOT EXISTS clavis;
 
 COMMENT ON SCHEMA clavis IS
-  'Main schema of the Clavis demo: users, tasks, attachments and audit trail.';
+  'Main schema of Clavis: users, roles, permissions, overrides and audit trail.';
 
 -- -----------------------------------------------------------------------------
 -- Users
@@ -17,71 +25,85 @@ COMMENT ON SCHEMA clavis IS
 CREATE TABLE IF NOT EXISTS clavis.users (
   id            uuid PRIMARY KEY,                -- Keycloak 'sub'
   username      text NOT NULL UNIQUE,
-  email         text,
+  email         text NOT NULL UNIQUE,
   display_name  text,
+  is_root       boolean NOT NULL DEFAULT false,
+  status        text NOT NULL DEFAULT 'active'
+                CHECK (status IN ('active','disabled')),
   created_at    timestamptz NOT NULL DEFAULT now(),
   updated_at    timestamptz NOT NULL DEFAULT now(),
   last_seen_at  timestamptz
 );
 
 COMMENT ON TABLE clavis.users IS
-  'Clavis users. They are created and refreshed just in time while validating the Keycloak access token.';
+  'System users. Created from the application (which registers them in Keycloak first); the root user is seeded at boot from the deployment variables.';
 COMMENT ON COLUMN clavis.users.id IS
-  'User identifier: the "sub" claim of the Keycloak access token.';
-COMMENT ON COLUMN clavis.users.username IS
-  'The "preferred_username" claim of the token; unique within the realm.';
+  'User identifier: the id Keycloak assigned on creation (the "sub" claim of its tokens).';
+COMMENT ON COLUMN clavis.users.is_root IS
+  'Break-glass flag: root bypasses the permission system entirely and cannot be disabled or edited through the access UI.';
+COMMENT ON COLUMN clavis.users.status IS
+  'active | disabled. A disabled user authenticates in Keycloak but every API request is refused.';
 COMMENT ON COLUMN clavis.users.last_seen_at IS
   'Last time the user presented a valid token to the API.';
 
 -- -----------------------------------------------------------------------------
--- Tasks (todos)
+-- Permission catalog (synced from code at boot; never edited by hand)
 -- -----------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS clavis.todos (
-  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  title        text NOT NULL CHECK (length(btrim(title)) > 0),
-  description  text,
-  status       text NOT NULL DEFAULT 'todo'
-               CHECK (status IN ('todo','in_progress','done')),
-  priority     smallint NOT NULL DEFAULT 3 CHECK (priority BETWEEN 1 AND 4),
-  due_date     date,
-  owner_id     uuid NOT NULL REFERENCES clavis.users(id) ON DELETE CASCADE,
-  assignee_id  uuid REFERENCES clavis.users(id) ON DELETE SET NULL,
-  created_at   timestamptz NOT NULL DEFAULT now(),
-  updated_at   timestamptz NOT NULL DEFAULT now(),
-  completed_at timestamptz
+CREATE TABLE IF NOT EXISTS clavis.permissions (
+  key         text PRIMARY KEY,
+  module      text NOT NULL,
+  description text NOT NULL,
+  created_at  timestamptz NOT NULL DEFAULT now()
 );
 
-COMMENT ON TABLE clavis.todos IS
-  'Clavis tasks. Visibility: without the todos:read:all permission a user only sees their own or assigned tasks.';
-COMMENT ON COLUMN clavis.todos.status IS
-  'Task status: todo | in_progress | done.';
-COMMENT ON COLUMN clavis.todos.priority IS
-  'Priority from 1 (highest) to 4 (lowest); 3 by default.';
-COMMENT ON COLUMN clavis.todos.owner_id IS
-  'User who created the task.';
-COMMENT ON COLUMN clavis.todos.assignee_id IS
-  'Assigned user; if that user is deleted the task is left unassigned.';
-COMMENT ON COLUMN clavis.todos.completed_at IS
-  'Moment the task moved to the done status.';
+COMMENT ON TABLE clavis.permissions IS
+  'Permission catalog. The source of truth is PERMISSION_DEFS in @clavis/shared: the API upserts it at boot and deletes keys that no longer exist there.';
+COMMENT ON COLUMN clavis.permissions.key IS
+  'Permission key in module:action form, for example users:create.';
 
 -- -----------------------------------------------------------------------------
--- Attachments (the binaries live in Azure Blob Storage / Azurite)
+-- Roles and their permissions
 -- -----------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS clavis.todo_attachments (
-  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  todo_id      uuid NOT NULL REFERENCES clavis.todos(id) ON DELETE CASCADE,
-  blob_name    text NOT NULL UNIQUE,
-  file_name    text NOT NULL,
-  content_type text NOT NULL,
-  size_bytes   bigint NOT NULL,
-  uploaded_by  uuid NOT NULL REFERENCES clavis.users(id),
-  created_at   timestamptz NOT NULL DEFAULT now()
+CREATE TABLE IF NOT EXISTS clavis.roles (
+  slug        text PRIMARY KEY,
+  name        text NOT NULL,
+  description text,
+  is_system   boolean NOT NULL DEFAULT false,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  updated_at  timestamptz NOT NULL DEFAULT now()
 );
 
-COMMENT ON TABLE clavis.todo_attachments IS
-  'Metadata of the files attached to a task; the content itself is stored in Azure Blob Storage.';
-COMMENT ON COLUMN clavis.todo_attachments.blob_name IS
-  'Name of the blob inside the container configured in AZURE_STORAGE_CONTAINER.';
+COMMENT ON TABLE clavis.roles IS
+  'Assignable roles. System roles (is_system) are seeded at boot and cannot be edited or deleted through the API.';
+
+CREATE TABLE IF NOT EXISTS clavis.role_permissions (
+  role_slug      text NOT NULL REFERENCES clavis.roles(slug) ON DELETE CASCADE,
+  permission_key text NOT NULL REFERENCES clavis.permissions(key) ON DELETE CASCADE,
+  PRIMARY KEY (role_slug, permission_key)
+);
+
+CREATE TABLE IF NOT EXISTS clavis.user_roles (
+  user_id   uuid NOT NULL REFERENCES clavis.users(id) ON DELETE CASCADE,
+  role_slug text NOT NULL REFERENCES clavis.roles(slug) ON DELETE CASCADE,
+  PRIMARY KEY (user_id, role_slug)
+);
+
+-- -----------------------------------------------------------------------------
+-- Per-user exceptions on top of the roles
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS clavis.user_permission_overrides (
+  user_id        uuid NOT NULL REFERENCES clavis.users(id) ON DELETE CASCADE,
+  permission_key text NOT NULL REFERENCES clavis.permissions(key) ON DELETE CASCADE,
+  effect         text NOT NULL CHECK (effect IN ('grant','revoke')),
+  created_by     uuid,
+  created_at     timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, permission_key)
+);
+
+COMMENT ON TABLE clavis.user_permission_overrides IS
+  'Per-user exceptions: grant adds a permission the roles do not give; revoke removes one they do. Revoke wins over any role.';
+COMMENT ON COLUMN clavis.user_permission_overrides.created_by IS
+  'User who recorded the exception; no foreign key so the row survives the author''s deletion.';
 
 -- -----------------------------------------------------------------------------
 -- Audit trail
@@ -97,25 +119,21 @@ CREATE TABLE IF NOT EXISTS clavis.audit_log (
 );
 
 COMMENT ON TABLE clavis.audit_log IS
-  'Audit trail: one row per domain write (create, edit, delete, attach, notify).';
+  'Audit trail: one row per domain write (user created, role changed, override recorded, ...).';
 COMMENT ON COLUMN clavis.audit_log.action IS
-  'Action in entity.verb form, for example todo.created.';
+  'Action in entity.verb form, for example user.created.';
 COMMENT ON COLUMN clavis.audit_log.actor_id IS
   'User who performed the action; no foreign key, so the trail survives the deletion of the user.';
 
 -- -----------------------------------------------------------------------------
 -- Indexes
 -- -----------------------------------------------------------------------------
-CREATE INDEX IF NOT EXISTS idx_todos_owner_id
-  ON clavis.todos (owner_id);
-CREATE INDEX IF NOT EXISTS idx_todos_assignee_id
-  ON clavis.todos (assignee_id);
-CREATE INDEX IF NOT EXISTS idx_todos_status
-  ON clavis.todos (status);
+CREATE INDEX IF NOT EXISTS idx_user_roles_role_slug
+  ON clavis.user_roles (role_slug);
+CREATE INDEX IF NOT EXISTS idx_role_permissions_permission_key
+  ON clavis.role_permissions (permission_key);
 CREATE INDEX IF NOT EXISTS idx_audit_log_created_at
   ON clavis.audit_log (created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_todo_attachments_todo_id
-  ON clavis.todo_attachments (todo_id);
 
 -- -----------------------------------------------------------------------------
 -- Automatic maintenance of updated_at
@@ -139,8 +157,8 @@ CREATE TRIGGER trg_users_set_updated_at
   FOR EACH ROW
   EXECUTE FUNCTION clavis.set_updated_at();
 
-DROP TRIGGER IF EXISTS trg_todos_set_updated_at ON clavis.todos;
-CREATE TRIGGER trg_todos_set_updated_at
-  BEFORE UPDATE ON clavis.todos
+DROP TRIGGER IF EXISTS trg_roles_set_updated_at ON clavis.roles;
+CREATE TRIGGER trg_roles_set_updated_at
+  BEFORE UPDATE ON clavis.roles
   FOR EACH ROW
   EXECUTE FUNCTION clavis.set_updated_at();

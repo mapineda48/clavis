@@ -41,7 +41,6 @@ echo "=== 2. It is the custom theme, not Keycloak's ==="
 grep -q 'clavis-layout' "$HTML" && ok "custom layout (.clavis-layout) present" || bad ".clavis-layout is missing"
 grep -q 'clavis-brand' "$HTML" && ok "brand panel (.clavis-brand) present" || bad ".clavis-brand is missing"
 grep -q 'clavis-login.css' "$HTML" && ok "custom stylesheet linked" || bad "clavis-login.css is not linked"
-grep -q 'data-clavis-username' "$HTML" && ok "demo user cheat sheet present" || bad "no data-clavis-username buttons"
 grep -qi 'patternfly' "$HTML" && bad "still pulling in PatternFly CSS" || ok "no leftovers from the default theme"
 
 echo
@@ -61,7 +60,7 @@ fi
 
 echo
 echo "=== 4. Static resources ==="
-for r in "clavis-login.css" "clavis-login.js"; do
+for r in "clavis-login.css"; do
   U=$(grep -o "[^\"']*${r}[^\"']*" "$HTML" | head -1)
   if [ -n "$U" ]; then
     chk "$(curl -s -o /dev/null -w '%{http_code}' "$KC$U")" 200 "$r is served"
@@ -84,8 +83,8 @@ if [ -z "$ACTION" ]; then
 else
   ok "#kc-form-login form found"
   LOC=$(curl -s -b "$JAR" -c "$JAR" -o /dev/null -w '%{redirect_url}' \
-    -d "username=$(envval DEMO_USER_USERNAME)" \
-    --data-urlencode "password=$(envval DEMO_USER_PASSWORD)" \
+    -d "username=$(envval ROOT_USERNAME)" \
+    --data-urlencode "password=$(envval ROOT_PASSWORD)" \
     -X POST "$ACTION")
   case "$LOC" in
     *code=*)
@@ -125,7 +124,7 @@ H2=$(mktemp "${TMPDIR:-/tmp}/clavis-login2-XXXXXX.html")
 curl -s -c "$JAR2" -o "$H2" "$AUTH"
 ACTION2=$(form_action "$H2" "kc-form-login")
 if [ -n "$ACTION2" ]; then
-  curl -s -b "$JAR2" -c "$JAR2" -o "$ERRHTML" -d "username=worker" -d "password=wrong-password" -X POST "$ACTION2"
+  curl -s -b "$JAR2" -c "$JAR2" -o "$ERRHTML" -d "username=$(envval ROOT_USERNAME)" -d "password=wrong-password" -X POST "$ACTION2"
   grep -q 'clavis-layout' "$ERRHTML" && ok "the error is shown inside the custom theme" || bad "the error page does not use the theme"
   grep -q 'clavis-field-error' "$ERRHTML" && ok "field-level error (.clavis-field-error)" || bad "the field error is missing"
   grep -q 'aria-invalid="true"' "$ERRHTML" && ok "the field is marked aria-invalid" || bad "aria-invalid is missing on the field"

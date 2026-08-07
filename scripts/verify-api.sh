@@ -1,12 +1,17 @@
 #!/usr/bin/env bash
 # =============================================================================
-# API regression: permission model, cache, attachments and email.
+# API regression: authentication and the database-backed permission model.
 #
 #   ./scripts/verify-api.sh
-#   MAIL_TEST_TO=you@example.com ./scripts/verify-api.sh   # exercises real delivery
 #
 # Requires the stack to be up (docker compose up -d) and a .env at the root.
 # It never prints tokens or secrets.
+#
+# The walk: root proves the bypass, creates a throwaway user, and that user's
+# access is then shaped live — override grant, revoke, role assignment,
+# disable — asserting a 403/200 matrix at every step. Each transition also
+# proves the cache invalidation: a change must be visible on the very next
+# request, not a token refresh later.
 # =============================================================================
 set -uo pipefail
 # shellcheck source=scripts/_common.sh
@@ -17,110 +22,130 @@ require_env
 require_up "$KC/realms/$REALM/.well-known/openid-configuration" "Keycloak"
 require_up "$API/api/health" "The API"
 
-echo "=== 1. Tokens for the three demo users ==="
-T_ADMIN=$(token_for "$(envval DEMO_ADMIN_USERNAME)" DEMO_ADMIN_PASSWORD)
-T_MGR=$(token_for "$(envval DEMO_MANAGER_USERNAME)" DEMO_MANAGER_PASSWORD)
-T_USR=$(token_for "$(envval DEMO_USER_USERNAME)" DEMO_USER_PASSWORD)
-for n in ADMIN MGR USR; do
-  v="T_$n"
-  [ -n "${!v}" ] && ok "got the $n token" || bad "$n token is EMPTY"
-done
-[ -z "$T_USR" ] && { echo "No worker token, aborting."; exit 1; }
+BOT_USER="verify.bot"
+BOT_EMAIL="verify.bot@clavis.local"
+BOT_PASSWORD="VerifyBot123!"
+BOT_ROLE="verify-auditors"
 
-echo
-echo "=== 2. Token claims (worker) ==="
-python3 - "$T_USR" <<'PY'
-import sys, json, base64
-p = sys.argv[1].split('.')[1]; p += '=' * (-len(p) % 4)
-c = json.loads(base64.urlsafe_b64decode(p))
-aud = c.get('aud'); aud = aud if isinstance(aud, list) else [aud]
-print("  aud            :", aud)
-print("  iss            :", c.get('iss'))
-print("  realm_access   :", sorted(r for r in c.get('realm_access', {}).get('roles', []) if r.startswith('clavis')))
-print("  resource_access:", sorted(c.get('resource_access', {}).get('clavis-api', {}).get('roles', [])))
-PY
+# jq-lite: read one field from JSON on stdin.
+jget() { python3 -c "import sys, json
+data = json.load(sys.stdin)
+for part in sys.argv[1].split('.'):
+    data = data[int(part)] if isinstance(data, list) else data.get(part)
+    if data is None: break
+print('' if data is None else data)" "$1" 2>/dev/null; }
 
-echo
-echo "=== 3. Service health ==="
+# Calls the API and leaves the result in the API_BODY / API_STATUS globals.
+# A command substitution would run this in a subshell and lose both, which is
+# why callers never capture its output. $1 method, $2 path, $3 token, $4 body.
+api() {
+  local method="$1" path="$2" token="$3" body="${4:-}"
+  local args=(-s -w $'\n%{http_code}' -X "$method" -H "Authorization: Bearer $token")
+  [ -n "$body" ] && args+=(-H 'Content-Type: application/json' -d "$body")
+  local raw
+  raw=$(curl "${args[@]}" "$API$path")
+  API_STATUS="${raw##*$'\n'}"
+  API_BODY="${raw%$'\n'*}"
+}
+
+echo "=== 1. Service health ==="
 chk "$(curl -s -o /dev/null -w '%{http_code}' "$API/api/health")" 200 "GET /api/health"
 echo "  ready: $(curl -s "$API/api/health/ready" | python3 -c 'import sys,json;d=json.load(sys.stdin);print(d.get("status"), json.dumps(d.get("checks"), ensure_ascii=False))' 2>/dev/null)"
 chk "$(curl -s -o /dev/null -w '%{http_code}' "$API/api/health/ready")" 200 "GET /api/health/ready"
 chk "$(curl -s -o /dev/null -w '%{http_code}' "$API/api/docs")" 200 "GET /api/docs (Swagger)"
 
 echo
-echo "=== 4. Effective permissions per user ==="
-for pair in "worker:$T_USR" "manager:$T_MGR" "admin:$T_ADMIN"; do
-  n="${pair%%:*}"; t="${pair#*:}"
-  echo "  --- $n"
-  curl -s -H "Authorization: Bearer $t" "$API/api/me" |
-    python3 -c "import sys,json;print('     perms:', sorted(json.load(sys.stdin).get('permissions', [])))"
-done
+echo "=== 2. Authentication is mandatory ==="
+chk "$(curl -s -o /dev/null -w '%{http_code}' "$API/api/me")" 401 "GET /api/me without a token"
+chk "$(curl -s -o /dev/null -w '%{http_code}' -H 'Authorization: Bearer not.a.jwt' "$API/api/me")" 401 "garbage token"
 
 echo
-echo "=== 5. Authentication is mandatory ==="
-chk "$(curl -s -o /dev/null -w '%{http_code}' "$API/api/todos")" 401 "GET /api/todos without a token"
-chk "$(curl -s -o /dev/null -w '%{http_code}' -H 'Authorization: Bearer not.a.jwt' "$API/api/todos")" 401 "garbage token"
+echo "=== 3. Root: identity linked, full catalog ==="
+T_ROOT=$(token_for "$(envval ROOT_USERNAME)" ROOT_PASSWORD)
+[ -n "$T_ROOT" ] && ok "got the root token" || { bad "root token is EMPTY"; summary "API"; exit 1; }
+api GET /api/me "$T_ROOT"; ME="$API_BODY"
+chk "$API_STATUS" 200 "GET /api/me as root"
+chk "$(printf '%s' "$ME" | jget user.isRoot)" True "me.user.isRoot"
+PERM_COUNT=$(printf '%s' "$ME" | python3 -c 'import sys, json; print(len(json.load(sys.stdin)["permissions"]))')
+[ "$PERM_COUNT" -ge 6 ] && ok "root sees the full catalog ($PERM_COUNT permissions)" || bad "root only sees $PERM_COUNT permissions"
 
 echo
-echo "=== 6. Demo data (idempotent) ==="
-curl -s -X POST -H "Authorization: Bearer $T_USR" "$API/api/todos/seed-demo" >/dev/null
-S2=$(curl -s -X POST -H "Authorization: Bearer $T_USR" "$API/api/todos/seed-demo" |
-  python3 -c 'import sys,json;print(json.load(sys.stdin).get("created"))')
-chk "$S2" "0" "a second seed-demo call creates no duplicates"
+echo "=== 4. Root creates a user (temporary password) ==="
+# Idempotence across runs: remove the leftovers of a previous execution first.
+api GET '/api/users?limit=500' "$T_ROOT"
+OLD_ID=$(printf '%s' "$API_BODY" | python3 -c "import sys, json
+items = json.load(sys.stdin)['items']
+print(next((u['id'] for u in items if u['username'] == '$BOT_USER'), ''))")
+[ -n "$OLD_ID" ] && api DELETE "/api/users/$OLD_ID" "$T_ROOT"
+api DELETE "/api/access/roles/$BOT_ROLE" "$T_ROOT"
+
+api POST /api/users "$T_ROOT" "{\"email\": \"$BOT_EMAIL\", \"displayName\": \"Verification Bot\", \"username\": \"$BOT_USER\", \"credentialMode\": \"temporary_password\", \"temporaryPassword\": \"$BOT_PASSWORD\"}"
+CREATED="$API_BODY"
+chk "$API_STATUS" 201 "POST /api/users"
+BOT_ID=$(printf '%s' "$CREATED" | jget user.id)
+[ -n "$BOT_ID" ] && ok "Keycloak assigned the id" || bad "no user id came back"
+api POST /api/users "$T_ROOT" "{\"email\": \"$BOT_EMAIL\", \"displayName\": \"Duplicate\", \"credentialMode\": \"invite\"}"
+chk "$API_STATUS" 409 "duplicate email is refused"
 
 echo
-echo "=== 7. Valkey cache (X-Cache) ==="
-C1=$(curl -s -D- -o /dev/null -H "Authorization: Bearer $T_USR" "$API/api/todos?pageSize=5" | grep -i '^x-cache:' | tr -d '\r' | awk '{print $2}')
-C2=$(curl -s -D- -o /dev/null -H "Authorization: Bearer $T_USR" "$API/api/todos?pageSize=5" | grep -i '^x-cache:' | tr -d '\r' | awk '{print $2}')
-[ "$C1" = "MISS" ] && ok "first call is a MISS" || bad "first call should be a MISS (was $C1)"
-[ "$C2" = "HIT" ] && ok "second call is a HIT" || bad "second call should be a HIT (was $C2)"
+echo "=== 5. First login: the temporary password demands a change ==="
+T_BOT=$(token_with "$BOT_USER" "$BOT_PASSWORD")
+[ -z "$T_BOT" ] && ok "password grant refused while UPDATE_PASSWORD is pending" || bad "the grant should be refused before the password change"
+kc_finish_setup "$BOT_USER" "$BOT_PASSWORD" || bad "could not complete the first login administratively"
+T_BOT=$(token_with "$BOT_USER" "$BOT_PASSWORD")
+[ -n "$T_BOT" ] && ok "token granted after completing the setup" || { bad "still no token for the created user"; summary "API"; exit 1; }
 
 echo
-echo "=== 8. Visibility scope ==="
-chk "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $T_USR" "$API/api/todos?scope=all")" 403 "worker with scope=all"
-chk "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $T_MGR" "$API/api/todos?scope=all")" 200 "manager with scope=all"
+echo "=== 6. No roles, no permissions ==="
+api GET /api/me "$T_BOT"; ME_BOT="$API_BODY"
+chk "$API_STATUS" 200 "GET /api/me as the new user"
+chk "$(printf '%s' "$ME_BOT" | python3 -c 'import sys, json; print(len(json.load(sys.stdin)["permissions"]))')" 0 "effective permissions are empty"
+api GET /api/users "$T_BOT";          chk "$API_STATUS" 403 "GET /api/users"
+api GET /api/access/catalog "$T_BOT"; chk "$API_STATUS" 403 "GET /api/access/catalog"
+api GET /api/audit "$T_BOT";          chk "$API_STATUS" 403 "GET /api/audit"
 
 echo
-echo "=== 9. Write and delete ==="
-NEW=$(curl -s -X POST -H "Authorization: Bearer $T_USR" -H 'Content-Type: application/json' \
-  -d '{"title":"End-to-end test task","description":"Created by the verification script","priority":2}' "$API/api/todos")
-TID=$(echo "$NEW" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("id",""))' 2>/dev/null)
-[ -n "$TID" ] && ok "worker creates a task (todos:write)" || bad "worker could not create the task: ${NEW:0:160}"
-chk "$(curl -s -o /dev/null -w '%{http_code}' -X PATCH -H "Authorization: Bearer $T_USR" -H 'Content-Type: application/json' -d '{"status":"in_progress"}' "$API/api/todos/$TID")" 200 "worker updates their own task"
-chk "$(curl -s -o /dev/null -w '%{http_code}' -X DELETE -H "Authorization: Bearer $T_USR" "$API/api/todos/$TID")" 403 "worker CANNOT delete"
+echo "=== 7. Exceptions: grant, then revoke ==="
+api PUT "/api/access/users/$BOT_ID/overrides" "$T_ROOT" '{"overrides": [{"permissionKey": "users:read", "effect": "grant"}]}'
+chk "$API_STATUS" 200 "override grant users:read"
+api GET /api/users "$T_BOT"
+chk "$API_STATUS" 200 "the grant applies on the NEXT request (cache invalidated)"
+api PUT "/api/access/users/$BOT_ID/overrides" "$T_ROOT" '{"overrides": []}'
+api GET /api/users "$T_BOT"
+chk "$API_STATUS" 403 "removing the override closes the door again"
 
 echo
-echo "=== 10. Attachments in Azurite ==="
-TMPF=$(mktemp "${TMPDIR:-/tmp}/clavis-attachment-XXXXXX.txt")
-echo "Clavis test document - $(date +%s)-$$" >"$TMPF"
-UP=$(curl -s -X POST -H "Authorization: Bearer $T_USR" -F "file=@$TMPF;type=text/plain" "$API/api/todos/$TID/attachments")
-AID=$(echo "$UP" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("id",""))' 2>/dev/null)
-[ -n "$AID" ] && ok "attachment uploaded" || bad "the upload failed: ${UP:0:200}"
-DL=$(curl -s -H "Authorization: Bearer $T_USR" "$API/api/attachments/$AID")
-[ "$DL" = "$(cat "$TMPF")" ] && ok "download is identical to the original" || bad "the downloaded content does not match"
-rm -f "$TMPF"
+echo "=== 8. Roles: create, assign, verify the boundary ==="
+api POST /api/access/roles "$T_ROOT" "{\"slug\": \"$BOT_ROLE\", \"name\": \"Verification auditors\", \"permissions\": [\"audit:read\"]}"
+chk "$API_STATUS" 201 "POST /api/access/roles"
+api PATCH "/api/users/$BOT_ID" "$T_ROOT" "{\"roles\": [\"$BOT_ROLE\"]}"
+chk "$API_STATUS" 200 "role assigned"
+api GET /api/audit "$T_BOT"; chk "$API_STATUS" 200 "audit:read arrives through the role"
+api GET /api/users "$T_BOT"; chk "$API_STATUS" 403 "the role grants nothing else"
 
 echo
-echo "=== 11. Administration panel ==="
-chk "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $T_USR" "$API/api/admin/stats")" 403 "worker on /admin/stats"
-chk "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $T_MGR" "$API/api/admin/users")" 200 "manager on /admin/users"
-chk "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $T_MGR" "$API/api/admin/stats")" 403 "manager on /admin/stats"
-chk "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $T_ADMIN" "$API/api/admin/stats")" 200 "admin on /admin/stats"
+echo "=== 9. Disable and re-enable ==="
+api PATCH "/api/users/$BOT_ID" "$T_ROOT" '{"status": "disabled"}'
+chk "$API_STATUS" 200 "user disabled"
+api GET /api/audit "$T_BOT"
+chk "$API_STATUS" 403 "a disabled user is refused everywhere"
+api PATCH "/api/users/$BOT_ID" "$T_ROOT" '{"status": "active"}'
+api GET /api/audit "$T_BOT"
+chk "$API_STATUS" 200 "re-enabling restores the access"
 
 echo
-echo "=== 12. Delete with permission (manager) ==="
-chk "$(curl -s -o /dev/null -w '%{http_code}' -X DELETE -H "Authorization: Bearer $T_MGR" "$API/api/todos/$TID")" 200 "manager deletes the task"
+echo "=== 10. What must stay immutable ==="
+ROOT_ID=$(printf '%s' "$ME" | jget user.id)
+api PATCH "/api/users/$ROOT_ID" "$T_ROOT" '{"displayName": "Nope"}'
+chk "$API_STATUS" 403 "root cannot be edited through the API"
+api DELETE /api/access/roles/admin "$T_ROOT"
+chk "$API_STATUS" 403 "system roles cannot be deleted"
 
 echo
-echo "=== 13. Email notification ==="
-FIRST=$(curl -s -H "Authorization: Bearer $T_USR" "$API/api/todos?pageSize=1" |
-  python3 -c 'import sys,json;i=json.load(sys.stdin).get("items",[]);print(i[0]["id"] if i else "")')
-if [ -n "$FIRST" ] && [ -n "${MAIL_TEST_TO:-}" ]; then
-  NOTIF=$(curl -s -X POST -H "Authorization: Bearer $T_USR" -H 'Content-Type: application/json' \
-    -d "{\"to\":\"$MAIL_TEST_TO\"}" "$API/api/todos/$FIRST/notify")
-  echo "$NOTIF" | grep -q '"delivered":true' && ok "email handed over to Resend" || bad "the email was not delivered: ${NOTIF:0:200}"
-else
-  echo "  (skipped: set MAIL_TEST_TO to exercise real delivery)"
-fi
+echo "=== 11. Cleanup ==="
+api DELETE "/api/users/$BOT_ID" "$T_ROOT"
+chk "$API_STATUS" 204 "throwaway user deleted"
+api DELETE "/api/access/roles/$BOT_ROLE" "$T_ROOT"
+chk "$API_STATUS" 204 "throwaway role deleted"
 
 summary "API"

@@ -11,7 +11,7 @@
 # Extra requirements compared to the other scripts:
 #   - The `resend` CLI, authenticated (https://resend.com/docs) — to read the email.
 #   - The realm with SMTP configured and `resetPasswordAllowed: true`.
-#   - DEMO_ADMIN_EMAIL pointing at a REAL address.
+#   - ROOT_EMAIL pointing at a REAL address.
 #
 # The password is set back to the SAME value that is in .env, so the demo is
 # never left inconsistent.
@@ -71,7 +71,7 @@ fi
 echo
 echo "=== 3. Reset request for 'admin' ==="
 BEFORE=$(last_email_id)
-curl -s -b "$JAR" -c "$JAR" -o "$OUT" -d "username=$(envval DEMO_ADMIN_USERNAME)" -X POST "$(form_action "$RESETP" "kc-reset-password-form")"
+curl -s -b "$JAR" -c "$JAR" -o "$OUT" -d "username=$(envval ROOT_USERNAME)" -X POST "$(form_action "$RESETP" "kc-reset-password-form")"
 grep -q 'clavis-alert' "$OUT" && ok "Keycloak confirms the send inside the theme" || bad "no visible confirmation"
 grep -q 'clavis-alert--error' "$OUT" && bad "Keycloak reports a delivery error" || ok "no delivery error"
 
@@ -128,9 +128,9 @@ grep -q 'logout-sessions' "$UPD" && ok "option to sign out other sessions" || ba
 
 echo
 echo "=== 7. The password is set and works ==="
-NEWPW=$(envval DEMO_ADMIN_PASSWORD) # the same one, so the rest of the demo keeps working
+NEWPW=$(envval ROOT_PASSWORD) # the same one, so the rest of the lab keeps working
 if [ -z "$NEWPW" ]; then
-  bad "DEMO_ADMIN_PASSWORD is empty in .env: aborting so the account is not left unusable"
+  bad "ROOT_PASSWORD is empty in .env: aborting so the account is not left unusable"
   summary "PASSWORD RESET"; exit 1
 fi
 # The form is located by id: the page carries more than one <form> (the "try
@@ -147,7 +147,7 @@ RES=$(curl -s -b "$JAR2" -c "$JAR2" -o /dev/null -w '%{http_code}' \
 echo "     HTTP response: $RES"
 sleep 1
 TOK=$(curl -s -X POST "$KC/realms/$REALM/protocol/openid-connect/token" \
-  -d "client_id=$CLIENT" -d "grant_type=password" -d "username=$(envval DEMO_ADMIN_USERNAME)" \
+  -d "client_id=$CLIENT" -d "grant_type=password" -d "username=$(envval ROOT_USERNAME)" \
   --data-urlencode "password=$NEWPW" |
   python3 -c "import sys,json;print('OK' if json.load(sys.stdin).get('access_token') else 'FAILED')")
 [ "$TOK" = "OK" ] && ok "admin signs in with the password that was set" || bad "cannot sign in after the change"

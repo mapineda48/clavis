@@ -116,15 +116,18 @@ token_for() {
     -d "client_id=${CLIENT}" -d "username=$1" -d "password=$2" -d grant_type=password \
     "${expected}/protocol/openid-connect/token" | jq -r '.access_token // empty'
 }
-T_USER=$(token_for "${DEMO_USER_USERNAME:-worker}" "${DEMO_USER_PASSWORD:?}")
-if [ -z "$T_USER" ]; then
-  bad "could not obtain a token for the demo user"
+T_ROOT=$(token_for "${ROOT_USERNAME:-root}" "${ROOT_PASSWORD:?}")
+if [ -z "$T_ROOT" ]; then
+  bad "could not obtain a token for root"
 else
-  ok "token granted"
+  ok "token granted for root"
   code=$(curl -s $INSECURE -o /tmp/me.json -w '%{http_code}' --max-time 15 \
-    -H "Authorization: Bearer $T_USER" "https://${CLAVIS_API_FQDN}/api/me")
+    -H "Authorization: Bearer $T_ROOT" "https://${CLAVIS_API_FQDN}/api/me")
   if [ "$code" = "200" ]; then
-    ok "GET /api/me accepted the token (roles: $(jq -c '.permissions // .roles // empty' /tmp/me.json 2>/dev/null))"
+    ok "GET /api/me accepted the token (permissions: $(jq -c '.permissions | length' /tmp/me.json 2>/dev/null))"
+    jq -e '.user.isRoot == true' /tmp/me.json >/dev/null 2>&1 \
+      && ok "the API resolved the root flag from its database" \
+      || bad "/api/me does not mark the account as root"
   else
     bad "GET /api/me returned ${code}"
   fi
