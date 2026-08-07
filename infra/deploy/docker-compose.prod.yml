@@ -159,7 +159,7 @@ services:
   # Keycloak.
   # ---------------------------------------------------------------------------
   keycloak:
-    image: ${CLAVIS_KEYCLOAK_IMAGE:?the Keycloak image digest is required}
+    image: ${CLAVIS_AUTH_IMAGE:?the Keycloak image digest is required}
     container_name: clavis-keycloak
     restart: unless-stopped
     command: ["start", "--optimized"]
@@ -229,7 +229,7 @@ services:
   # ---------------------------------------------------------------------------
   keycloak-import:
     profiles: ["import"]
-    image: ${CLAVIS_KEYCLOAK_IMAGE:?}
+    image: ${CLAVIS_AUTH_IMAGE:?}
     container_name: clavis-keycloak-import
     restart: "no"
     # --optimized is required, not an optimisation. Without it kc.sh re-augments

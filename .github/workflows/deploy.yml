@@ -102,7 +102,7 @@ jobs:
       - name: Resolve image digests
         run: |
           repo=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')
-          for image in api app keycloak; do
+          for image in api app auth; do
             ref="ghcr.io/${repo}/${image}:sha-${DEPLOY_SHA}"
             digest=$(docker buildx imagetools inspect "$ref" --format '{{ .Manifest.Digest }}')
             [ -n "$digest" ] || { echo "no digest for $ref"; exit 1; }
