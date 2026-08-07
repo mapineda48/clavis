@@ -430,9 +430,14 @@ matters:
 - **`version()` returns `null` when it could not be read**, and `authenticate` then goes straight
   to PostgreSQL and writes nothing back. Answering `1` instead would compose a `v1` key, and a
   surviving `v1` entry can hold permissions that several bumps ago took away.
-- **`bumpVersion()` retries once and, if it still fails, returns `null` and logs at `error`.** A
-  lost invalidation leaves every derived entry readable until its TTL expires, which is exactly
-  the window a revoke is supposed to close.
+- **`bumpVersion()` retries once and, if it still fails, marks the namespace untrusted** in that
+  process, returns `null` and logs at `error`. Returning `null` alone would change nothing: the
+  write has already committed and neither caller can undo it, so the API would answer `200`
+  while Valkey — still up, still serving the old version — kept every entry built from it
+  readable until its TTL expired. That is exactly the window a revoke exists to close. While the
+  mark is set, `version()` answers `null`, so the namespace resolves from PostgreSQL on every
+  request; the next successful bump clears it. The mark lives in memory because the only thing
+  that could record it in Valkey is the call that just failed.
 
 ---
 

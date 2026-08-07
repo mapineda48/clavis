@@ -33,14 +33,17 @@ declare module 'fastify' {
       set(key: string, value: unknown, ttlSeconds?: number): Promise<void>
       /**
        * Current version of the namespace (created at 1 when missing).
-       * `null` when it could not be read: fail closed and bypass the cache
-       * rather than compose a key from a guessed version.
+       * `null` when it could not be read, **and** while a lost `bumpVersion`
+       * has this namespace marked untrusted: fail closed and bypass the cache
+       * rather than compose a key from a guessed or superseded version.
        */
       version(namespace: string): Promise<number | null>
       /**
        * INCR of the version: invalidates every derived key.
-       * `null` when the invalidation was lost even after a retry — logged at
-       * `error`, because stale entries then survive until their TTL.
+       * `null` when the invalidation was lost even after a retry. That also
+       * marks the namespace untrusted in this process, so `version()` answers
+       * `null` and every request resolves from PostgreSQL until a bump lands —
+       * callers cannot undo a committed write, so the cache degrades instead.
        */
       bumpVersion(namespace: string): Promise<number | null>
       ping(): Promise<boolean>
