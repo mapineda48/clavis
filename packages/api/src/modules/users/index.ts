@@ -4,7 +4,7 @@
 import type { FastifyPluginAsync } from 'fastify'
 // Pulls in the @fastify/swagger type augmentation (tags, summary, security inside `schema`).
 import type {} from '@fastify/swagger'
-import { ACCESS_NAMESPACE } from '../../lib/access.js'
+import { ACCESS_NAMESPACE, contextHasPermission } from '../../lib/access.js'
 import { AppError, badRequest, conflict, forbidden, notFound } from '../../lib/errors.js'
 import { KeycloakAdminError } from '../../plugins/keycloak-admin.js'
 import { recordAudit } from '../shared/audit.js'
@@ -145,6 +145,38 @@ function serializeUser(row: UserRecord) {
     roles: row.roles,
     createdAt: toIso(row.created_at),
     lastSeenAt: row.last_seen_at === null ? null : toIso(row.last_seen_at),
+  }
+}
+
+/**
+ * Which fields of an update nobody may apply to their own account.
+ *
+ * Editing one's own `displayName` stays allowed: it carries no privilege.
+ * `roles` and `status` do — self-granting a role is escalation and
+ * self-disabling is a lockout — so they need a second pair of hands.
+ */
+function selfBlockedFields(body: UpdateUserInput): string[] {
+  const blocked: string[] = []
+  if (body.roles !== undefined) blocked.push('roles')
+  if (body.status !== undefined) blocked.push('status')
+  return blocked
+}
+
+/**
+ * Role assignment is an `access:*` operation reached through a `users:*` route.
+ *
+ * `requirePermissions` is a static preHandler and cannot look at the body, so
+ * the rule lives in the handler. Without it `users:update` alone would be
+ * enough to hand any account the `admin` role — which boot seeding fills with
+ * the whole catalog — and the catalog's split between `users:*` and `access:*`
+ * would exist only on paper.
+ */
+function assertMayAssignRoles(access: Parameters<typeof contextHasPermission>[0]): void {
+  if (!contextHasPermission(access, 'access:manage')) {
+    throw forbidden(
+      'Assigning roles requires the access:manage permission.',
+      'ROLE_ASSIGNMENT_DENIED',
+    )
   }
 }
 
@@ -302,7 +334,9 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
         tags: ['users'],
         summary: 'Update a user: profile, status or roles',
         description:
-          'Disabling a user also disables them in Keycloak. The root user cannot be edited here.',
+          'Disabling a user also disables them in Keycloak. The root user cannot be edited here. ' +
+          'Changing `roles` additionally requires `access:manage`, and nobody may change their ' +
+          'own roles or status.',
         security: [{ bearerAuth: [] }],
         params: IdParams,
         body: UpdateUserBody,
@@ -323,7 +357,17 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
       }
 
       const body = request.body
+      if (existing.id === request.auth.sub) {
+        const blocked = selfBlockedFields(body)
+        if (blocked.length > 0) {
+          throw forbidden(
+            `You cannot change your own ${blocked.join(' or ')}; another administrator has to.`,
+            'SELF_MODIFICATION',
+          )
+        }
+      }
       if (body.roles !== undefined) {
+        assertMayAssignRoles(request.access)
         const unknownRoles = await missingRoles(app.db, body.roles)
         if (unknownRoles.length > 0) {
           throw badRequest(`Unknown roles: ${unknownRoles.join(', ')}.`, 'UNKNOWN_ROLES')
@@ -376,13 +420,14 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
   app.delete<{ Params: IdParamsInput }>(
     '/users/:id',
     {
-      preHandler: [app.authenticate, app.requirePermissions('users:update')],
+      preHandler: [app.authenticate, app.requirePermissions('users:delete')],
       schema: {
         tags: ['users'],
         summary: 'Delete a user',
         description:
           'Removes the user from Keycloak and from the application; role assignments and ' +
-          'overrides cascade away, the audit trail keeps its rows. Root cannot be deleted.',
+          'overrides cascade away, the audit trail keeps its rows. Root cannot be deleted, ' +
+          'and nobody can delete themselves.',
         security: [{ bearerAuth: [] }],
         params: IdParams,
         response: {
@@ -398,6 +443,12 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
       if (!existing) throw notFound('User not found.')
       if (existing.is_root) {
         throw forbidden('The root user is managed by the deployment, not by the API.', 'ROOT_IMMUTABLE')
+      }
+      if (existing.id === request.auth.sub) {
+        throw forbidden(
+          'You cannot delete your own account; another administrator has to.',
+          'SELF_MODIFICATION',
+        )
       }
 
       // Keycloak first: an identity that can still log in but has no

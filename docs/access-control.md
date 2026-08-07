@@ -172,6 +172,7 @@ that array is the source of truth for **which permission keys exist**:
 | `users:read` | `users` | List and view system users |
 | `users:create` | `users` | Create system users |
 | `users:update` | `users` | Edit users: status, roles and profile |
+| `users:delete` | `users` | Delete system users |
 | `access:read` | `access` | View roles, permissions and assignments |
 | `access:manage` | `access` | Manage roles and per-user permission overrides |
 | `audit:read` | `audit` | Read the audit trail |
@@ -455,13 +456,29 @@ worse outcome. The response carries `invite: { sent: false, reason: … }` and t
 |---|---|---|
 | `GET /api/users` | `users:read` | `limit` 1–500, default 100 |
 | `POST /api/users` | `users:create` | 201 `{ user, invite }`; duplicate email → `409 USER_EXISTS` |
-| `PATCH /api/users/:id` | `users:update` | `displayName`, `status`, `roles` |
-| `DELETE /api/users/:id` | `users:update` | 204; removes the Keycloak user too |
+| `PATCH /api/users/:id` | `users:update` | `displayName`, `status`, `roles`; `roles` also needs `access:manage` |
+| `DELETE /api/users/:id` | `users:delete` | 204; removes the Keycloak user too |
 | `POST /api/users/:id/resend-invite` | `users:update` | 200 `{ invite }` |
 
-There is deliberately **no `users:delete` key**: deleting is an edit of the strongest kind, and
-a separate permission that nobody would ever grant without `users:update` is a key that only
-exists to be forgotten in a role.
+### Two rules the route table cannot express
+
+`requirePermissions` is a static preHandler: it sees the token and the resolved access context,
+never the body. Two rules therefore live inside the `PATCH` handler.
+
+- **Assigning roles needs `access:manage`** (`403 ROLE_ASSIGNMENT_DENIED`). `users:update` alone
+  edits a profile and flips a status; it does not decide who holds which role. Without this the
+  split between `users:*` and `access:*` would exist only in the catalog: anyone with
+  `users:update` could `PATCH` themselves into the `admin` role — which boot seeding fills with
+  the entire catalog — and hold everything on the very next request, because the mutation bumps
+  the cache namespace immediately.
+- **Nobody changes their own `roles` or `status`, and nobody deletes themselves**
+  (`403 SELF_MODIFICATION`). Self-granting is escalation; self-disabling and self-deleting are
+  lockouts. Editing one's own `displayName` carries no privilege and stays allowed.
+
+`users:delete` is its own key rather than a facet of `users:update` for the same reason: an
+irreversible operation that also removes the Keycloak identity is not the same authority as
+"edit the profile", and a role that should be able to do one and not the other has to be
+expressible.
 
 ### Disable versus delete
 
@@ -615,7 +632,7 @@ database.
 | Section | Route | Needs | What it does |
 |---|---|---|---|
 | Home | `/` | *(sign-in only)* | Username, role chips and effective-permission chips, straight from `/api/me` |
-| Users | `/admin/users` | `users:read` | List; create with either credential mode (`users:create`); enable/disable, roles, delete, resend invite (`users:update`); role checkboxes need `access:read` |
+| Users | `/admin/users` | `users:read` | List; create with either credential mode (`users:create`); enable/disable and resend invite (`users:update`); delete (`users:delete`); role checkboxes need `access:read` to list the roles and `access:manage` to change them; on one's own row the status, role and delete controls are hidden |
 | Access | `/admin/access` | `access:read` | Catalog matrix (permissions × roles, grouped by module) and the per-user exception editor; editing needs `access:manage`, and the user tab also needs `users:read` to list people |
 | Audit | `/admin/audit` | `audit:read` | The last 50 entries of `clavis.audit_log` |
 

@@ -24,6 +24,7 @@ export const PERMISSION_DEFS = [
   { key: 'users:read', module: 'users', description: 'List and view system users' },
   { key: 'users:create', module: 'users', description: 'Create system users' },
   { key: 'users:update', module: 'users', description: 'Edit users: status, roles and profile' },
+  { key: 'users:delete', module: 'users', description: 'Delete system users' },
   { key: 'access:read', module: 'access', description: 'View roles, permissions and assignments' },
   {
     key: 'access:manage',

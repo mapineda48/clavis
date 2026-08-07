@@ -214,6 +214,7 @@ function CreateUserForm({ availableRoles }: { availableRoles: string[] }) {
 
 function UserRowActions({ user, availableRoles }: { user: SystemUser; availableRoles: string[] }) {
   const { t } = useI18n()
+  const { has, me } = useAuth()
   const toast = useToast()
   const updateUser = useUpdateUser()
   const deleteUser = useDeleteUser()
@@ -259,9 +260,16 @@ function UserRowActions({ user, availableRoles }: { user: SystemUser; availableR
 
   const busy = updateUser.isPending || deleteUser.isPending || resendInvite.isPending
 
+  // The API refuses these three: roles are an `access:manage` operation, and
+  // nobody changes their own roles or status or deletes their own account.
+  const isSelf = me?.user.id === user.id
+  const canAssignRoles = has('access:manage') && !isSelf
+  const canDelete = has('users:delete') && !isSelf
+
   return (
     <div className="row-actions">
-      {availableRoles.length > 0 && (
+      {isSelf && <p className="muted">{t('users.selfImmutableHint')}</p>}
+      {canAssignRoles && availableRoles.length > 0 && (
         <div className="check-row" aria-label={t('users.fieldRoles')}>
           {availableRoles.map((slug) => (
             <label key={slug} className="radio">
@@ -279,15 +287,19 @@ function UserRowActions({ user, availableRoles }: { user: SystemUser; availableR
         </div>
       )}
       <div className="row-actions__buttons">
-        <button type="button" className="btn btn--ghost" disabled={busy} onClick={toggleStatus}>
-          {user.status === 'active' ? t('users.disableButton') : t('users.enableButton')}
-        </button>
+        {!isSelf && (
+          <button type="button" className="btn btn--ghost" disabled={busy} onClick={toggleStatus}>
+            {user.status === 'active' ? t('users.disableButton') : t('users.enableButton')}
+          </button>
+        )}
         <button type="button" className="btn btn--ghost" disabled={busy} onClick={invite}>
           {t('users.resendInviteButton')}
         </button>
-        <button type="button" className="btn btn--ghost btn--danger" disabled={busy} onClick={remove}>
-          {t('users.deleteButton')}
-        </button>
+        {canDelete && (
+          <button type="button" className="btn btn--ghost btn--danger" disabled={busy} onClick={remove}>
+            {t('users.deleteButton')}
+          </button>
+        )}
       </div>
     </div>
   )
@@ -307,7 +319,9 @@ export function UsersPanel() {
   const [expanded, setExpanded] = useState<string | null>(null)
 
   const availableRoles = (catalogQuery.data?.roles ?? []).map((role) => role.slug)
-  const canUpdate = has('users:update')
+  // The row editor covers the update actions and the deletion: either
+  // permission on its own is enough to have something to show there.
+  const canManageRows = has('users:update') || has('users:delete')
   const emptyValue = t('common.emptyValue')
 
   return (
@@ -336,7 +350,7 @@ export function UsersPanel() {
                   <th scope="col">{t('users.columnRoles')}</th>
                   <th scope="col">{t('users.columnStatus')}</th>
                   <th scope="col">{t('users.columnLastSeen')}</th>
-                  {canUpdate && <th scope="col">{t('users.columnActions')}</th>}
+                  {canManageRows && <th scope="col">{t('users.columnActions')}</th>}
                 </tr>
               </thead>
               <tbody>
@@ -367,7 +381,7 @@ export function UsersPanel() {
                       </span>
                     </td>
                     <td>{formatDateTime(user.lastSeenAt, locale)}</td>
-                    {canUpdate && (
+                    {canManageRows && (
                       <td>
                         {user.isRoot ? (
                           <span className="muted" title={t('users.rootImmutableHint')}>
@@ -393,7 +407,7 @@ export function UsersPanel() {
             </table>
           </div>
         )}
-        {canUpdate &&
+        {canManageRows &&
           usersQuery.data !== undefined &&
           expanded !== null &&
           (() => {
