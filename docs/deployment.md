@@ -245,6 +245,36 @@ returns success from a source the token would reject for any real operation, so
 it is worthless as a preflight. The workflow creates and deletes a record
 instead.
 
+**A redeploy of the same commit never reaches the host.** `reconcile.sh`
+converges on the commit, and a deploy that only changes bundle *content* —
+flipping `CLAVIS_CERT_RESOLVER` is the canonical case — keeps the same commit
+and the same bundle name, so the host answers "already on X, nothing to do"
+forever. Removing `/var/lib/clavis/deployed-commit` is not enough either: the
+bundle comes through blobfuse2 under its unchanged name, so the mount serves
+the previous content (verified by hash). Configuration-only changes need a new
+commit; the manual escape is restart `clavis-blobfuse2` (which stops docker via
+`Requires=` — start it again), verify the bundle hash against an HTTPS read,
+remove the marker and run `clavis-deploy.service`.
+
+**A staging certificate shadows the production resolver even across separate
+store files.** The per-resolver stores exist so that switching resolvers does
+not destroy the ACME account, but Traefik still merges every certificate it
+loads into one SNI store: with a valid staging certificate covering the
+domains, the production resolver logs "Testing certificate renew..." and then
+orders nothing, with no error anywhere. Flipping to production only takes
+effect after the staging store is retired — locally in `/var/lib/traefik` and
+in the blob copy — so the SNI lookup misses and the order fires.
+
+**Renaming the GitHub repository breaks the Azure OIDC federation.** Both
+federated credential subjects embed the repository *name* — the post-2026
+"immutable" format keeps the name right next to the numeric ids
+(`repo:owner@id/name@id:environment:production`) — so a rename must be followed
+by updating both subjects on the app registration. Propagation is eventually
+consistent: for several minutes afterwards the same workflow can log in
+successfully and then fail `AADSTS700213` on a later token request, and a step
+that captures `terraform output` inside `$(...)` writes empty variables instead
+of failing, surfacing the error two steps later inside `az storage blob upload`.
+
 ---
 
 ## 8. Known limits
