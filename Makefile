@@ -12,8 +12,9 @@ ROOT_DIR := $(patsubst %/,%,$(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
 PNPM := pnpm -C $(ROOT_DIR)
 COMPOSE := docker compose -f $(ROOT_DIR)/docker-compose.yml --project-directory $(ROOT_DIR)
 
-# Demo user `make token` authenticates as: admin | manager | worker
-KC_USER ?= admin
+# `make token` authenticates as root unless KC_USER (and KC_PASS) say otherwise.
+KC_USER ?=
+KC_PASS ?=
 
 .DEFAULT_GOAL := help
 .PHONY: help install dev build typecheck up up-full down reset logs ps token \
@@ -24,7 +25,7 @@ help: ## Print this table of targets
 	@grep -hE '^[a-zA-Z][a-zA-Z0-9_-]*:.*##' $(MAKEFILE_LIST) \
 		| sort \
 		| awk 'BEGIN { FS = ":.*##[ ]?" } { printf "  \033[36m%-10s\033[0m  %s\n", $$1, $$2 }'
-	@printf '\n  Variables: \033[36mKC_USER\033[0m=admin|manager|worker (token target)\n\n'
+	@printf '\n  Variables: \033[36mKC_USER\033[0m/\033[36mKC_PASS\033[0m for the token target (root from .env by default)\n\n'
 
 install: ## Install the workspace dependencies
 	$(PNPM) install
@@ -68,9 +69,10 @@ ps: ## List the state of the services
 	$(COMPOSE) ps
 
 # Prints ONLY the access token on stdout so it can be chained:
-#   TOKEN=$(make token KC_USER=manager)
+#   TOKEN=$(make token)                # root, from ROOT_* in .env
+#   TOKEN=$(make token KC_USER=laura KC_PASS=...)   # any user created in the app
 #   curl -H "Authorization: Bearer $TOKEN" http://localhost:3000/api/me
-token: ## Access token for the demo user via grant_type=password
+token: ## Access token via grant_type=password (root by default)
 	@env_file='$(ROOT_DIR)/.env'; \
 	if [[ ! -f "$$env_file" ]]; then \
 		echo "$$env_file does not exist. Run this first: cp .env.example .env" >&2; \
@@ -80,12 +82,9 @@ token: ## Access token for the demo user via grant_type=password
 	kc_url="$$(read_var KEYCLOAK_PUBLIC_URL)"; \
 	realm="$$(read_var KEYCLOAK_REALM)"; \
 	client="$$(read_var KEYCLOAK_APP_CLIENT_ID)"; \
-	case '$(KC_USER)' in \
-		admin)   user="$$(read_var DEMO_ADMIN_USERNAME)";   pass="$$(read_var DEMO_ADMIN_PASSWORD)";; \
-		manager) user="$$(read_var DEMO_MANAGER_USERNAME)"; pass="$$(read_var DEMO_MANAGER_PASSWORD)";; \
-		worker)  user="$$(read_var DEMO_USER_USERNAME)";    pass="$$(read_var DEMO_USER_PASSWORD)";; \
-		*) echo 'KC_USER must be admin, manager or worker' >&2; exit 1;; \
-	esac; \
+	user='$(KC_USER)'; pass='$(KC_PASS)'; \
+	if [[ -z "$$user" ]]; then user="$$(read_var ROOT_USERNAME)"; pass="$$(read_var ROOT_PASSWORD)"; fi; \
+	if [[ -z "$$pass" ]]; then echo 'KC_PASS is required when KC_USER is set' >&2; exit 1; fi; \
 	response="$$(curl -sS -X POST \
 		"$${kc_url:-http://localhost:8080}/realms/$${realm:-clavis}/protocol/openid-connect/token" \
 		-H 'Content-Type: application/x-www-form-urlencoded' \
