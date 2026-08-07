@@ -185,7 +185,13 @@ export const accessRoutes: FastifyPluginAsync = async (app) => {
         summary: 'Roles, overrides and effective permissions of one user',
         security: [{ bearerAuth: [] }],
         params: IdParams,
-        response: { 200: UserAccessResponse, 401: ErrorResponse, 403: ErrorResponse, 404: ErrorResponse },
+        response: {
+          200: UserAccessResponse,
+          400: ErrorResponse,
+          401: ErrorResponse,
+          403: ErrorResponse,
+          404: ErrorResponse,
+        },
       },
     },
     async (request) => {

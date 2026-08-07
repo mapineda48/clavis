@@ -351,6 +351,7 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
           401: ErrorResponse,
           403: ErrorResponse,
           404: ErrorResponse,
+          409: ErrorResponse,
         },
       },
     },
@@ -437,6 +438,7 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
         params: IdParams,
         response: {
           204: { type: 'null' },
+          400: ErrorResponse,
           401: ErrorResponse,
           403: ErrorResponse,
           404: ErrorResponse,
@@ -499,6 +501,7 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
             properties: { invite: InviteSchema },
             required: ['invite'],
           },
+          400: ErrorResponse,
           401: ErrorResponse,
           403: ErrorResponse,
           404: ErrorResponse,
