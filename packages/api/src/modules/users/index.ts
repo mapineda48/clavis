@@ -227,7 +227,8 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
         description:
           'Registers the user in Keycloak first (which assigns the id and owns the credentials), ' +
           'then stores the application user and their roles. If the database write fails the ' +
-          'Keycloak user is deleted again, so the two systems cannot drift on creation.',
+          'Keycloak user is deleted again, so the two systems cannot drift on creation. ' +
+          'A non-empty `roles` additionally requires `access:manage`.',
         security: [{ bearerAuth: [] }],
         body: CreateUserBody,
         response: {
