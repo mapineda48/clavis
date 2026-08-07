@@ -4,7 +4,7 @@
 import type { FastifyPluginAsync } from 'fastify'
 // Pulls in the @fastify/swagger type augmentation (tags, summary, security inside `schema`).
 import type {} from '@fastify/swagger'
-import { ACCESS_NAMESPACE, loadAccessContext } from '../../lib/access.js'
+import { ACCESS_NAMESPACE, assertNotSelf, loadAccessContext } from '../../lib/access.js'
 import type { Executor } from '../../lib/executor.js'
 import { mutate } from '../../lib/mutate.js'
 import { badRequest, conflict, forbidden, notFound } from '../../lib/errors.js'
@@ -227,7 +227,8 @@ export const accessRoutes: FastifyPluginAsync = async (app) => {
         summary: 'Replace the permission exceptions of one user',
         description:
           'The full set is replaced in one write: grants add permissions the roles do not give, ' +
-          'revokes remove permissions they do. Root accepts no overrides.',
+          'revokes remove permissions they do. Root accepts no overrides, and nobody may edit ' +
+          'their own.',
         security: [{ bearerAuth: [] }],
         params: IdParams,
         body: {
@@ -254,6 +255,12 @@ export const accessRoutes: FastifyPluginAsync = async (app) => {
       if (row.is_root) {
         throw forbidden('Root bypasses the permission system; overrides do not apply.', 'ROOT_IMMUTABLE')
       }
+      // The same rule `PATCH /users/:id` applies to `roles`, on the route that
+      // reaches further: an override grant hands out an individual permission
+      // key directly, so without this a holder of `access:manage` could write
+      // themselves the entire catalog in one request — and the revoke
+      // direction is the matching self-lockout.
+      assertNotSelf(request.auth.sub, request.params.id, 'change your own permission overrides')
 
       const overrides = request.body.overrides
       const keys = overrides.map((override) => override.permissionKey)

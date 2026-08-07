@@ -124,6 +124,14 @@ Every one of these cost a real failure. Do not rediscover them.
   rather than optional; anything outside a request (boot seeding) still calls
   `cache.bumpVersion('access')` by hand. `is_root` bypasses everything and root
   is immutable through the API.
+- **Nobody edits their own privileges**, and the check is `assertNotSelf`
+  (`lib/access.ts`), not a copy per route. It guards `PATCH /users/:id`
+  (`roles`, `status`), `DELETE /users/:id` and
+  `PUT /access/users/:id/overrides` — a new route that changes what somebody
+  may do needs it too. It is keyed on identity, so it stops one account raising
+  itself in one request and nothing more: two accounts can still grant each
+  other, and `POST /users` can still create a privileged account. Say that in
+  the docs rather than implying the guard is stronger than it is.
 - Request mutations go through `mutate()` (`lib/mutate.ts`): one transaction
   carrying the write **and** its `audit_log` row, then the bump after COMMIT.
   So an `audit_log` insert failure fails the user's write — deliberate: in an

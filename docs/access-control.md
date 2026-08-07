@@ -526,9 +526,34 @@ never the body. Two rules therefore live inside the handlers.
   on the very next request, because the mutation bumps the cache namespace immediately. `POST`
   is the same door one step further away: create an account carrying `admin`, with a temporary
   password you chose, and sign in as it.
-- **Nobody changes their own `roles` or `status`, and nobody deletes themselves**
-  (`403 SELF_MODIFICATION`). Self-granting is escalation; self-disabling and self-deleting are
-  lockouts. Editing one's own `displayName` carries no privilege and stays allowed.
+- **Nobody edits their own privileges** (`403 SELF_MODIFICATION`): not their `roles` or `status`
+  through `PATCH /api/users/:id`, not their own account through `DELETE /api/users/:id`, and not
+  their own exceptions through `PUT /api/access/users/:id/overrides`. Self-granting is
+  escalation; self-disabling, self-deleting and self-revoking are lockouts. The overrides route
+  is the shortest path of the three — one request writes individual permission keys — so it is
+  guarded by the same `assertNotSelf` rather than by a copy of it. Editing one's own
+  `displayName` carries no privilege and stays allowed.
+
+<a id="self-check-limits"></a>
+
+#### What the self check does not buy
+
+It is worth saying plainly, because the rule is easy to read as more than it is. The check is
+keyed on **identity**, so it stops exactly one thing: a single account raising its own privileges
+in a single request. It does not make `access:manage` a bounded authority.
+
+- **Two accounts holding `access:manage` can grant each other.** A grants B the catalog, B grants
+  A the catalog, and neither request is a self-modification. Nothing in the code detects that,
+  and nothing is meant to: the guard is a footgun rail, not a separation-of-duties model.
+- **`POST /api/users` still creates privileged accounts.** With `users:create` and
+  `access:manage` you can create a user carrying `admin`, with a temporary password you chose,
+  and sign in as it. That is the same escalation one step further away, and it is refused only
+  when `access:manage` is missing.
+- **It is not a defence against a compromised administrator**, only against an ordinary operator
+  quietly widening their own access, and against locking yourself out by accident.
+
+What actually bounds `access:manage` is who holds it. The audit trail records every one of these
+writes with its actor, which is the control that survives the two cases above.
 
 `users:delete` is its own key rather than a facet of `users:update` for the same reason: an
 irreversible operation that also removes the Keycloak identity is not the same authority as
@@ -581,7 +606,7 @@ role slug on a user with `400 UNKNOWN_ROLES`.
 | Route | Permission | Notes |
 |---|---|---|
 | `GET /api/access/users/:id` | `access:read` | Roles, overrides and the effective set |
-| `PUT /api/access/users/:id/overrides` | `access:manage` | **Replaces** the whole set of exceptions |
+| `PUT /api/access/users/:id/overrides` | `access:manage` | **Replaces** the whole set of exceptions; refused on root (`403 ROOT_IMMUTABLE`) and on oneself (`403 SELF_MODIFICATION`, see [the limits of that check](#self-check-limits)) |
 
 `PUT` is a replacement, not a patch: the body is the complete list of exceptions for that user,
 and an empty array clears them. That makes the operation idempotent and makes the UI — which
@@ -696,8 +721,9 @@ the **resulting effective value** — so the outcome of "revoke wins" is visible
 chosen rather than inferred afterwards. Both it and the catalog matrix write on change; there is
 no Save button, because each control maps to exactly one idempotent `PUT`.
 
-Root does not appear in the user selector at all. The API would refuse the write
-(`403 ROOT_IMMUTABLE`); the UI simply does not offer it.
+Neither root nor the signed-in user appears in the exception editor's selector. The API refuses
+both writes (`403 ROOT_IMMUTABLE` and `403 SELF_MODIFICATION`); the UI simply does not offer
+them, the same way the user list hides the status, role and delete controls on one's own row.
 
 ---
 

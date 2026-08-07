@@ -1,4 +1,5 @@
 import { PERMISSION_KEYS, type PermissionKey, isPermissionKey } from '@clavis/shared'
+import { forbidden } from './errors.js'
 import type { Executor } from './executor.js'
 
 /**
@@ -119,4 +120,24 @@ export async function loadAccessContext(
 /** `true` when the context may exercise the permission (root bypasses). */
 export function contextHasPermission(context: AccessContext, key: PermissionKey): boolean {
   return context.user.isRoot || context.permissions.includes(key)
+}
+
+/**
+ * Refuses an operation a caller is aiming at their own account.
+ *
+ * `phrase` completes "You cannot …", so it carries the verb: `'change your own
+ * roles or status'`, `'delete your own account'`. Every route that changes what
+ * somebody may do calls this with the same code, `SELF_MODIFICATION`, so the
+ * SPA and the verification suite recognise the refusal wherever it comes from.
+ *
+ * What it buys: granting yourself is escalation and revoking or disabling
+ * yourself is a lockout, and both take a second pair of hands. What it does
+ * **not** buy is stated where it is documented (`docs/access-control.md`): a
+ * check keyed on identity cannot stop two accounts from granting each other,
+ * and it says nothing about creating a new privileged account. It closes the
+ * one-request path, not the class.
+ */
+export function assertNotSelf(actorId: string, targetId: string, phrase: string): void {
+  if (actorId !== targetId) return
+  throw forbidden(`You cannot ${phrase}; another administrator has to.`, 'SELF_MODIFICATION')
 }

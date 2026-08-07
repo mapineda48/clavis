@@ -4,7 +4,7 @@
 import type { FastifyPluginAsync } from 'fastify'
 // Pulls in the @fastify/swagger type augmentation (tags, summary, security inside `schema`).
 import type {} from '@fastify/swagger'
-import { ACCESS_NAMESPACE, contextHasPermission } from '../../lib/access.js'
+import { ACCESS_NAMESPACE, assertNotSelf, contextHasPermission } from '../../lib/access.js'
 import { AppError, badRequest, conflict, forbidden, notFound } from '../../lib/errors.js'
 import { mutate } from '../../lib/mutate.js'
 import { KeycloakAdminError } from '../../plugins/keycloak-admin.js'
@@ -363,14 +363,9 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
       }
 
       const body = request.body
-      if (existing.id === request.auth.sub) {
-        const blocked = selfBlockedFields(body)
-        if (blocked.length > 0) {
-          throw forbidden(
-            `You cannot change your own ${blocked.join(' or ')}; another administrator has to.`,
-            'SELF_MODIFICATION',
-          )
-        }
+      const blocked = selfBlockedFields(body)
+      if (blocked.length > 0) {
+        assertNotSelf(request.auth.sub, existing.id, `change your own ${blocked.join(' or ')}`)
       }
       if (body.roles !== undefined) {
         assertMayAssignRoles(request.access)
@@ -467,12 +462,7 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
       if (existing.is_root) {
         throw forbidden('The root user is managed by the deployment, not by the API.', 'ROOT_IMMUTABLE')
       }
-      if (existing.id === request.auth.sub) {
-        throw forbidden(
-          'You cannot delete your own account; another administrator has to.',
-          'SELF_MODIFICATION',
-        )
-      }
+      assertNotSelf(request.auth.sub, existing.id, 'delete your own account')
 
       // Keycloak first, and DO NOT reorder this. An identity that can still log
       // in but has no application row is the state authenticate() already
