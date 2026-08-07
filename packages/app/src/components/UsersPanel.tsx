@@ -318,7 +318,11 @@ export function UsersPanel() {
   const catalogQuery = useCatalog(has('access:read'))
   const [expanded, setExpanded] = useState<string | null>(null)
 
-  const availableRoles = (catalogQuery.data?.roles ?? []).map((role) => role.slug)
+  // Assigning a role needs access:manage on both create and update, so without
+  // it the pickers are not offered at all rather than offered and refused.
+  const availableRoles = has('access:manage')
+    ? (catalogQuery.data?.roles ?? []).map((role) => role.slug)
+    : []
   // The row editor covers the update actions and the deletion: either
   // permission on its own is enough to have something to show there.
   const canManageRows = has('users:update') || has('users:delete')

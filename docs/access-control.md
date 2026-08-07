@@ -455,7 +455,7 @@ worse outcome. The response carries `invite: { sent: false, reason: … }` and t
 | Route | Permission | Notes |
 |---|---|---|
 | `GET /api/users` | `users:read` | `limit` 1–500, default 100 |
-| `POST /api/users` | `users:create` | 201 `{ user, invite }`; duplicate email → `409 USER_EXISTS` |
+| `POST /api/users` | `users:create` | 201 `{ user, invite }`; duplicate email → `409 USER_EXISTS`; a non-empty `roles` also needs `access:manage` |
 | `PATCH /api/users/:id` | `users:update` | `displayName`, `status`, `roles`; `roles` also needs `access:manage` |
 | `DELETE /api/users/:id` | `users:delete` | 204; removes the Keycloak user too |
 | `POST /api/users/:id/resend-invite` | `users:update` | 200 `{ invite }` |
@@ -463,14 +463,16 @@ worse outcome. The response carries `invite: { sent: false, reason: … }` and t
 ### Two rules the route table cannot express
 
 `requirePermissions` is a static preHandler: it sees the token and the resolved access context,
-never the body. Two rules therefore live inside the `PATCH` handler.
+never the body. Two rules therefore live inside the handlers.
 
-- **Assigning roles needs `access:manage`** (`403 ROLE_ASSIGNMENT_DENIED`). `users:update` alone
-  edits a profile and flips a status; it does not decide who holds which role. Without this the
-  split between `users:*` and `access:*` would exist only in the catalog: anyone with
-  `users:update` could `PATCH` themselves into the `admin` role — which boot seeding fills with
-  the entire catalog — and hold everything on the very next request, because the mutation bumps
-  the cache namespace immediately.
+- **Assigning roles needs `access:manage`** (`403 ROLE_ASSIGNMENT_DENIED`), on `POST` and on
+  `PATCH` alike. `users:create` and `users:update` provision people and edit their profile and
+  status; they do not decide who holds which role. Without this the split between `users:*` and
+  `access:*` would exist only in the catalog: anyone with `users:update` could `PATCH` themselves
+  into the `admin` role — which boot seeding fills with the entire catalog — and hold everything
+  on the very next request, because the mutation bumps the cache namespace immediately. `POST`
+  is the same door one step further away: create an account carrying `admin`, with a temporary
+  password you chose, and sign in as it.
 - **Nobody changes their own `roles` or `status`, and nobody deletes themselves**
   (`403 SELF_MODIFICATION`). Self-granting is escalation; self-disabling and self-deleting are
   lockouts. Editing one's own `displayName` carries no privilege and stays allowed.

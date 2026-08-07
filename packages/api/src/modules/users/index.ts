@@ -254,6 +254,11 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
       if (body.credentialMode === 'temporary_password' && !body.temporaryPassword) {
         throw badRequest('temporaryPassword is required when credentialMode is temporary_password.')
       }
+      // Same rule as PATCH: creating an account already holding `admin` and
+      // knowing its temporary password is the escalation PATCH no longer allows.
+      if (roles.length > 0) {
+        assertMayAssignRoles(request.access)
+      }
 
       const unknownRoles = await missingRoles(app.db, roles)
       if (unknownRoles.length > 0) {
