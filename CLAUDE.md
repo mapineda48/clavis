@@ -200,11 +200,20 @@ Every one of these cost a real failure. Do not rediscover them.
   not move them into `-c` startup options: a pooler that does not know the
   parameter refuses the connection, while one that resets a `SET` merely leaves
   the timeout unapplied.
+- The pool also sets `connectionTimeoutMillis` (`DB_CONNECTION_TIMEOUT_MS`).
+  Without it `pool.connect()` has **no timer**: a saturated pool queues callers
+  forever and the symptom is requests that never answer, with nothing logged and
+  no failing statement to point at.
 - A FATAL from the server (that idle timeout, an administrative terminate)
   arrives as an `error` **event** on a client with no query in flight, and the
   pool takes its own listener off while a client is checked out. `db.tx()`
   attaches one for the length of the checkout; without it the event is unhandled
   and the process dies.
+- `client.release()` with **no argument** returns the client to the idle pool
+  unless it is unqueryable. So a failed ROLLBACK must be passed to `release()`:
+  otherwise the connection goes back inside an aborted transaction and the next
+  checkout answers `25P02` to every statement, on a request that did nothing
+  wrong.
 
 ### Keycloak and the theme
 

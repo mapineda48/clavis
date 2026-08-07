@@ -70,6 +70,14 @@ const configSchema = z.object({
   // than it — database-wide, not just in the tables the transaction touched.
   DB_STATEMENT_TIMEOUT_MS: z.coerce.number().int().min(0).max(600000).default(15000),
   DB_IDLE_IN_TRANSACTION_TIMEOUT_MS: z.coerce.number().int().min(0).max(600000).default(10000),
+  // How long a request waits for a connection from the pool before giving up.
+  // Without it `pool.connect()` has no timer at all: once every client is
+  // checked out, callers queue forever and the symptom is requests that never
+  // answer, with nothing logged and no failing statement to point at. Five
+  // seconds is longer than any healthy checkout and short enough that a
+  // saturated pool sheds load — a 500 the client can retry beats a socket that
+  // is still open in ten minutes. `0` disables it, which is pg's own meaning.
+  DB_CONNECTION_TIMEOUT_MS: z.coerce.number().int().min(0).max(600000).default(5000),
 
   // --- keycloak
   // Public issuer: the one carried inside the token (`iss`).

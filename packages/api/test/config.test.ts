@@ -52,9 +52,17 @@ describe('loadConfig', () => {
     const config = loadConfig({
       DB_STATEMENT_TIMEOUT_MS: '2500',
       DB_IDLE_IN_TRANSACTION_TIMEOUT_MS: '0',
+      DB_CONNECTION_TIMEOUT_MS: '1500',
     })
     assert.equal(config.DB_STATEMENT_TIMEOUT_MS, 2500)
     assert.equal(config.DB_IDLE_IN_TRANSACTION_TIMEOUT_MS, 0)
+    assert.equal(config.DB_CONNECTION_TIMEOUT_MS, 1500)
+  })
+
+  it('gives the connection wait a bounded default', () => {
+    // The failure this rules out is a pool with no timer at all: callers queue
+    // forever and the requests simply never answer.
+    assert.ok(loadConfig({}).DB_CONNECTION_TIMEOUT_MS > 0)
   })
 
   it('throws instead of exiting when a value is wrong', () => {

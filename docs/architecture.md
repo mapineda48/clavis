@@ -103,6 +103,12 @@ Every connection of `fastify.db`'s pool starts with a `statement_timeout` and an
 at the database level: a transaction left open with nothing running pins `backend_xmin`, and
 vacuum then cannot clean any row version newer than it anywhere in the database.
 
+The third timeout is client-side: `DB_CONNECTION_TIMEOUT_MS` bounds how long a request waits for
+a connection **from the pool**. Without it there is no timer on that wait at all — once all ten
+clients are checked out, callers queue indefinitely, and the symptom is requests that never
+answer with nothing logged and no failing statement to point at. Five seconds is far longer than
+a healthy checkout, and past it the pool sheds load instead of growing a queue.
+
 ### `@clavis/app`
 
 React 19 SPA served by Vite 7 in development and by nginx under the `full` profile.
