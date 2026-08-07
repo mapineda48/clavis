@@ -3,10 +3,13 @@ import fp from 'fastify-plugin'
 // `pg` is CommonJS: under ESM only the default import works.
 import pg from 'pg'
 import type { Pool as PgPool } from 'pg'
-import { env } from '../config/env.js'
+import type { AppConfig } from '../config/env.js'
 import { runMigrations } from '../lib/migrator.js'
 
 const { Pool } = pg
+
+/** The slice of the configuration this plugin reads. */
+export type DbPluginOptions = Pick<AppConfig, 'DATABASE_URL'>
 
 /** Attempts and wait between retries of the very first connection. */
 const CONNECT_ATTEMPTS = 10
@@ -40,10 +43,10 @@ async function waitForDatabase(pool: PgPool, app: FastifyInstance): Promise<void
  * Database plugin: creates the PostgreSQL pool, runs the pending migrations
  * during startup and decorates `fastify.db`.
  */
-export const dbPlugin = fp(
-  async (app: FastifyInstance) => {
+export const dbPlugin = fp<DbPluginOptions>(
+  async (app: FastifyInstance, options) => {
     const pool = new Pool({
-      connectionString: env.DATABASE_URL,
+      connectionString: options.DATABASE_URL,
       max: 10,
       application_name: 'clavis-api',
     })

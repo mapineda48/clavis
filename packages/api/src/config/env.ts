@@ -1,7 +1,17 @@
 import { z } from 'zod'
 
 /**
- * API configuration, read from `process.env` and validated with zod.
+ * API configuration: the environment read once, validated with zod and handed
+ * to everything that needs it.
+ *
+ * `loadConfig` is a **pure function of the environment it is given**: it returns
+ * a config or throws, and it never touches `process.env` and never exits. That
+ * is deliberate. This module used to parse `process.env` at import time and call
+ * `process.exit(1)` on a bad value, which meant any file that imported a plugin
+ * imported the exit too — a single missing variable killed the process before a
+ * caller could react, and nothing that reached a plugin could be exercised in
+ * isolation. `src/main.ts` is now the only file that reads `process.env` and the
+ * only one allowed to exit.
  *
  * The defaults are the **local development** ones (the docker compose
  * infrastructure published on localhost) so that `pnpm dev` works without
@@ -25,7 +35,7 @@ const booleanFromText = z.preprocess((value) => {
   return value
 }, z.boolean())
 
-const envSchema = z.object({
+const configSchema = z.object({
   // --- process
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   HOST: z.string().min(1).default('0.0.0.0'),
@@ -95,7 +105,30 @@ const envSchema = z.object({
   MAIL_ENABLED: booleanFromText.default(true),
 })
 
-export type Env = z.infer<typeof envSchema>
+/** Validated and typed API configuration. */
+export type AppConfig = z.infer<typeof configSchema>
+
+/**
+ * An environment that does not describe a runnable API.
+ *
+ * It carries the individual problems so the caller decides what to do with
+ * them: `main.ts` prints `report()` and exits, a test asserts on `issues`.
+ */
+export class ConfigError extends Error {
+  readonly issues: readonly string[]
+
+  constructor(issues: readonly string[]) {
+    super(`Invalid environment configuration:\n${issues.join('\n')}`)
+    this.name = 'ConfigError'
+    this.issues = issues
+    Error.captureStackTrace?.(this, ConfigError)
+  }
+
+  /** The block `main.ts` prints on stderr before exiting. */
+  report(): string {
+    return ['', '[@clavis/api] Invalid environment configuration:', ...this.issues, ''].join('\n')
+  }
+}
 
 /**
  * Input data for the schema.
@@ -106,9 +139,9 @@ export type Env = z.infer<typeof envSchema>
  * - `PORT` wins over `API_PORT`; the contract defines `API_PORT` in the root
  *   `.env`, but many environments inject `PORT` instead.
  */
-function buildRawEnv(): Record<string, unknown> {
+function normalize(env: NodeJS.ProcessEnv): Record<string, unknown> {
   const raw: Record<string, unknown> = {}
-  for (const [key, value] of Object.entries(process.env)) {
+  for (const [key, value] of Object.entries(env)) {
     if (typeof value === 'string' && value.trim() === '') continue
     raw[key] = value
   }
@@ -117,26 +150,22 @@ function buildRawEnv(): Record<string, unknown> {
   return raw
 }
 
-const rawEnv = buildRawEnv()
+/**
+ * Validates an environment and returns the configuration.
+ * Throws `ConfigError` when it does not describe a runnable API. It never
+ * reads `process.env` and never exits: both belong to `main.ts`.
+ */
+export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
+  const parsed = configSchema.safeParse(normalize(env))
 
-const parsed = envSchema.safeParse(rawEnv)
+  if (!parsed.success) {
+    throw new ConfigError(
+      parsed.error.issues.map((issue) => {
+        const path = issue.path.length > 0 ? issue.path.join('.') : '(root)'
+        return `  - ${path}: ${issue.message}`
+      }),
+    )
+  }
 
-if (!parsed.success) {
-  const details = parsed.error.issues
-    .map((issue) => {
-      const path = issue.path.length > 0 ? issue.path.join('.') : '(root)'
-      return `  - ${path}: ${issue.message}`
-    })
-    .join('\n')
-
-  console.error(
-    ['', '[@clavis/api] Invalid environment configuration:', details, ''].join('\n'),
-  )
-  process.exit(1)
+  return parsed.data
 }
-
-/** Validated and typed API configuration. */
-export const env: Env = parsed.data
-
-/** `true` when the API runs in development mode (pino-pretty logs). */
-export const isDevelopment: boolean = env.NODE_ENV === 'development'

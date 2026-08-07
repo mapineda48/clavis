@@ -3,7 +3,10 @@ import fp from 'fastify-plugin'
 // ioredis is CommonJS: under ESM + NodeNext the default export is not
 // constructible, so the named export is the one to use.
 import { Redis } from 'ioredis'
-import { env } from '../config/env.js'
+import type { AppConfig } from '../config/env.js'
+
+/** The slice of the configuration this plugin reads. */
+export type CachePluginOptions = Pick<AppConfig, 'VALKEY_URL' | 'CACHE_TTL_SECONDS'>
 
 /** Prefix of the keys that hold the version of each namespace. */
 const VERSION_PREFIX = 'clavis:ver:'
@@ -40,9 +43,9 @@ function parseVersion(raw: string | null): number | null {
  * carry permissions somebody has already been stripped of. Callers treat `null`
  * as "the cache cannot be trusted right now" and go to the database instead.
  */
-export const cachePlugin = fp(
-  async (app: FastifyInstance) => {
-    const client = new Redis(env.VALKEY_URL, {
+export const cachePlugin = fp<CachePluginOptions>(
+  async (app: FastifyInstance, options) => {
+    const client = new Redis(options.VALKEY_URL, {
       lazyConnect: false,
       maxRetriesPerRequest: 3,
       connectionName: 'clavis-api',
@@ -55,7 +58,7 @@ export const cachePlugin = fp(
       app.log.warn({ err: error }, 'Valkey connection error')
     })
     client.on('ready', () => {
-      app.log.info({ url: env.VALKEY_URL }, 'Connected to Valkey')
+      app.log.info({ url: options.VALKEY_URL }, 'Connected to Valkey')
     })
 
     const versionKey = (namespace: string): string => `${VERSION_PREFIX}${namespace}`
@@ -75,7 +78,7 @@ export const cachePlugin = fp(
       },
 
       async set(key, value, ttlSeconds) {
-        const ttl = ttlSeconds ?? env.CACHE_TTL_SECONDS
+        const ttl = ttlSeconds ?? options.CACHE_TTL_SECONDS
         try {
           await client.set(key, JSON.stringify(value), 'EX', ttl)
         } catch (error) {

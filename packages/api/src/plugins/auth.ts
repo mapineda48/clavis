@@ -2,7 +2,7 @@ import type { PermissionKey } from '@clavis/shared'
 import type { FastifyInstance, FastifyRequest, preHandlerHookHandler } from 'fastify'
 import fp from 'fastify-plugin'
 import { type JWTPayload, createRemoteJWKSet, jwtVerify } from 'jose'
-import { env } from '../config/env.js'
+import type { AppConfig } from '../config/env.js'
 import {
   ACCESS_NAMESPACE,
   type AccessContext,
@@ -11,6 +11,12 @@ import {
   loadAccessContext,
 } from '../lib/access.js'
 import { forbidden, unauthorized } from '../lib/errors.js'
+
+/** The slice of the configuration this plugin reads. */
+export type AuthPluginOptions = Pick<
+  AppConfig,
+  'KEYCLOAK_ISSUER' | 'KEYCLOAK_INTERNAL_ISSUER' | 'KEYCLOAK_AUDIENCE' | 'CACHE_TTL_SECONDS'
+>
 
 /**
  * Identity carried by the verified token. Authorization does NOT live here:
@@ -61,13 +67,13 @@ function readStringClaim(payload: JWTPayload, claim: string): string | null {
  * change takes effect as soon as the namespace is bumped — no token refresh
  * involved.
  */
-export const authPlugin = fp(
-  async (app: FastifyInstance) => {
+export const authPlugin = fp<AuthPluginOptions>(
+  async (app: FastifyInstance, options) => {
     const jwksUrl = new URL(
-      `${trimTrailingSlash(env.KEYCLOAK_INTERNAL_ISSUER)}/protocol/openid-connect/certs`,
+      `${trimTrailingSlash(options.KEYCLOAK_INTERNAL_ISSUER)}/protocol/openid-connect/certs`,
     )
     app.log.info(
-      { jwksUrl: jwksUrl.toString(), issuer: env.KEYCLOAK_ISSUER, audience: env.KEYCLOAK_AUDIENCE },
+      { jwksUrl: jwksUrl.toString(), issuer: options.KEYCLOAK_ISSUER, audience: options.KEYCLOAK_AUDIENCE },
       'Token verification configured',
     )
 
@@ -106,8 +112,8 @@ export const authPlugin = fp(
       let payload: JWTPayload
       try {
         const verified = await jwtVerify(token, jwks, {
-          issuer: env.KEYCLOAK_ISSUER,
-          audience: env.KEYCLOAK_AUDIENCE,
+          issuer: options.KEYCLOAK_ISSUER,
+          audience: options.KEYCLOAK_AUDIENCE,
           clockTolerance: 5,
         })
         payload = verified.payload
@@ -147,7 +153,7 @@ export const authPlugin = fp(
         if (access === null) {
           access = await loadAccessContext(app.db, sub)
           if (access !== null) {
-            await app.cache.set(cacheKey, access, env.CACHE_TTL_SECONDS)
+            await app.cache.set(cacheKey, access, options.CACHE_TTL_SECONDS)
           }
         }
       }

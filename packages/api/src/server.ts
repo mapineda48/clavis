@@ -3,7 +3,7 @@ import multipart from '@fastify/multipart'
 import swagger from '@fastify/swagger'
 import swaggerUi from '@fastify/swagger-ui'
 import Fastify, { type FastifyInstance } from 'fastify'
-import { env, isDevelopment } from './config/env.js'
+import type { AppConfig } from './config/env.js'
 import { registerErrorHandler } from './lib/errors.js'
 import { accessRoutes } from './modules/access/index.js'
 import { auditRoutes } from './modules/audit/index.js'
@@ -25,12 +25,20 @@ import { storagePlugin } from './plugins/storage.js'
  * handler), then the plugins that decorate the instance (`db`, `cache`,
  * `storage`, `mailer`, `auth`), and finally the routes, which can already rely
  * on those decorators.
+ *
+ * The configuration arrives as an argument and reaches each plugin as its
+ * registration options; no plugin imports it. Every plugin declares the slice
+ * it reads (`Pick<AppConfig, …>`), so what a plugin is allowed to look at is
+ * checked at compile time even though the whole object is handed over — one
+ * source of truth, and adding a variable to a plugin is one edit rather than
+ * two. The keys are SCREAMING_SNAKE_CASE, so none of them collides with
+ * Fastify's own registration options (`prefix`, `logLevel`, `logSerializers`).
  */
-export async function buildServer(): Promise<FastifyInstance> {
+export async function buildServer(config: AppConfig): Promise<FastifyInstance> {
   const app = Fastify({
-    logger: isDevelopment
+    logger: config.NODE_ENV === 'development'
       ? {
-          level: env.LOG_LEVEL,
+          level: config.LOG_LEVEL,
           transport: {
             target: 'pino-pretty',
             options: {
@@ -40,14 +48,14 @@ export async function buildServer(): Promise<FastifyInstance> {
             },
           },
         }
-      : { level: env.LOG_LEVEL },
+      : { level: config.LOG_LEVEL },
     trustProxy: true,
-    bodyLimit: env.MAX_UPLOAD_BYTES,
+    bodyLimit: config.MAX_UPLOAD_BYTES,
   })
 
   // --- CORS: frontend origins only; X-Cache must be readable by the browser.
   await app.register(cors, {
-    origin: env.CORS_ORIGINS,
+    origin: config.CORS_ORIGINS,
     credentials: true,
     methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
@@ -57,7 +65,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   // --- File uploads: the per-file ceiling matches the body limit above.
   await app.register(multipart, {
     limits: {
-      fileSize: env.MAX_UPLOAD_BYTES,
+      fileSize: config.MAX_UPLOAD_BYTES,
       files: 1,
     },
   })
@@ -73,7 +81,7 @@ export async function buildServer(): Promise<FastifyInstance> {
           'resolves what the caller is allowed to do.',
         version: '1.0.0',
       },
-      servers: [{ url: `http://localhost:${env.PORT}`, description: 'Local environment' }],
+      servers: [{ url: `http://localhost:${config.PORT}`, description: 'Local environment' }],
       tags: [
         { name: 'health', description: 'Status of the service and its dependencies' },
         { name: 'profile', description: 'Data about the authenticated user' },
@@ -110,14 +118,14 @@ export async function buildServer(): Promise<FastifyInstance> {
   registerErrorHandler(app)
 
   // --- Infrastructure (all wrapped in fastify-plugin: they decorate the root scope)
-  await app.register(dbPlugin)
-  await app.register(cachePlugin)
-  await app.register(storagePlugin)
-  await app.register(mailerPlugin)
-  await app.register(keycloakAdminPlugin)
+  await app.register(dbPlugin, config)
+  await app.register(cachePlugin, config)
+  await app.register(storagePlugin, config)
+  await app.register(mailerPlugin, config)
+  await app.register(keycloakAdminPlugin, config)
   // Seeds the permission catalog, the system role and root before any request.
-  await app.register(bootstrapPlugin)
-  await app.register(authPlugin)
+  await app.register(bootstrapPlugin, config)
+  await app.register(authPlugin, config)
 
   // --- Routes
   // Every path this service answers lives under /api, health checks included.
