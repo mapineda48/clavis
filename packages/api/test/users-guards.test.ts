@@ -3,6 +3,7 @@ import { describe, it } from 'node:test'
 import { AppError } from '../src/lib/errors.js'
 import type { AccessContext } from '../src/lib/access.js'
 import {
+  UserSchema,
   assertMayAssignRoles,
   selfBlockedFields,
   serializeUser,
@@ -107,19 +108,19 @@ describe('serializeUser', () => {
     )
   })
 
-  it('publishes no column the response schema would silently drop', () => {
-    // Fastify serializes against the declared schema: an added column that is
-    // not declared disappears without a word, which is the failure this guards.
-    assert.deepEqual(Object.keys(serializeUser(row)).sort(), [
-      'createdAt',
-      'displayName',
-      'email',
-      'id',
-      'isRoot',
-      'lastSeenAt',
-      'roles',
-      'status',
-      'username',
-    ])
+  it('agrees field for field with the response schema that serialises it', () => {
+    // Compared against the real schema, not a copy of its field list. Fastify
+    // serialises against the declared schema and drops anything that is not
+    // there, so a field added to the serializer alone vanishes from every
+    // response without a word — and a field removed from the schema has to
+    // fail here rather than keep a hard-coded list green.
+    assert.deepEqual(
+      Object.keys(serializeUser(row)).sort(),
+      Object.keys(UserSchema.properties).sort(),
+    )
+  })
+
+  it('declares every one of those fields required, so none is optional by accident', () => {
+    assert.deepEqual([...UserSchema.required].sort(), Object.keys(UserSchema.properties).sort())
   })
 })

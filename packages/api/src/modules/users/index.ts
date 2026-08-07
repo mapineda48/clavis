@@ -44,7 +44,15 @@ interface IdParamsInput {
   id: string
 }
 
-const UserSchema = {
+/**
+ * The user shape every response declares.
+ *
+ * Exported so a test can compare it against `serializeUser` rather than against
+ * a copy of the field list: Fastify serialises against this schema and drops
+ * anything it does not declare, so a field added to the serializer alone
+ * disappears from every response without a word.
+ */
+export const UserSchema = {
   type: 'object',
   properties: {
     id: { type: 'string' },
