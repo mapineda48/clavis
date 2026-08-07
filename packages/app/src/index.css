@@ -122,12 +122,6 @@ code {
   font-size: 0.85em;
 }
 
-.hint {
-  color: var(--muted);
-  font-size: 0.85rem;
-  margin-top: 0.5rem;
-}
-
 /* ---------------------------------------------------------- Buttons */
 
 .btn {
@@ -181,21 +175,6 @@ code {
   background: var(--surface-2);
 }
 
-.btn--danger {
-  background: transparent;
-  border-color: var(--danger);
-  color: var(--danger);
-}
-
-.btn--danger:hover:not(:disabled) {
-  background: var(--danger-soft);
-}
-
-.btn--sm {
-  padding: 0.35rem 0.65rem;
-  font-size: 0.85rem;
-}
-
 .btn--block {
   width: 100%;
 }
@@ -233,10 +212,6 @@ code {
   font-size: 0.9rem;
 }
 
-.input--file {
-  padding: 0.35rem;
-}
-
 .field {
   display: flex;
   flex-direction: column;
@@ -258,11 +233,7 @@ code {
   gap: 0.45rem;
 }
 
-.field--narrow {
-  max-width: 9rem;
-}
-
-/* ------------------------------------------------- Chips and badges */
+/* ------------------------------------------------------------ Chips */
 
 .chips {
   display: flex;
@@ -290,63 +261,6 @@ code {
   font-weight: 700;
 }
 
-.chip--warn {
-  background: var(--warn-soft);
-  border-color: var(--warn);
-  color: var(--warn);
-}
-
-.badge {
-  display: inline-block;
-  border-radius: 999px;
-  padding: 0.12rem 0.6rem;
-  font-size: 0.75rem;
-  font-weight: 700;
-  border: 1px solid transparent;
-}
-
-.badge--todo {
-  background: var(--surface-2);
-  border-color: var(--border);
-  color: var(--muted);
-}
-
-.badge--in_progress {
-  background: var(--info-soft);
-  border-color: var(--info);
-  color: var(--info);
-}
-
-.badge--done {
-  background: var(--success-soft);
-  border-color: var(--success);
-  color: var(--success);
-}
-
-.badge--p1 {
-  background: var(--danger-soft);
-  border-color: var(--danger);
-  color: var(--danger);
-}
-
-.badge--p2 {
-  background: var(--warn-soft);
-  border-color: var(--warn);
-  color: var(--warn);
-}
-
-.badge--p3 {
-  background: var(--surface-2);
-  border-color: var(--border);
-  color: var(--muted);
-}
-
-.badge--p4 {
-  background: var(--surface-2);
-  border-color: var(--border);
-  color: var(--muted);
-}
-
 /* ---------------------------------------------------------- Notices */
 
 .notice {
@@ -356,11 +270,6 @@ code {
   border-radius: var(--radius-sm);
   padding: 0.7rem 0.9rem;
   color: var(--text);
-}
-
-.notice--info {
-  border-left-color: var(--info);
-  background: var(--info-soft);
 }
 
 .notice--warn {
@@ -444,23 +353,6 @@ code {
 }
 
 .login__lead {
-  color: var(--muted);
-}
-
-.login__hint {
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-  font-size: 0.88rem;
-  color: var(--muted);
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 0.7rem 0.9rem;
-}
-
-.login__foot {
-  font-size: 0.88rem;
   color: var(--muted);
 }
 
@@ -603,19 +495,8 @@ code {
   padding: 1.25rem 1rem 2rem;
 }
 
-.shell__footer {
-  border-top: 1px solid var(--border);
-  background: var(--surface);
-  padding: 0.75rem 1rem;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem;
-}
-
 /* ----------------------------------------------------------- Panels */
 
-.board,
 .admin {
   display: flex;
   flex-direction: column;
@@ -650,211 +531,6 @@ code {
   gap: 0.5rem;
 }
 
-.filters {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
-  gap: 0.75rem;
-}
-
-.cache-badge {
-  font-family: var(--mono);
-  font-size: 0.75rem;
-  font-weight: 700;
-  border-radius: 999px;
-  padding: 0.2rem 0.65rem;
-  border: 1px solid var(--border);
-  background: var(--surface-2);
-  color: var(--muted);
-  white-space: nowrap;
-}
-
-.cache-badge--hit {
-  background: var(--success-soft);
-  border-color: var(--success);
-  color: var(--success);
-}
-
-.cache-badge--miss {
-  background: var(--warn-soft);
-  border-color: var(--warn);
-  color: var(--warn);
-}
-
-/* -------------------------------------------------------- Todo form */
-
-.todo-form {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 0.75rem;
-  align-items: end;
-}
-
-.todo-form .field--wide {
-  grid-column: 1 / -1;
-}
-
-.todo-form__actions {
-  grid-column: 1 / -1;
-  display: flex;
-  gap: 0.5rem;
-}
-
-/* ------------------------------------------------------------ Cards */
-
-.todo-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: 1rem;
-  align-items: start;
-}
-
-.todo-card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-left: 4px solid var(--border);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
-  padding: 0.9rem 1rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.6rem;
-  height: 100%;
-}
-
-.todo-card--in_progress {
-  border-left-color: var(--info);
-}
-
-.todo-card--done {
-  border-left-color: var(--success);
-}
-
-.todo-card__head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 0.5rem;
-}
-
-.todo-card__title {
-  font-size: 1rem;
-  font-weight: 700;
-  overflow-wrap: anywhere;
-}
-
-.todo-card__badges {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.3rem;
-}
-
-.todo-card__desc {
-  color: var(--muted);
-  font-size: 0.92rem;
-  overflow-wrap: anywhere;
-}
-
-.todo-card__meta {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-  gap: 0.4rem 0.8rem;
-  border-top: 1px dashed var(--border);
-  padding-top: 0.6rem;
-}
-
-.todo-card__meta dt {
-  font-size: 0.72rem;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  color: var(--muted);
-}
-
-.todo-card__meta dd {
-  font-size: 0.86rem;
-}
-
-.todo-card__actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem;
-  margin-top: auto;
-  padding-top: 0.4rem;
-}
-
-/* ------------------------------------------------------ Empty state */
-
-.empty {
-  background: var(--surface);
-  border: 1px dashed var(--border);
-  border-radius: var(--radius);
-  padding: 2rem 1.25rem;
-  text-align: center;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.6rem;
-}
-
-.empty__title {
-  font-size: 1.1rem;
-  font-weight: 700;
-}
-
-.empty__text {
-  color: var(--muted);
-  max-width: 46ch;
-}
-
-/* ------------------------------------------------------- Pagination */
-
-.pagination {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.75rem;
-  flex-wrap: wrap;
-}
-
-.pagination__info {
-  color: var(--muted);
-  font-size: 0.88rem;
-}
-
-/* ------------------------------------------------------ Attachments */
-
-.attachments {
-  border-top: 1px solid var(--border);
-  padding-top: 0.7rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.6rem;
-}
-
-.attachments__title {
-  font-size: 0.8rem;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--muted);
-}
-
-.attachments__upload {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.attachments__upload .input--file {
-  flex: 1 1 12rem;
-}
-
-.file-name {
-  font-weight: 600;
-  overflow-wrap: anywhere;
-}
-
 /* ----------------------------------------------------------- Tables */
 
 .table-wrap {
@@ -868,16 +544,6 @@ code {
   width: 100%;
   border-collapse: collapse;
   font-size: 0.9rem;
-}
-
-.table__caption {
-  text-align: left;
-  padding: 0.6rem 0.75rem;
-  font-weight: 700;
-  color: var(--muted);
-  font-size: 0.8rem;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 
 .table th,
@@ -907,95 +573,9 @@ code {
   padding: 0.4rem 0.6rem;
 }
 
-.table__actions {
-  display: flex;
-  gap: 0.4rem;
-  flex-wrap: wrap;
-}
-
 .payload {
   font-size: 0.75rem;
   overflow-wrap: anywhere;
-}
-
-/* ------------------------------------------------------- Statistics */
-
-.stat-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 0.75rem;
-  margin-bottom: 1rem;
-}
-
-.stat {
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 0.8rem 0.9rem;
-}
-
-.stat__value {
-  font-size: 1.7rem;
-  font-weight: 800;
-  line-height: 1.1;
-}
-
-.stat__label {
-  color: var(--muted);
-  font-size: 0.82rem;
-}
-
-.stat-columns {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 1rem;
-}
-
-.stat-block__title {
-  font-size: 0.82rem;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--muted);
-  margin-bottom: 0.5rem;
-}
-
-.bars {
-  display: flex;
-  flex-direction: column;
-  gap: 0.45rem;
-}
-
-.bars__row {
-  display: grid;
-  grid-template-columns: minmax(6rem, 9rem) 1fr auto;
-  align-items: center;
-  gap: 0.6rem;
-}
-
-.bars__label {
-  font-size: 0.85rem;
-  overflow-wrap: anywhere;
-}
-
-.bars__track {
-  height: 8px;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  overflow: hidden;
-}
-
-.bars__fill {
-  display: block;
-  height: 100%;
-  background: var(--primary);
-  border-radius: 999px;
-}
-
-.bars__value {
-  font-variant-numeric: tabular-nums;
-  font-weight: 700;
-  font-size: 0.85rem;
 }
 
 /* ----------------------------------------------------------- Toasts */
@@ -1079,17 +659,5 @@ code {
   .shell__user {
     width: 100%;
     justify-content: space-between;
-  }
-
-  .todo-list {
-    grid-template-columns: 1fr;
-  }
-
-  .bars__row {
-    grid-template-columns: 1fr auto;
-  }
-
-  .bars__track {
-    display: none;
   }
 }

@@ -1,65 +1,10 @@
 import { useAuth } from '../auth/AuthProvider'
-import { useAdminAudit, useAdminStats, useAdminUsers } from '../api/admin'
-import type { AdminStats, CountEntry } from '../api/admin'
+import { useAdminAudit, useAdminUsers } from '../api/admin'
 import { describeApiError } from '../api/client'
 import { useI18n } from '../i18n/I18nProvider'
 import { formatDateTime } from '../lib/types'
 
 const AUDIT_LIMIT = 25
-
-function CountTable({ title, entries }: { title: string; entries: CountEntry[] }) {
-  const { t } = useI18n()
-
-  if (entries.length === 0) {
-    return (
-      <div className="stat-block">
-        <h3 className="stat-block__title">{title}</h3>
-        <p className="muted">{t('admin.noData')}</p>
-      </div>
-    )
-  }
-  const max = entries.reduce((acc, entry) => Math.max(acc, entry.count), 0)
-  return (
-    <div className="stat-block">
-      <h3 className="stat-block__title">{title}</h3>
-      <ul className="bars">
-        {entries.map((entry) => (
-          <li key={entry.key} className="bars__row">
-            <span className="bars__label">{entry.label}</span>
-            <span className="bars__track">
-              <span
-                className="bars__fill"
-                style={{ width: `${max === 0 ? 0 : Math.round((entry.count / max) * 100)}%` }}
-              />
-            </span>
-            <span className="bars__value">{entry.count}</span>
-          </li>
-        ))}
-      </ul>
-    </div>
-  )
-}
-
-function StatsSection({ stats }: { stats: AdminStats }) {
-  const { t } = useI18n()
-
-  return (
-    <>
-      <div className="stat-grid">
-        {stats.totals.map((entry) => (
-          <article key={entry.key} className="stat">
-            <p className="stat__value">{entry.count}</p>
-            <p className="stat__label">{entry.label}</p>
-          </article>
-        ))}
-      </div>
-      <div className="stat-columns">
-        <CountTable title={t('admin.byStatus')} entries={stats.byStatus} />
-        <CountTable title={t('admin.byPriority')} entries={stats.byPriority} />
-      </div>
-    </>
-  )
-}
 
 export function AdminPanel() {
   const { has } = useAuth()
@@ -67,7 +12,6 @@ export function AdminPanel() {
   const canManage = has('admin:manage')
   const canReadUsers = has('users:read')
 
-  const statsQuery = useAdminStats(canManage)
   const usersQuery = useAdminUsers(canReadUsers)
   const auditQuery = useAdminAudit(AUDIT_LIMIT, canManage)
 
@@ -75,17 +19,6 @@ export function AdminPanel() {
 
   return (
     <div className="admin">
-      <section className="panel">
-        <div className="panel__head">
-          <h2 className="panel__title">{t('admin.statsTitle')}</h2>
-          <span className="muted">{t('admin.requiresAdminManage')}</span>
-        </div>
-        {!canManage && <p className="notice notice--warn">{t('admin.missingAdminManage')}</p>}
-        {statsQuery.isPending && canManage && <p className="muted">{t('admin.statsLoading')}</p>}
-        {statsQuery.isError && <p className="notice notice--error">{describeApiError(statsQuery.error)}</p>}
-        {statsQuery.data !== undefined && <StatsSection stats={statsQuery.data} />}
-      </section>
-
       <section className="panel">
         <div className="panel__head">
           <h2 className="panel__title">{t('admin.usersTitle')}</h2>
@@ -132,6 +65,7 @@ export function AdminPanel() {
           <h2 className="panel__title">{t('admin.auditTitle')}</h2>
           <span className="muted">{t('admin.auditSubtitle', { limit: AUDIT_LIMIT })}</span>
         </div>
+        {!canManage && <p className="notice notice--warn">{t('admin.missingAdminManage')}</p>}
         {auditQuery.isPending && canManage && <p className="muted">{t('admin.auditLoading')}</p>}
         {auditQuery.isError && <p className="notice notice--error">{describeApiError(auditQuery.error)}</p>}
         {auditQuery.data !== undefined && auditQuery.data.length > 0 && (

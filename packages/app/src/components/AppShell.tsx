@@ -2,17 +2,11 @@ import { useState } from 'react'
 import { useAuth } from '../auth/AuthProvider'
 import { Can } from '../auth/Can'
 import { AdminPanel } from './AdminPanel'
-import { TodoBoard } from './TodoBoard'
 import { isLocale, LOCALE_LABELS, LOCALES } from '../i18n'
 import { useI18n } from '../i18n/I18nProvider'
-import {
-  initialsOf,
-  PERMISSION_LABEL_KEYS,
-  REALM_ROLE_LABEL_KEYS,
-  visibleRealmRoles,
-} from '../lib/types'
+import { initialsOf, REALM_ROLE_LABEL_KEYS, visibleRealmRoles } from '../lib/types'
 
-type TabId = 'board' | 'admin'
+type TabId = 'home' | 'admin'
 
 /**
  * Language picker. A native `<select>` is deliberate: it is reachable with the
@@ -43,14 +37,26 @@ function LanguagePicker() {
   )
 }
 
-export function AppShell() {
-  const { profile, realmRoles, permissions, logout, has } = useAuth()
+/** Landing view while the access-control base is being rebuilt. */
+function Home() {
   const { t } = useI18n()
-  const [tab, setTab] = useState<TabId>('board')
+
+  return (
+    <section className="panel">
+      <h2 className="panel__title">{t('home.title')}</h2>
+      <p className="muted">{t('home.lead')}</p>
+    </section>
+  )
+}
+
+export function AppShell() {
+  const { profile, realmRoles, logout, has } = useAuth()
+  const { t } = useI18n()
+  const [tab, setTab] = useState<TabId>('home')
 
   const canAdmin = has('admin:manage')
-  // If the user loses the permission (token refresh) we fall back to the board.
-  const activeTab: TabId = tab === 'admin' && !canAdmin ? 'board' : tab
+  // If the user loses the permission (token refresh) we fall back to the home view.
+  const activeTab: TabId = tab === 'admin' && !canAdmin ? 'home' : tab
 
   const displayName = profile?.displayName ?? t('auth.defaultDisplayName')
   const roles = visibleRealmRoles(realmRoles)
@@ -102,13 +108,13 @@ export function AppShell() {
         <nav className="tabs" aria-label={t('nav.sectionsLabel')}>
           <button
             type="button"
-            className={`tab${activeTab === 'board' ? ' tab--active' : ''}`}
-            aria-current={activeTab === 'board' ? 'page' : undefined}
+            className={`tab${activeTab === 'home' ? ' tab--active' : ''}`}
+            aria-current={activeTab === 'home' ? 'page' : undefined}
             onClick={() => {
-              setTab('board')
+              setTab('home')
             }}
           >
-            {t('nav.board')}
+            {t('nav.home')}
           </button>
           <Can perm="admin:manage">
             <button
@@ -125,26 +131,7 @@ export function AppShell() {
         </nav>
       </header>
 
-      <main className="shell__main">{activeTab === 'admin' ? <AdminPanel /> : <TodoBoard />}</main>
-
-      <footer className="shell__footer">
-        <span className="muted">{t('auth.tokenPermissions')}</span>
-        <ul className="chips">
-          {permissions.length === 0 ? (
-            <li>
-              <span className="chip chip--warn">{t('auth.tokenPermissionsEmpty')}</span>
-            </li>
-          ) : (
-            permissions.map((perm) => (
-              <li key={perm}>
-                <span className="chip" title={t(PERMISSION_LABEL_KEYS[perm])}>
-                  {perm}
-                </span>
-              </li>
-            ))
-          )}
-        </ul>
-      </footer>
+      <main className="shell__main">{activeTab === 'admin' ? <AdminPanel /> : <Home />}</main>
     </div>
   )
 }

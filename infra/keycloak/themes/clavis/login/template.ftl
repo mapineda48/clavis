@@ -11,7 +11,7 @@
         conditional authenticationSession block) and the <link rel="icon">.
 
     Only the HTML is different: a split screen with the brand panel on the left
-    (identity + demo user cheat sheet) and the form card on the right.
+    and the form card on the right.
 
     Child templates may declare a subtitle for the card with:
         <#global clavisSubtitle = msg("...")>
@@ -114,7 +114,7 @@
 <div class="clavis-layout">
 
     <#-- ------------------------------------------------------------------- -->
-    <#-- Brand panel: demo identity and cheat sheet of the test users.       -->
+    <#-- Brand panel: identity and what the access model is built on.        -->
     <#-- ------------------------------------------------------------------- -->
     <aside class="clavis-brand">
         <div class="clavis-brand__inner">
@@ -150,62 +150,6 @@
                     <span>${msg("clavisPointTokens")}</span>
                 </li>
             </ul>
-
-            <section class="clavis-users" aria-labelledby="clavis-users-title">
-                <h3 class="clavis-users__title" id="clavis-users-title">${msg("clavisDemoUsersTitle")}</h3>
-
-                <div class="clavis-user">
-                    <div class="clavis-user__head">
-                        <span class="clavis-user__name">admin</span>
-                        <span class="clavis-user__role">clavis-admin</span>
-                    </div>
-                    <div class="clavis-user__perms">
-                        <span class="clavis-perm">todos:read</span>
-                        <span class="clavis-perm">todos:write</span>
-                        <span class="clavis-perm">todos:read:all</span>
-                        <span class="clavis-perm">todos:delete</span>
-                        <span class="clavis-perm">users:read</span>
-                        <span class="clavis-perm">admin:manage</span>
-                    </div>
-                    <button type="button" class="clavis-user__use" tabindex="9"
-                            data-clavis-username="admin"
-                            aria-label="${msg('clavisUseAria','admin')}">${msg("clavisUse")}</button>
-                </div>
-
-                <div class="clavis-user">
-                    <div class="clavis-user__head">
-                        <span class="clavis-user__name">manager</span>
-                        <span class="clavis-user__role">clavis-manager</span>
-                    </div>
-                    <div class="clavis-user__perms">
-                        <span class="clavis-perm">todos:read</span>
-                        <span class="clavis-perm">todos:write</span>
-                        <span class="clavis-perm">todos:read:all</span>
-                        <span class="clavis-perm">todos:delete</span>
-                        <span class="clavis-perm">users:read</span>
-                    </div>
-                    <button type="button" class="clavis-user__use" tabindex="10"
-                            data-clavis-username="manager"
-                            aria-label="${msg('clavisUseAria','manager')}">${msg("clavisUse")}</button>
-                </div>
-
-                <div class="clavis-user">
-                    <div class="clavis-user__head">
-                        <span class="clavis-user__name">worker</span>
-                        <span class="clavis-user__role">clavis-user</span>
-                    </div>
-                    <div class="clavis-user__perms">
-                        <span class="clavis-perm">todos:read</span>
-                        <span class="clavis-perm">todos:write</span>
-                    </div>
-                    <button type="button" class="clavis-user__use" tabindex="11"
-                            data-clavis-username="worker"
-                            aria-label="${msg('clavisUseAria','worker')}">${msg("clavisUse")}</button>
-                </div>
-
-                <#-- Passwords are never written into the theme: we only say where they live. -->
-                <p class="clavis-users__note">${msg("clavisDemoUsersNote")}</p>
-            </section>
         </div>
     </aside>
 

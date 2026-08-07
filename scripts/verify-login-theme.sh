@@ -41,7 +41,6 @@ echo "=== 2. It is the custom theme, not Keycloak's ==="
 grep -q 'clavis-layout' "$HTML" && ok "custom layout (.clavis-layout) present" || bad ".clavis-layout is missing"
 grep -q 'clavis-brand' "$HTML" && ok "brand panel (.clavis-brand) present" || bad ".clavis-brand is missing"
 grep -q 'clavis-login.css' "$HTML" && ok "custom stylesheet linked" || bad "clavis-login.css is not linked"
-grep -q 'data-clavis-username' "$HTML" && ok "demo user cheat sheet present" || bad "no data-clavis-username buttons"
 grep -qi 'patternfly' "$HTML" && bad "still pulling in PatternFly CSS" || ok "no leftovers from the default theme"
 
 echo
@@ -61,7 +60,7 @@ fi
 
 echo
 echo "=== 4. Static resources ==="
-for r in "clavis-login.css" "clavis-login.js"; do
+for r in "clavis-login.css"; do
   U=$(grep -o "[^\"']*${r}[^\"']*" "$HTML" | head -1)
   if [ -n "$U" ]; then
     chk "$(curl -s -o /dev/null -w '%{http_code}' "$KC$U")" 200 "$r is served"

@@ -2,7 +2,7 @@
 import type { FastifyPluginAsync } from 'fastify'
 // Pulls in the @fastify/swagger type augmentation (tags, summary, security inside `schema`).
 import type {} from '@fastify/swagger'
-import { ErrorResponse } from '../todos/schemas.js'
+import { ErrorResponse } from '../shared/schemas.js'
 
 /** Response schema of /api/me. */
 const MeResponse = {

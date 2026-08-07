@@ -3,14 +3,7 @@
  * the `clavis-api` client in Keycloak and arrive in the token under
  * `resource_access["clavis-api"].roles`.
  */
-export const PERMISSIONS = [
-  'todos:read',
-  'todos:read:all',
-  'todos:write',
-  'todos:delete',
-  'users:read',
-  'admin:manage',
-] as const
+export const PERMISSIONS = ['users:read', 'admin:manage'] as const
 
 export type Permission = (typeof PERMISSIONS)[number]
 
@@ -35,11 +28,6 @@ export function isPermission(value: unknown): value is Permission {
 /** Checks that the authenticated user holds a specific permission. */
 export function hasPermission(auth: AuthContext, perm: Permission): boolean {
   return auth.permissions.includes(perm)
-}
-
-/** `true` if the user is allowed to see everybody's tasks. */
-export function canSeeAllTodos(auth: AuthContext): boolean {
-  return hasPermission(auth, 'todos:read:all')
 }
 
 /**

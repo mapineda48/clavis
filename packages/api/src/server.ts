@@ -6,10 +6,8 @@ import Fastify, { type FastifyInstance } from 'fastify'
 import { env, isDevelopment } from './config/env.js'
 import { registerErrorHandler } from './lib/errors.js'
 import { adminRoutes } from './modules/admin/index.js'
-import { attachmentsRoutes } from './modules/attachments/index.js'
 import { healthRoutes } from './modules/health/index.js'
 import { meRoutes } from './modules/me/index.js'
-import { todosRoutes } from './modules/todos/index.js'
 import { authPlugin } from './plugins/auth.js'
 import { cachePlugin } from './plugins/cache.js'
 import { dbPlugin } from './plugins/db.js'
@@ -52,7 +50,7 @@ export async function buildServer(): Promise<FastifyInstance> {
     exposedHeaders: ['X-Cache'],
   })
 
-  // --- Attachment uploads
+  // --- File uploads: the per-file ceiling matches the body limit above.
   await app.register(multipart, {
     limits: {
       fileSize: env.MAX_UPLOAD_BYTES,
@@ -67,17 +65,15 @@ export async function buildServer(): Promise<FastifyInstance> {
       info: {
         title: 'Clavis API',
         description:
-          'Task API with Keycloak authentication and permissions, Valkey cache, ' +
-          'attachments on Azure Blob Storage and email notifications.',
+          'Access-control API: it validates the Keycloak token on every request and ' +
+          'resolves what the caller is allowed to do.',
         version: '1.0.0',
       },
       servers: [{ url: `http://localhost:${env.PORT}`, description: 'Local environment' }],
       tags: [
         { name: 'health', description: 'Status of the service and its dependencies' },
         { name: 'profile', description: 'Data about the authenticated user' },
-        { name: 'todos', description: 'Task management' },
-        { name: 'attachments', description: 'Files attached to tasks' },
-        { name: 'administration', description: 'Statistics, users and audit trail' },
+        { name: 'administration', description: 'Users and audit trail' },
       ],
       components: {
         securitySchemes: {
@@ -122,8 +118,6 @@ export async function buildServer(): Promise<FastifyInstance> {
   // never fail.
   await app.register(healthRoutes, { prefix: '/api' })
   await app.register(meRoutes, { prefix: '/api' })
-  await app.register(todosRoutes, { prefix: '/api' })
-  await app.register(attachmentsRoutes, { prefix: '/api' })
   await app.register(adminRoutes, { prefix: '/api' })
 
   return app

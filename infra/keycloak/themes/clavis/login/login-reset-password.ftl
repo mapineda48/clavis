@@ -15,9 +15,7 @@
         depending on realm.duplicateEmailsAllowed.
     Only the markup changes: it uses the theme classes.
 
-    Tab order: 1 = language (set by template.ftl), 2..4 = form, 9..11 = buttons of
-    the demo user cheat sheet. The #username field exists on this screen, so
-    clavis-login.js leaves those buttons enabled and they do fill it in.
+    Tab order: 1 = language (set by template.ftl), 2..4 = form.
 -->
 <#import "template.ftl" as layout>
 <#global clavisSubtitle = msg("clavisResetSubtitle")>

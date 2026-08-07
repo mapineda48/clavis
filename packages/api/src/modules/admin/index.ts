@@ -1,30 +1,11 @@
-// Administration routes: global statistics, provisioned users and audit trail.
+// Administration routes: provisioned users and audit trail.
 import type { FastifyPluginAsync } from 'fastify'
 // Pulls in the @fastify/swagger type augmentation (tags, summary, security inside `schema`).
 import type {} from '@fastify/swagger'
-import { ErrorResponse } from '../todos/schemas.js'
-import { countByStatus } from '../todos/repository.js'
-
-/** Cache version namespace of the todo listings. */
-const CACHE_NAMESPACE = 'todos'
+import { ErrorResponse } from '../shared/schemas.js'
 
 interface ListQueryInput {
   limit?: number
-}
-
-type PriorityRow = {
-  priority: number
-  total: number
-}
-
-type UserStatsRow = {
-  total: number
-  active_last_7_days: number
-}
-
-type AttachmentStatsRow = {
-  total: number
-  total_bytes: string | number
 }
 
 type AdminUserRow = {
@@ -34,7 +15,6 @@ type AdminUserRow = {
   display_name: string | null
   created_at: Date | string
   last_seen_at: Date | string | null
-  todo_count: number
 }
 
 type AuditRow = {
@@ -46,63 +26,6 @@ type AuditRow = {
   entity_id: string | null
   payload: Record<string, unknown> | null
   created_at: Date | string
-}
-
-const StatsResponse = {
-  type: 'object',
-  properties: {
-    generatedAt: { type: 'string', description: 'ISO 8601 instant the figures were computed at' },
-    todos: {
-      type: 'object',
-      properties: {
-        total: { type: 'integer' },
-        byStatus: {
-          type: 'object',
-          properties: {
-            todo: { type: 'integer' },
-            in_progress: { type: 'integer' },
-            done: { type: 'integer' },
-          },
-        },
-        byPriority: {
-          type: 'object',
-          properties: {
-            '1': { type: 'integer' },
-            '2': { type: 'integer' },
-            '3': { type: 'integer' },
-            '4': { type: 'integer' },
-          },
-        },
-      },
-    },
-    statsView: {
-      type: 'array',
-      description: 'Rows exactly as the clavis.v_todo_stats view exposes them',
-      items: { type: 'object', additionalProperties: true },
-    },
-    users: {
-      type: 'object',
-      properties: {
-        total: { type: 'integer' },
-        activeLast7Days: { type: 'integer' },
-      },
-    },
-    attachments: {
-      type: 'object',
-      properties: {
-        total: { type: 'integer' },
-        totalBytes: { type: 'integer' },
-      },
-    },
-    cache: {
-      type: 'object',
-      properties: {
-        available: { type: 'boolean' },
-        todosVersion: { type: ['integer', 'null'] },
-      },
-    },
-  },
-  required: ['generatedAt', 'todos', 'statsView', 'users', 'attachments', 'cache'],
 }
 
 const AdminUsersResponse = {
@@ -119,9 +42,8 @@ const AdminUsersResponse = {
           displayName: { type: ['string', 'null'] },
           createdAt: { type: 'string' },
           lastSeenAt: { type: ['string', 'null'], description: 'Last time the user reached the API' },
-          todoCount: { type: 'integer' },
         },
-        required: ['id', 'username', 'email', 'displayName', 'createdAt', 'lastSeenAt', 'todoCount'],
+        required: ['id', 'username', 'email', 'displayName', 'createdAt', 'lastSeenAt'],
       },
     },
     total: { type: 'integer' },
@@ -178,107 +100,7 @@ function toIsoOrNull(value: Date | string | null): string | null {
   return value === null ? null : toIso(value)
 }
 
-/**
- * Normalizes a generic row: pg bigints arrive as text and dates as Date, and
- * here they become numbers and ISO 8601 strings respectively.
- */
-function normalizeRow(row: Record<string, unknown>): Record<string, unknown> {
-  const normalized: Record<string, unknown> = {}
-  for (const [key, value] of Object.entries(row)) {
-    if (value instanceof Date) {
-      normalized[key] = value.toISOString()
-    } else if (typeof value === 'string' && /^-?\d+$/.test(value)) {
-      normalized[key] = Number(value)
-    } else {
-      normalized[key] = value
-    }
-  }
-  return normalized
-}
-
 export const adminRoutes: FastifyPluginAsync = async (app) => {
-  app.get(
-    '/admin/stats',
-    {
-      preHandler: [app.authenticate, app.requirePermissions('admin:manage')],
-      schema: {
-        tags: ['administration'],
-        summary: 'Global statistics',
-        description:
-          'Task counts per status and priority (including the clavis.v_todo_stats view), ' +
-          'user and attachment totals, and the state of the cache.',
-        security: [{ bearerAuth: [] }],
-        response: {
-          200: StatsResponse,
-          401: ErrorResponse,
-          403: ErrorResponse,
-        },
-      },
-    },
-    async () => {
-      const [byStatus, priorities, users, attachments] = await Promise.all([
-        countByStatus(app.db),
-        app.db.query<PriorityRow>(
-          'SELECT t.priority, count(*)::int AS total FROM clavis.todos t GROUP BY t.priority',
-        ),
-        app.db.query<UserStatsRow>(
-          `SELECT count(*)::int AS total,
-                  (count(*) FILTER (WHERE last_seen_at > now() - interval '7 days'))::int AS active_last_7_days
-           FROM clavis.users`,
-        ),
-        app.db.query<AttachmentStatsRow>(
-          `SELECT count(*)::int AS total, coalesce(sum(size_bytes), 0)::bigint AS total_bytes
-           FROM clavis.todo_attachments`,
-        ),
-      ])
-
-      // The view is informative: if it does not exist yet the admin panel still works.
-      let statsView: Array<Record<string, unknown>> = []
-      try {
-        const view = await app.db.query<Record<string, unknown>>('SELECT * FROM clavis.v_todo_stats')
-        statsView = view.rows.map(normalizeRow)
-      } catch (err) {
-        app.log.warn({ err }, 'Could not query the clavis.v_todo_stats view')
-      }
-
-      const byPriority: Record<string, number> = { '1': 0, '2': 0, '3': 0, '4': 0 }
-      for (const row of priorities.rows) {
-        byPriority[String(row.priority)] = Number(row.total)
-      }
-
-      let cacheAvailable = false
-      let todosVersion: number | null = null
-      try {
-        cacheAvailable = await app.cache.ping()
-        todosVersion = await app.cache.version(CACHE_NAMESPACE)
-      } catch (err) {
-        app.log.warn({ err }, 'Could not read the cache status')
-      }
-
-      const userStats = users.rows[0]
-      const attachmentStats = attachments.rows[0]
-
-      return {
-        generatedAt: new Date().toISOString(),
-        todos: {
-          total: byStatus.todo + byStatus.in_progress + byStatus.done,
-          byStatus,
-          byPriority,
-        },
-        statsView,
-        users: {
-          total: Number(userStats?.total ?? 0),
-          activeLast7Days: Number(userStats?.active_last_7_days ?? 0),
-        },
-        attachments: {
-          total: Number(attachmentStats?.total ?? 0),
-          totalBytes: Number(attachmentStats?.total_bytes ?? 0),
-        },
-        cache: { available: cacheAvailable, todosVersion },
-      }
-    },
-  )
-
   app.get<{ Querystring: ListQueryInput }>(
     '/admin/users',
     {
@@ -288,7 +110,7 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
         summary: 'Users provisioned in Clavis',
         description:
           'Lists the users created by the JIT provisioning that runs when a token is validated, ' +
-          'with their last access and the number of tasks they own.',
+          'together with their last access.',
         security: [{ bearerAuth: [] }],
         querystring: LimitQuery(100, 500),
         response: {
@@ -306,8 +128,7 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
                 u.email,
                 u.display_name,
                 u.created_at,
-                u.last_seen_at,
-                (SELECT count(*)::int FROM clavis.todos t WHERE t.owner_id = u.id) AS todo_count
+                u.last_seen_at
          FROM clavis.users u
          ORDER BY u.last_seen_at DESC NULLS LAST, u.username ASC
          LIMIT $1`,
@@ -321,7 +142,6 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
         displayName: row.display_name,
         createdAt: toIso(row.created_at),
         lastSeenAt: toIsoOrNull(row.last_seen_at),
-        todoCount: Number(row.todo_count),
       }))
 
       return { items, total: items.length }
