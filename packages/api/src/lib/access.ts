@@ -1,5 +1,5 @@
 import { PERMISSION_KEYS, type PermissionKey, isPermissionKey } from '@clavis/shared'
-import type { FastifyInstance } from 'fastify'
+import type { Executor } from './executor.js'
 
 /**
  * Access resolution: who the user is for the application and what they may do.
@@ -54,7 +54,7 @@ interface AccessRow {
  * authenticated identity without a provisioned application user.
  */
 export async function loadAccessContext(
-  db: FastifyInstance['db'],
+  db: Executor,
   userId: string,
 ): Promise<AccessContext | null> {
   const result = await db.query<AccessRow>(

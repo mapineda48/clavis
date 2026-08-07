@@ -290,7 +290,18 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
       }
 
       try {
-        await insertUser(app.db, { id: keycloakId, username, email, displayName: body.displayName, roles })
+        // The two statements belong together, so they share one transaction.
+        // The Keycloak calls above are deliberately outside it: no network I/O
+        // to another system while a transaction is open.
+        await app.db.tx(async (client) => {
+          await insertUser(client, {
+            id: keycloakId,
+            username,
+            email,
+            displayName: body.displayName,
+            roles,
+          })
+        })
       } catch (error) {
         // Compensation: without the application row the Keycloak user is an
         // orphan that would block the username forever.

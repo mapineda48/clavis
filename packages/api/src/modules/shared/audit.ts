@@ -1,9 +1,7 @@
 // Audit trail of the domain writes.
 // It must never bring the request down: if the INSERT fails a warning is logged and we move on.
-import type { FastifyBaseLogger, FastifyInstance } from 'fastify'
-
-/** Database access decorated on the Fastify instance. */
-type Database = FastifyInstance['db']
+import type { FastifyBaseLogger } from 'fastify'
+import type { Executor } from '../../lib/executor.js'
 
 /** Entry persisted into `clavis.audit_log`. */
 export interface AuditEntry {
@@ -24,7 +22,7 @@ export interface AuditEntry {
  * informative and must never break the response sent to the client.
  */
 export async function recordAudit(
-  db: Database,
+  db: Executor,
   entry: AuditEntry,
   logger?: FastifyBaseLogger,
 ): Promise<void> {

@@ -5,6 +5,7 @@ import type { FastifyPluginAsync } from 'fastify'
 // Pulls in the @fastify/swagger type augmentation (tags, summary, security inside `schema`).
 import type {} from '@fastify/swagger'
 import { ACCESS_NAMESPACE, loadAccessContext } from '../../lib/access.js'
+import type { Executor } from '../../lib/executor.js'
 import { badRequest, conflict, forbidden, notFound } from '../../lib/errors.js'
 import { recordAudit } from '../shared/audit.js'
 import { ErrorResponse } from '../shared/schemas.js'
@@ -110,7 +111,7 @@ interface RoleRow {
   permissions: string[]
 }
 
-async function listRoles(db: Parameters<typeof loadAccessContext>[0]): Promise<RoleRow[]> {
+async function listRoles(db: Executor): Promise<RoleRow[]> {
   const result = await db.query<RoleRow>(
     `SELECT r.slug,
             r.name,
