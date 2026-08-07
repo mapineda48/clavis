@@ -12,6 +12,11 @@
 # disable — asserting a 403/200 matrix at every step. Each transition also
 # proves the cache invalidation: a change must be visible on the very next
 # request, not a token refresh later.
+#
+# The last two sections check the boundaries that are not about having a
+# permission at all: that a revoke override beats the role granting the same
+# permission, and that `users:update` is not a way to hand out roles, to edit
+# your own privileges or to delete anybody.
 # =============================================================================
 set -uo pipefail
 # shellcheck source=scripts/_common.sh
@@ -26,6 +31,11 @@ BOT_USER="verify.bot"
 BOT_EMAIL="verify.bot@clavis.local"
 BOT_PASSWORD="VerifyBot123!"
 BOT_ROLE="verify-auditors"
+# A second user, never logged in: something for the first one to try to edit
+# that is neither root (immutable) nor itself (self-modification), so a refusal
+# can only be about the permission being tested.
+BOT2_USER="verify.bot2"
+BOT2_EMAIL="verify.bot2@clavis.local"
 
 # jq-lite: read one field from JSON on stdin.
 jget() { python3 -c "import sys, json
@@ -73,10 +83,10 @@ echo
 echo "=== 4. Root creates a user (temporary password) ==="
 # Idempotence across runs: remove the leftovers of a previous execution first.
 api GET '/api/users?limit=500' "$T_ROOT"
-OLD_ID=$(printf '%s' "$API_BODY" | python3 -c "import sys, json
+OLD_IDS=$(printf '%s' "$API_BODY" | python3 -c "import sys, json
 items = json.load(sys.stdin)['items']
-print(next((u['id'] for u in items if u['username'] == '$BOT_USER'), ''))")
-[ -n "$OLD_ID" ] && api DELETE "/api/users/$OLD_ID" "$T_ROOT"
+print(' '.join(u['id'] for u in items if u['username'] in ('$BOT_USER', '$BOT2_USER')))")
+for old_id in $OLD_IDS; do api DELETE "/api/users/$old_id" "$T_ROOT"; done
 api DELETE "/api/access/roles/$BOT_ROLE" "$T_ROOT"
 
 api POST /api/users "$T_ROOT" "{\"email\": \"$BOT_EMAIL\", \"displayName\": \"Verification Bot\", \"username\": \"$BOT_USER\", \"credentialMode\": \"temporary_password\", \"temporaryPassword\": \"$BOT_PASSWORD\"}"
@@ -142,9 +152,57 @@ api DELETE /api/access/roles/admin "$T_ROOT"
 chk "$API_STATUS" 403 "system roles cannot be deleted"
 
 echo
-echo "=== 11. Cleanup ==="
+echo "=== 11. A revoke override beats the role that grants the same key ==="
+# Effective = union(role permissions) + grants - revokes, so the subtraction
+# has to come last. The suite already covers a grant and its removal; this is
+# the combination where an exception has to win against a role.
+api GET /api/audit "$T_BOT"
+chk "$API_STATUS" 200 "audit:read still arrives through the role"
+api PUT "/api/access/users/$BOT_ID/overrides" "$T_ROOT" '{"overrides": [{"permissionKey": "audit:read", "effect": "revoke"}]}'
+chk "$API_STATUS" 200 "override revoke audit:read"
+case ",$(printf '%s' "$API_BODY" | python3 -c "import sys, json; print(','.join(json.load(sys.stdin)['effectivePermissions']))")," in
+  *,audit:read,*) bad "the resolved answer still lists audit:read" ;;
+  *)              ok  "the resolved answer no longer lists audit:read" ;;
+esac
+api GET /api/audit "$T_BOT"
+chk "$API_STATUS" 403 "the revoke wins over the role that grants it"
+api PUT "/api/access/users/$BOT_ID/overrides" "$T_ROOT" '{"overrides": []}'
+api GET /api/audit "$T_BOT"
+chk "$API_STATUS" 200 "dropping the revoke gives the role permission back"
+
+echo
+echo "=== 12. users:update is not a way to grant roles, edit yourself or delete ==="
+# The `admin` role is seeded with the whole catalog, so a users:* route that
+# assigned roles would be a route around access:*. The target is a second user
+# so a 403 cannot come from the root or self-modification checks instead.
+api POST /api/users "$T_ROOT" "{\"email\": \"$BOT2_EMAIL\", \"displayName\": \"Verification Target\", \"username\": \"$BOT2_USER\", \"credentialMode\": \"temporary_password\", \"temporaryPassword\": \"$BOT_PASSWORD\"}"
+chk "$API_STATUS" 201 "root creates the second throwaway user"
+BOT2_ID=$(printf '%s' "$API_BODY" | jget user.id)
+[ -n "$BOT2_ID" ] && ok "second user id received" || bad "no id came back for the second user"
+
+api PUT "/api/access/users/$BOT_ID/overrides" "$T_ROOT" '{"overrides": [{"permissionKey": "users:update", "effect": "grant"}]}'
+chk "$API_STATUS" 200 "the first user is granted users:update and nothing else"
+
+api PATCH "/api/users/$BOT2_ID" "$T_BOT" "{\"roles\": [\"$BOT_ROLE\"]}"
+chk "$API_STATUS" 403 "assigning a role without access:manage"
+chk "$(printf '%s' "$API_BODY" | jget error.code)" ROLE_ASSIGNMENT_DENIED "refused as a role assignment"
+
+api PATCH "/api/users/$BOT_ID" "$T_BOT" '{"status": "disabled"}'
+chk "$API_STATUS" 403 "changing your own status"
+chk "$(printf '%s' "$API_BODY" | jget error.code)" SELF_MODIFICATION "refused as a self-modification"
+
+api PATCH "/api/users/$BOT_ID" "$T_BOT" '{"displayName": "Verification Bot"}'
+chk "$API_STATUS" 200 "editing your own display name is still allowed"
+
+api DELETE "/api/users/$BOT2_ID" "$T_BOT"
+chk "$API_STATUS" 403 "users:update does not carry users:delete"
+
+echo
+echo "=== 13. Cleanup ==="
 api DELETE "/api/users/$BOT_ID" "$T_ROOT"
 chk "$API_STATUS" 204 "throwaway user deleted"
+api DELETE "/api/users/$BOT2_ID" "$T_ROOT"
+chk "$API_STATUS" 204 "second throwaway user deleted"
 api DELETE "/api/access/roles/$BOT_ROLE" "$T_ROOT"
 chk "$API_STATUS" 204 "throwaway role deleted"
 
