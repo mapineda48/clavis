@@ -25,17 +25,21 @@ fails, and `2` when a tool is missing or the stack is not answering.
 - A `.env` at the root (`cp .env.example .env`).
 - `curl` and `python3`.
 - **For `verify-password-reset.sh` only**: the [`resend`](https://resend.com) CLI
-  authenticated, the realm with SMTP configured, and `DEMO_ADMIN_EMAIL` pointing
+  authenticated, the realm with SMTP configured, and `ROOT_EMAIL` pointing
   at a real address.
 
 ## Why they check what they check
 
-**`verify-api.sh`** does not stop at "it returns 200". It asserts that `worker`
-gets **403** on `/admin/audit`, that `manager` gets 200 on `/admin/users`, and
-that `admin` reaches both. It also checks that a request with no token, and one
-with a malformed token, are answered with **401**. It is the permission model
-exercised from the outside: if somebody loosens a `requirePermissions`, it shows
-up here.
+**`verify-api.sh`** walks the whole database-backed permission model from the
+outside, 33 assertions long: root proves the bypass and the full catalog, then
+creates a throwaway user through the API (which registers it in Keycloak) and
+shapes that user's access live — the temporary password blocks the grant until
+the first-login change, an override `grant` opens a door **on the very next
+request** (cache invalidation), the `revoke` closes it, a role adds exactly what
+it declares, `disabled` refuses everything, and root plus the system role stay
+immutable. Requests with no token or a malformed one are answered with **401**.
+If somebody loosens a `requirePermissions` or forgets a cache bump, it shows up
+here.
 
 **`verify-login-theme.sh`** walks the entire OIDC flow: PKCE `S256` authorization
 → form → *authorization code* → exchange for an *access token* with the
@@ -53,7 +57,7 @@ verifies that the email is laid out with tables, carries no `<style>` block and
 loads no remote resources — which is what email clients demand.
 
 > It sets the password back to the value already in `.env`, so it can be run as
-> many times as needed without leaving the demo inconsistent.
+> many times as needed without leaving the lab inconsistent.
 
 ## Note
 

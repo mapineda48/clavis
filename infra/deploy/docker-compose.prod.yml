@@ -128,7 +128,16 @@ services:
       # Internal issuer: where JWKS is fetched, over the compose network.
       KEYCLOAK_INTERNAL_ISSUER: http://keycloak:8080/realms/${KEYCLOAK_REALM:-clavis}
       KEYCLOAK_AUDIENCE: ${KEYCLOAK_API_CLIENT_ID:-clavis-api}
+      # Service account of the confidential client: manages realm users.
+      KEYCLOAK_API_CLIENT_SECRET: ${KEYCLOAK_API_CLIENT_SECRET:?}
+      KEYCLOAK_APP_CLIENT_ID: ${KEYCLOAK_APP_CLIENT_ID:-clavis-app}
       CORS_ORIGINS: https://${CLAVIS_APP_FQDN:?}
+      # Root account, seeded by the API at boot; action emails link back here.
+      ROOT_USERNAME: ${ROOT_USERNAME:-root}
+      ROOT_EMAIL: ${ROOT_EMAIL:?}
+      ROOT_PASSWORD: ${ROOT_PASSWORD:?}
+      ROOT_DISPLAY_NAME: ${ROOT_DISPLAY_NAME:-Root}
+      PUBLIC_APP_URL: ${PUBLIC_APP_URL:-https://${CLAVIS_APP_FQDN:?}}
       AZURE_STORAGE_CONNECTION_STRING: ${CLAVIS_STORAGE_CONNECTION_STRING:?}
       AZURE_STORAGE_CONTAINER: ${CLAVIS_ATTACHMENTS_CONTAINER:-clavis-attachments}
       RESEND_API_KEY: ${RESEND_API_KEY:-}

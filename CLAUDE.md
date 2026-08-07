@@ -1,7 +1,10 @@
 # Project instructions
 
-Access-control lab built around Keycloak. pnpm monorepo with two packages
-(`@clavis/api` and `@clavis/app`) and the whole infrastructure in `docker compose`.
+Access-control lab built around Keycloak. pnpm monorepo with three packages
+(`@clavis/api`, `@clavis/app` and `@clavis/shared`) and the whole infrastructure
+in `docker compose`. Keycloak only AUTHENTICATES; authorization lives in the
+application database, resolved per request from roles, per-user overrides and
+the permission catalog declared in `@clavis/shared`.
 
 ---
 
@@ -93,6 +96,28 @@ Every one of these cost a real failure. Do not rediscover them.
   and the container sees `keycloak:8080`. JWKS is fetched over the internal one; `iss`
   is validated against the public one.
 
+### Access control (the base every module builds on)
+
+- Permission KEYS are declared in `packages/shared/src/permissions.ts` and synced
+  into `clavis.permissions` at boot. Adding a permission = add it there, gate the
+  route with `requirePermissions('<key>')`, reference it from the SPA
+  (`NAV_ITEMS`, guards, labels). The database owns ASSIGNMENTS only.
+- Effective permissions are resolved per request from Postgres through the
+  Valkey `access` namespace (versioned keys). **Every mutation of users, roles
+  or overrides must `cache.bumpVersion('access')`** or the change waits out the
+  TTL. `is_root` bypasses everything and root is immutable through the API.
+- Users are created FROM the app: Keycloak first (the id it assigns is the PK of
+  `clavis.users`), database second, compensating delete on failure. The realm is
+  re-imported with `--override` on every prod deploy, so app-created Keycloak
+  users do NOT survive it — the app database is the authority; root is re-seeded
+  by the API at boot from `ROOT_*`.
+- A user with a pending required action (temporary password, invitation) gets
+  "Account is not fully set up" from the password grant. That is the contract,
+  not a bug; the verify suite completes first logins via `kc_finish_setup`.
+- The realm declares its user profile with firstName/lastName OPTIONAL. Keycloak's
+  default profile requires both, and a user created without a last name cannot
+  log in ("Account is not fully set up") — do not remove that `components` block.
+
 ### Keycloak and the theme
 
 - The theme's `.properties` files are read as **ISO-8859-1**: write accented letters
@@ -116,10 +141,11 @@ Every one of these cost a real failure. Do not rediscover them.
 ### Language and i18n
 
 - Translating prose must never touch identifiers. The database schema (`clavis.users`,
-  `clavis.todos`, `owner_id`, …), the realm and its clients and roles (`clavis`, `clavis-app`,
-  `clavis-api`, `clavis-user`, `clavis-manager`, `clavis-admin`, `todos:read`, `admin:manage`, …),
-  env var names, service names, ports, `clavis-*` CSS classes and source file names are
-  already English and are part of the contract. Renaming any of them is a behaviour
+  `clavis.roles`, `clavis.permissions`, `clavis.user_permission_overrides`, …), the realm
+  and its clients (`clavis`, `clavis-app`, `clavis-api`), the permission keys
+  (`users:read`, `users:create`, `access:manage`, `audit:read`, …), env var names,
+  service names, ports, `clavis-*` CSS classes and source file names are already
+  English and are part of the contract. Renaming any of them is a behaviour
   change, not a translation.
 - The SPA catalogues live in `packages/app/src/i18n/`. `en.ts` is the **source of
   truth**: `TranslationKey` is derived from it, and `es.ts` is typed
@@ -195,8 +221,9 @@ single variable, use `envval` from `scripts/_common.sh`.
 ## Structure
 
 ```
-packages/api/     Fastify 5 + TypeScript (ESM). Validates the token, never issues it.
-packages/app/     React 19 + Vite + keycloak-js (PKCE S256).
+packages/api/     Fastify 5 + TypeScript (ESM). Validates the token, resolves access from Postgres.
+packages/app/     React 19 + Vite + keycloak-js (PKCE S256) + @tanstack/react-router.
+packages/shared/  The typed permission catalog: source of truth for API and SPA.
 infra/keycloak/   Realm template (__VAR__ placeholders) and the custom theme.
 infra/postgres/   Init for Keycloak's database.
 scripts/          End-to-end verification suites.

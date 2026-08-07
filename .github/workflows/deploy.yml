@@ -118,10 +118,8 @@ jobs:
           KC_BOOTSTRAP_ADMIN_USERNAME: ${{ secrets.KC_BOOTSTRAP_ADMIN_USERNAME }}
           KC_BOOTSTRAP_ADMIN_PASSWORD: ${{ secrets.KC_BOOTSTRAP_ADMIN_PASSWORD }}
           KEYCLOAK_API_CLIENT_SECRET: ${{ secrets.KEYCLOAK_API_CLIENT_SECRET }}
-          DEMO_ADMIN_EMAIL: ${{ secrets.DEMO_ADMIN_EMAIL }}
-          DEMO_ADMIN_PASSWORD: ${{ secrets.DEMO_ADMIN_PASSWORD }}
-          DEMO_MANAGER_PASSWORD: ${{ secrets.DEMO_MANAGER_PASSWORD }}
-          DEMO_USER_PASSWORD: ${{ secrets.DEMO_USER_PASSWORD }}
+          ROOT_EMAIL: ${{ secrets.ROOT_EMAIL }}
+          ROOT_PASSWORD: ${{ secrets.ROOT_PASSWORD }}
           MAIL_FROM: ${{ vars.MAIL_FROM }}
           KEYCLOAK_SMTP_FROM: ${{ vars.KEYCLOAK_SMTP_FROM }}
           CLAVIS_ADMIN_ALLOWLIST_RAW: ${{ vars.ADMIN_ALLOWED_CIDRS }}
@@ -145,9 +143,7 @@ jobs:
 
       - name: Smoke test
         env:
-          DEMO_ADMIN_PASSWORD: ${{ secrets.DEMO_ADMIN_PASSWORD }}
-          DEMO_MANAGER_PASSWORD: ${{ secrets.DEMO_MANAGER_PASSWORD }}
-          DEMO_USER_PASSWORD: ${{ secrets.DEMO_USER_PASSWORD }}
+          ROOT_PASSWORD: ${{ secrets.ROOT_PASSWORD }}
         run: bash scripts/smoke-production.sh
 
       - name: Summary
