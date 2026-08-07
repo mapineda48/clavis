@@ -448,19 +448,31 @@ sequenceDiagram
     A->>K: client_credentials (clavis-api service account)
     A->>K: POST /users  -> 201, Location carries the new id
     K-->>A: id
-    A->>P: BEGIN · INSERT clavis.users (id = that id) · INSERT user_roles · COMMIT
+    A->>P: BEGIN · INSERT clavis.users (id = that id) · INSERT user_roles · INSERT audit_log · COMMIT
     alt the transaction fails
         A->>K: DELETE the Keycloak user - compensation
         A-->>A: the request fails, nothing is left behind
     end
+    A->>A: bumpVersion('access')
     A->>K: set password (temporary) OR execute-actions email
-    A->>A: audit + bumpVersion('access')
 ```
 
 **Keycloak goes first because it owns the id.** The value it returns in the `Location` header
 becomes the primary key of `clavis.users`, which is what makes `sub` a direct index later. If
 the database write fails afterwards, the Keycloak user is deleted — a compensating action, since
 two systems cannot share one transaction.
+
+### Every two-system write compensates, or explains why it does not
+
+| Route | Order | If the second step fails |
+|---|---|---|
+| `POST /api/users` | Keycloak creates, then PostgreSQL | The Keycloak user is deleted again |
+| `PATCH /api/users/:id` with a `status` change | Keycloak `setEnabled`, then PostgreSQL | `setEnabled` is put back to its previous value, best effort, and the original error is returned |
+| `DELETE /api/users/:id` | Keycloak deletes, then PostgreSQL | **Nothing is undone, on purpose.** The handler tolerates a Keycloak `404`, so it is idempotent: the fix is to call `DELETE` again. Do not "fix" it by reordering — deleting the row first would leave an identity that can still authenticate |
+
+A failure that leaves the two systems disagreeing is logged at `error` with a `RECONCILE:`
+marker and the user id, because the one thing worse than needing a manual reconciliation is not
+knowing that you do.
 
 Two credential modes, chosen with `credentialMode` in the body:
 

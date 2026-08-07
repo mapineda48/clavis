@@ -388,8 +388,11 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
         }
       }
 
-      // Keycloak first, so a refusal leaves the database untouched.
-      if (body.status !== undefined && body.status !== existing.status) {
+      // Keycloak first, so a refusal leaves the database untouched. Outside the
+      // transaction on purpose: no network I/O to another system while one is
+      // open. The flag is remembered so the write below can undo it.
+      const statusChanged = body.status !== undefined && body.status !== existing.status
+      if (statusChanged) {
         try {
           await app.keycloakAdmin.setEnabled(existing.id, body.status === 'active')
         } catch (error) {
@@ -397,30 +400,49 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
         }
       }
 
-      await mutate(app, {
-        run: async (client) => {
-          if (body.displayName !== undefined || body.status !== undefined) {
-            await client.query(
-              `UPDATE clavis.users
-                  SET display_name = COALESCE($2, display_name),
-                      status = COALESCE($3, status)
-                WHERE id = $1`,
-              [existing.id, body.displayName ?? null, body.status ?? null],
-            )
-          }
-          if (body.roles !== undefined) {
-            await replaceRoles(client, existing.id, [...new Set(body.roles)])
-          }
-        },
-        audit: () => ({
-          actorId: request.auth.sub,
-          action: 'user.updated',
-          entity: 'user',
-          entityId: existing.id,
-          payload: { changes: body },
-        }),
-        invalidate: ACCESS_NAMESPACE,
-      })
+      try {
+        await mutate(app, {
+          run: async (client) => {
+            if (body.displayName !== undefined || body.status !== undefined) {
+              await client.query(
+                `UPDATE clavis.users
+                    SET display_name = COALESCE($2, display_name),
+                        status = COALESCE($3, status)
+                  WHERE id = $1`,
+                [existing.id, body.displayName ?? null, body.status ?? null],
+              )
+            }
+            if (body.roles !== undefined) {
+              await replaceRoles(client, existing.id, [...new Set(body.roles)])
+            }
+          },
+          audit: () => ({
+            actorId: request.auth.sub,
+            action: 'user.updated',
+            entity: 'user',
+            entityId: existing.id,
+            payload: { changes: body },
+          }),
+          invalidate: ACCESS_NAMESPACE,
+        })
+      } catch (error) {
+        // Compensation, the mirror of the one on creation: Keycloak has already
+        // been flipped and the database has not, so without this the two
+        // systems disagree permanently — Keycloak refusing to authenticate
+        // somebody the application still lists as active, or the reverse.
+        if (statusChanged) {
+          await app.keycloakAdmin
+            .setEnabled(existing.id, existing.status === 'active')
+            .catch((cleanupError) => {
+              request.log.error(
+                { err: cleanupError, userId: existing.id, restoreTo: existing.status },
+                'RECONCILE: could not restore the Keycloak enabled flag; ' +
+                  'Keycloak and the application now disagree about this user',
+              )
+            })
+        }
+        throw error
+      }
 
       const updated = await findUser(app.db, existing.id)
       if (!updated) throw notFound('User not found.')
@@ -463,8 +485,14 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
         )
       }
 
-      // Keycloak first: an identity that can still log in but has no
-      // application row is the state authenticate() already refuses.
+      // Keycloak first, and DO NOT reorder this. An identity that can still log
+      // in but has no application row is the state authenticate() already
+      // refuses (403 USER_NOT_PROVISIONED), so the intermediate state is safe;
+      // the reverse order leaves an account that can still authenticate.
+      //
+      // It is also why this needs no compensation: the Keycloak 404 below is
+      // tolerated, so the whole handler is idempotent and simply calling
+      // DELETE again finishes the job.
       try {
         await app.keycloakAdmin.deleteUser(existing.id)
       } catch (error) {
@@ -472,17 +500,30 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
           mapKeycloakError(error)
         }
       }
-      await mutate(app, {
-        run: (client) => client.query(`DELETE FROM clavis.users WHERE id = $1`, [existing.id]),
-        audit: () => ({
-          actorId: request.auth.sub,
-          action: 'user.deleted',
-          entity: 'user',
-          entityId: existing.id,
-          payload: { username: existing.username },
-        }),
-        invalidate: ACCESS_NAMESPACE,
-      })
+
+      try {
+        await mutate(app, {
+          run: (client) => client.query(`DELETE FROM clavis.users WHERE id = $1`, [existing.id]),
+          audit: () => ({
+            actorId: request.auth.sub,
+            action: 'user.deleted',
+            entity: 'user',
+            entityId: existing.id,
+            payload: { username: existing.username },
+          }),
+          invalidate: ACCESS_NAMESPACE,
+        })
+      } catch (error) {
+        // Retryable, but nobody retries what nobody noticed: the identity is
+        // already gone from Keycloak and the row is still here, so say so
+        // loudly enough to be found in the logs.
+        request.log.error(
+          { err: error, userId: existing.id, username: existing.username },
+          'RECONCILE: the Keycloak identity was deleted but the application row was not; ' +
+            'retry DELETE /api/users/:id to finish',
+        )
+        throw error
+      }
 
       return reply.code(204).send()
     },
