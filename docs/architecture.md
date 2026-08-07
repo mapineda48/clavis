@@ -69,7 +69,7 @@ which forces **every relative import to carry the `.js` extension** even though 
 | `src/lib/errors.ts` | `AppError` with `statusCode` and `code`, plus the `badRequest`, `unauthorized`, `forbidden`, `notFound`, `conflict` helpers. The global *error handler* always answers `{ error: { code, message, statusCode } }`. |
 | `src/modules/` | One directory per domain (`health`, `me`, `users`, `access`, `audit`), each exporting a `FastifyPluginAsync`. |
 | `src/lib/migrator.ts` | Home-grown migrator: reads `migrations/*.sql`, computes a checksum and applies what is pending. |
-| `migrations/` | Versioned SQL, `NNNN_name.sql`, lexicographic order. |
+| `migrations/` | Versioned SQL, `YYYYMMDDHHMMSS_name.sql`, lexicographic order. |
 
 Request validation uses **Fastify's native JSON Schema** (the `schema` property of each route,
 validated by ajv), not zod. That same definition feeds Swagger, so the documentation at `/api/docs`
@@ -325,7 +325,8 @@ The formula that reads all of this — `union(role permissions) ∪ grants − r
 
 ### Migrations
 
-- Files under `packages/api/migrations/NNNN_name.sql`, applied in **lexicographic order**.
+- Files under `packages/api/migrations/YYYYMMDDHHMMSS_name.sql`, applied in **lexicographic
+  order** (`0001_init.sql` predates the convention and keeps its name forever).
   Currently one: `0001_init.sql` — schema, the seven tables, indexes, function and triggers.
 - The `clavis.schema_migrations (version, checksum, applied_at)` registry **is created by the migrator
   itself**, not by a migration; that way the migrator can start against an empty database. It

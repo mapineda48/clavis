@@ -156,7 +156,10 @@ Three consequences worth stating plainly:
 - **`audit_log.actor_id` and `user_permission_overrides.created_by` carry no foreign key.** The
   record of who did something has to survive the deletion of the person who did it.
 - **`updated_at` is maintained by the database** through `clavis.set_updated_at()` and
-  `BEFORE UPDATE` triggers on `clavis.users` and `clavis.roles`.
+  `BEFORE UPDATE` triggers on `clavis.users` and `clavis.roles`. On `users` the trigger is
+  declared `BEFORE UPDATE OF username, email, display_name, is_root, status`, so the presence
+  mark on `last_seen_at` does not move it: `updated_at` answers "when was this record last
+  edited", not "when was this person last here".
 
 ---
 

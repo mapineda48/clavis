@@ -25,6 +25,18 @@ export interface AuthContext {
   token: string
 }
 
+/**
+ * How stale `last_seen_at` is allowed to get before it is written again.
+ *
+ * The mark used to be an unconditional UPDATE on every authenticated request,
+ * which made `clavis.users` — the table every single request already reads —
+ * take a write per request, with the row version churn and vacuum load that
+ * implies. Five minutes is far finer than any question "when did this person
+ * last use the system?" is ever asked at, and it collapses that into at most
+ * one write per user per five minutes.
+ */
+const LAST_SEEN_MAX_AGE = '5 minutes'
+
 /** Strips trailing slashes from a URL so paths can be appended safely. */
 function trimTrailingSlash(value: string): string {
   return value.replace(/\/+$/, '')
@@ -153,8 +165,16 @@ export const authPlugin = fp(
       }
 
       // Best-effort presence mark; never worth failing the request over.
+      // The WHERE clause is what keeps it cheap: without it this is a write on
+      // the hottest table in the schema for every authenticated request.
       app.db
-        .query(`UPDATE clavis.users SET last_seen_at = now() WHERE id = $1`, [sub])
+        .query(
+          `UPDATE clavis.users
+              SET last_seen_at = now()
+            WHERE id = $1
+              AND (last_seen_at IS NULL OR last_seen_at < now() - $2::interval)`,
+          [sub, LAST_SEEN_MAX_AGE],
+        )
         .catch((error) => request.log.warn({ err: error }, 'Could not update last_seen_at'))
 
       request.access = access
