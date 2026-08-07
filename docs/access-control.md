@@ -174,7 +174,7 @@ that array is the source of truth for **which permission keys exist**:
 |---|---|---|
 | `users:read` | `users` | List and view system users |
 | `users:create` | `users` | Create system users |
-| `users:update` | `users` | Edit users: status, roles and profile |
+| `users:update` | `users` | Edit users: profile, status and invitations (roles need `access:manage`) |
 | `users:delete` | `users` | Delete system users |
 | `access:read` | `access` | View roles, permissions and assignments |
 | `access:manage` | `access` | Manage roles and per-user permission overrides |
@@ -253,8 +253,9 @@ app.get('/reports/export', {
 failure it answers `403` with `{ error: { code: 'FORBIDDEN', message, statusCode } }`, naming
 the missing keys in the message.
 
-> If you add a new OpenAPI tag, add it to the `tags` array in `packages/api/src/server.ts` too,
-> or the documentation grows a second, undescribed section.
+> A new OpenAPI tag, or a whole new routes file, is **one entry** in the `MODULES` array in
+> `packages/api/src/server.ts`: it is read once for the tag list and once for the registrations.
+> There is no second list to keep in step.
 
 ### Step 4 — Use it in the SPA
 
@@ -535,6 +536,11 @@ never the body. Two rules therefore live inside the handlers.
   guarded by the same `assertNotSelf` rather than by a copy of it. Editing one's own
   `displayName` carries no privilege and stays allowed.
 
+`users:delete` is its own key rather than a facet of `users:update` for the same reason: an
+irreversible operation that also removes the Keycloak identity is not the same authority as
+"edit the profile", and a role that should be able to do one and not the other has to be
+expressible.
+
 <a id="self-check-limits"></a>
 
 #### What the self check does not buy
@@ -555,11 +561,6 @@ in a single request. It does not make `access:manage` a bounded authority.
 
 What actually bounds `access:manage` is who holds it. The audit trail records every one of these
 writes with its actor, which is the control that survives the two cases above.
-
-`users:delete` is its own key rather than a facet of `users:update` for the same reason: an
-irreversible operation that also removes the Keycloak identity is not the same authority as
-"edit the profile", and a role that should be able to do one and not the other has to be
-expressible.
 
 ### Disable versus delete
 
@@ -733,7 +734,7 @@ them, the same way the user list hides the status, role and delete controls on o
 ## 10. The executable specification
 
 `scripts/verify-api.sh` is the document that cannot go stale. It walks the model from the
-outside, against the running stack, in 33 assertions:
+outside, against the running stack, in 60 assertions:
 
 ```bash
 ./scripts/verify-api.sh
@@ -750,7 +751,9 @@ outside, against the running stack, in 33 assertions:
 | 8 | A role grants exactly what it declares and nothing else |
 | 9 | `disabled` refuses everything; re-enabling restores access |
 | 10 | Root and the `admin` system role are immutable through the API |
-| 11 | Cleanup, so the suite is re-runnable |
+| 11 | A `revoke` override beats the role that grants the same key |
+| 12 | The guards behind a permission the caller does hold: role assignment needs `access:manage` on `POST` and `PATCH` alike, `users:update` does not carry `users:delete`, and nobody edits their own roles, status, overrides or account |
+| 13 | Cleanup, so the suite is re-runnable |
 
 It reads root's credentials from `.env` (`ROOT_USERNAME`, `ROOT_PASSWORD`) and never prints a
 token. If somebody loosens a `requirePermissions` or forgets a

@@ -251,7 +251,7 @@ Every one of these cost a real failure. Do not rediscover them.
 - The Keycloak theme mirrors the same rule: `messages_en.properties` is the reference
   catalogue, `messages_es.properties` must carry every key it has.
 - OpenAPI tag names are shared state. Renaming a tag means renaming it in **every**
-  route that uses it *and* in the `tags` array of `server.ts`; miss one and the docs
+  route that uses it *and* in `MODULES` (`server.ts`); miss one and the docs
   silently grow a duplicate section.
 - Renaming a documentation file means fixing **every** reference to it across the
   repo (`README.md`, the other docs, this file, source comments). Heading anchors

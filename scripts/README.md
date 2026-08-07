@@ -31,13 +31,17 @@ fails, and `2` when a tool is missing or the stack is not answering.
 ## Why they check what they check
 
 **`verify-api.sh`** walks the whole database-backed permission model from the
-outside, 33 assertions long: root proves the bypass and the full catalog, then
+outside, 60 assertions long: root proves the bypass and the full catalog, then
 creates a throwaway user through the API (which registers it in Keycloak) and
 shapes that user's access live — the temporary password blocks the grant until
 the first-login change, an override `grant` opens a door **on the very next
-request** (cache invalidation), the `revoke` closes it, a role adds exactly what
-it declares, `disabled` refuses everything, and root plus the system role stay
-immutable. Requests with no token or a malformed one are answered with **401**.
+request** (cache invalidation), the `revoke` closes it (beating the role that
+grants the same key), a role adds exactly what it declares, `disabled` refuses
+everything, and root plus the system role stay immutable. Requests with no token
+or a malformed one are answered with **401**. The last section covers the guards
+that sit *behind* a permission the caller does hold: assigning roles needs
+`access:manage` on `POST` as well as on `PATCH`, `users:update` does not carry
+`users:delete`, and nobody edits their own roles, status, overrides or account.
 If somebody loosens a `requirePermissions` or forgets a cache bump, it shows up
 here.
 
