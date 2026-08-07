@@ -416,6 +416,13 @@ repopulates the new version with the pre-commit state — precisely the stalenes
 prevent. And `invalidate` is a required field rather than an optional one, so adding a mutation
 forces its author to decide rather than forget.
 
+There is exactly one exception, and it is named after itself: `recordAuditBestEffort`, used only
+by `POST /api/users/:id/resend-invite`. That route writes nothing but the audit row, and by the
+time it writes it the invitation email has already left. There is no transaction to join and
+nothing to roll back into, so propagating the failure would answer `500` for an invitation that
+was delivered — and the obvious reaction to that `500` is to press the button again and send a
+second one. The failure is logged at `warn` instead.
+
 Cache failures degrade to a miss rather than an error: if Valkey is down, every request resolves
 from PostgreSQL. Degrading is not guessing, though, and the version is where the difference
 matters:

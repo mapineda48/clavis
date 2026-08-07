@@ -8,7 +8,7 @@ import { ACCESS_NAMESPACE, contextHasPermission } from '../../lib/access.js'
 import { AppError, badRequest, conflict, forbidden, notFound } from '../../lib/errors.js'
 import { mutate } from '../../lib/mutate.js'
 import { KeycloakAdminError } from '../../plugins/keycloak-admin.js'
-import { recordAudit } from '../shared/audit.js'
+import { recordAuditBestEffort } from '../shared/audit.js'
 import { errorResponses } from '../shared/schemas.js'
 import { toIso } from '../shared/serialize.js'
 import {
@@ -556,13 +556,24 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
       // Not a `mutate`: nothing is written but the audit row itself, and
       // nothing derives from it, so there is no transaction and no namespace
       // to invalidate.
-      await recordAudit(app.db, {
-        actorId: request.auth.sub,
-        action: 'user.invite_resent',
-        entity: 'user',
-        entityId: existing.id,
-        payload: { sent: invite.sent },
-      })
+      //
+      // And the ONLY site that audits best-effort. Everywhere else an audit
+      // failure has to fail the write, because the write can still be rolled
+      // back; here the email is already gone and there is nothing to roll back
+      // into. Propagating would answer 500 for an invitation that was
+      // delivered, and the natural response to that 500 is to press the button
+      // again and send a second one.
+      await recordAuditBestEffort(
+        app.db,
+        {
+          actorId: request.auth.sub,
+          action: 'user.invite_resent',
+          entity: 'user',
+          entityId: existing.id,
+          payload: { sent: invite.sent },
+        },
+        request.log,
+      )
 
       return { invite }
     },

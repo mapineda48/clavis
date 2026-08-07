@@ -22,6 +22,11 @@ export interface AuditEntry {
   payload?: Record<string, unknown>
 }
 
+/** The one logger method the best-effort variant needs. */
+export interface AuditLogger {
+  warn(obj: Record<string, unknown>, msg: string): void
+}
+
 /** Inserts an audit row on the caller's executor. Errors propagate. */
 export async function recordAudit(db: Executor, entry: AuditEntry): Promise<void> {
   await db.query(
@@ -35,4 +40,33 @@ export async function recordAudit(db: Executor, entry: AuditEntry): Promise<void
       JSON.stringify(entry.payload ?? {}),
     ],
   )
+}
+
+/**
+ * Same insert, but a failure is logged instead of propagated.
+ *
+ * Use it ONLY where the action being audited has already happened in another
+ * system and cannot be undone, so there is no transaction for the audit row to
+ * join and nothing a thrown error could roll back. `POST /users/:id/resend-invite`
+ * is the one such caller: the invitation email is out. Failing the request
+ * there turns a delivered invitation into a 500, and the obvious reaction to a
+ * 500 is to press the button again — a second email for a first one that
+ * worked. A missing audit row is the smaller loss, and it is logged.
+ *
+ * Everything that writes to the database goes through `lib/mutate.ts` and
+ * `recordAudit` instead, where the row commits with the write it describes.
+ */
+export async function recordAuditBestEffort(
+  db: Executor,
+  entry: AuditEntry,
+  log: AuditLogger,
+): Promise<void> {
+  try {
+    await recordAudit(db, entry)
+  } catch (error) {
+    log.warn(
+      { err: error, action: entry.action, entity: entry.entity, entityId: entry.entityId ?? null },
+      'The audit row could not be written; the action it describes already happened',
+    )
+  }
 }
