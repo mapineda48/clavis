@@ -15,8 +15,9 @@
 #
 # The last two sections check the boundaries that are not about having a
 # permission at all: that a revoke override beats the role granting the same
-# permission, and that `users:update` is not a way to hand out roles, to edit
-# your own privileges or to delete anybody.
+# permission, and the guards that sit BEHIND a permission the caller does hold
+# — role assignment needs `access:manage` on create as well as on update, and
+# nobody edits their own roles, status, overrides or account.
 # =============================================================================
 set -uo pipefail
 # shellcheck source=scripts/_common.sh
@@ -36,6 +37,10 @@ BOT_ROLE="verify-auditors"
 # can only be about the permission being tested.
 BOT2_USER="verify.bot2"
 BOT2_EMAIL="verify.bot2@clavis.local"
+# A third one that must NEVER exist: the account the escalation test tries to
+# create already carrying a role. It is named so the sweep below can prove it.
+BOT3_USER="verify.bot3"
+BOT3_EMAIL="verify.bot3@clavis.local"
 
 # jq-lite: read one field from JSON on stdin.
 jget() { python3 -c "import sys, json
@@ -85,7 +90,7 @@ echo "=== 4. Root creates a user (temporary password) ==="
 api GET '/api/users?limit=500' "$T_ROOT"
 OLD_IDS=$(printf '%s' "$API_BODY" | python3 -c "import sys, json
 items = json.load(sys.stdin)['items']
-print(' '.join(u['id'] for u in items if u['username'] in ('$BOT_USER', '$BOT2_USER')))")
+print(' '.join(u['id'] for u in items if u['username'] in ('$BOT_USER', '$BOT2_USER', '$BOT3_USER')))")
 for old_id in $OLD_IDS; do api DELETE "/api/users/$old_id" "$T_ROOT"; done
 api DELETE "/api/access/roles/$BOT_ROLE" "$T_ROOT"
 
@@ -160,10 +165,15 @@ api GET /api/audit "$T_BOT"
 chk "$API_STATUS" 200 "audit:read still arrives through the role"
 api PUT "/api/access/users/$BOT_ID/overrides" "$T_ROOT" '{"overrides": [{"permissionKey": "audit:read", "effect": "revoke"}]}'
 chk "$API_STATUS" 200 "override revoke audit:read"
-case ",$(printf '%s' "$API_BODY" | python3 -c "import sys, json; print(','.join(json.load(sys.stdin)['effectivePermissions']))")," in
-  *,audit:read,*) bad "the resolved answer still lists audit:read" ;;
-  *)              ok  "the resolved answer no longer lists audit:read" ;;
-esac
+# Asserted positively, and on purpose. Read as a `case` over a substituted
+# string, a Python fragment that raised produced an empty string, which matched
+# the fall-through branch and reported success: the check could only ever fail
+# when the permission WAS listed. Printing a definite word means a broken
+# fragment prints nothing and the comparison fails, like any other assertion.
+REVOKED=$(printf '%s' "$API_BODY" | python3 -c "import sys, json
+perms = json.load(sys.stdin)['effectivePermissions']
+print('absent' if 'audit:read' not in perms else 'present')")
+chk "$REVOKED" absent "the resolved answer no longer lists audit:read"
 api GET /api/audit "$T_BOT"
 chk "$API_STATUS" 403 "the revoke wins over the role that grants it"
 api PUT "/api/access/users/$BOT_ID/overrides" "$T_ROOT" '{"overrides": []}'
@@ -171,7 +181,7 @@ api GET /api/audit "$T_BOT"
 chk "$API_STATUS" 200 "dropping the revoke gives the role permission back"
 
 echo
-echo "=== 12. users:update is not a way to grant roles, edit yourself or delete ==="
+echo "=== 12. The guards behind the permissions: role assignment and self-editing ==="
 # The `admin` role is seeded with the whole catalog, so a users:* route that
 # assigned roles would be a route around access:*. The target is a second user
 # so a 403 cannot come from the root or self-modification checks instead.
@@ -196,6 +206,42 @@ chk "$API_STATUS" 200 "editing your own display name is still allowed"
 
 api DELETE "/api/users/$BOT2_ID" "$T_BOT"
 chk "$API_STATUS" 403 "users:update does not carry users:delete"
+
+# POST is the same escalation as PATCH, one step further away: create an
+# account that already carries the role, with a temporary password you chose,
+# and sign in as it. The refusal happens before Keycloak is touched, so the
+# sweep below proves nothing was left behind either.
+api PUT "/api/access/users/$BOT_ID/overrides" "$T_ROOT" '{"overrides": [{"permissionKey": "users:update", "effect": "grant"}, {"permissionKey": "users:create", "effect": "grant"}]}'
+chk "$API_STATUS" 200 "the first user is also granted users:create"
+api POST /api/users "$T_BOT" "{\"email\": \"$BOT3_EMAIL\", \"displayName\": \"Escalation Attempt\", \"username\": \"$BOT3_USER\", \"credentialMode\": \"temporary_password\", \"temporaryPassword\": \"$BOT_PASSWORD\", \"roles\": [\"$BOT_ROLE\"]}"
+chk "$API_STATUS" 403 "creating a user WITH roles, without access:manage"
+chk "$(printf '%s' "$API_BODY" | jget error.code)" ROLE_ASSIGNMENT_DENIED "refused as a role assignment"
+api GET '/api/users?limit=500' "$T_ROOT"
+LEFTOVER=$(printf '%s' "$API_BODY" | python3 -c "import sys, json
+items = json.load(sys.stdin)['items']
+print('absent' if all(u['username'] != '$BOT3_USER' for u in items) else 'present')")
+chk "$LEFTOVER" absent "the refused creation left no user behind"
+
+api PATCH "/api/users/$BOT_ID" "$T_BOT" "{\"roles\": [\"$BOT_ROLE\"]}"
+chk "$API_STATUS" 403 "changing your own roles"
+chk "$(printf '%s' "$API_BODY" | jget error.code)" SELF_MODIFICATION "refused as a self-modification"
+
+# users:delete is what gets past the preHandler here: without it the 403 would
+# come from the missing permission and prove nothing about the self check.
+api PUT "/api/access/users/$BOT_ID/overrides" "$T_ROOT" '{"overrides": [{"permissionKey": "users:delete", "effect": "grant"}]}'
+chk "$API_STATUS" 200 "the first user is granted users:delete"
+api DELETE "/api/users/$BOT_ID" "$T_BOT"
+chk "$API_STATUS" 403 "deleting your own account"
+chk "$(printf '%s' "$API_BODY" | jget error.code)" SELF_MODIFICATION "refused as a self-modification"
+
+# The overrides route reaches further than PATCH does — it writes permission
+# keys one by one — so it carries the same self check. Granting access:manage
+# is what makes the refusal come from that check and not from the permission.
+api PUT "/api/access/users/$BOT_ID/overrides" "$T_ROOT" '{"overrides": [{"permissionKey": "access:manage", "effect": "grant"}]}'
+chk "$API_STATUS" 200 "the first user is granted access:manage"
+api PUT "/api/access/users/$BOT_ID/overrides" "$T_BOT" '{"overrides": [{"permissionKey": "audit:read", "effect": "grant"}]}'
+chk "$API_STATUS" 403 "rewriting your own overrides"
+chk "$(printf '%s' "$API_BODY" | jget error.code)" SELF_MODIFICATION "refused as a self-modification"
 
 echo
 echo "=== 13. Cleanup ==="
