@@ -58,7 +58,10 @@ export const dbPlugin = fp<DbPluginOptions>(
     })
 
     await waitForDatabase(pool, app)
-    await runMigrations(pool, app.log)
+    // The migrator opens its own connection from the same URL: nothing it does
+    // to its session can reach a request, and the pool's timeouts do not reach
+    // its DDL. See `lib/migrator.ts`.
+    await runMigrations({ connectionString: options.DATABASE_URL }, app.log)
 
     const db: FastifyInstance['db'] = {
       pool,

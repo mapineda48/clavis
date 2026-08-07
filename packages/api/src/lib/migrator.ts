@@ -1,21 +1,47 @@
 import { createHash } from 'node:crypto'
 import { readFile, readdir } from 'node:fs/promises'
-import type { Pool } from 'pg'
+// `pg` is CommonJS: under ESM only the default import works.
+import pg from 'pg'
+import type { Client as PgClient } from 'pg'
+
+const { Client } = pg
 
 /**
  * Home-grown schema migrator, no external dependencies.
  *
  * - Files live in `packages/api/migrations` and are applied in lexicographic
- *   order (`0001_init.sql`, `0002_views.sql`, ...).
+ *   order. New files are named `YYYYMMDDHHMMSS_description.sql`; `0001_init.sql`
+ *   keeps its historical name and must never be renamed (see below).
  * - Every migration runs inside its own transaction.
  * - The sha256 of each file is stored: if an already applied migration changes,
  *   startup aborts with an explanatory error.
  * - A PostgreSQL *advisory lock* prevents two API instances from migrating at
  *   the same time.
+ *
+ * Migrations are looked up by **filename** and there is no reverse check inside
+ * a file, so renaming an applied migration makes the migrator see a brand new
+ * one: it re-runs the whole file against a schema that already has it, and
+ * leaves the old row behind. The drift check below turns that into a startup
+ * error instead of a mystery.
  */
 
 /** Fixed identifier of the advisory lock (arbitrary but stable). */
 const MIGRATION_LOCK_ID = 726351940
+
+/**
+ * Bounded wait for the migration lock: roughly a minute, one log line per try.
+ *
+ * `pg_advisory_lock` waits forever, which is the worst possible behaviour here
+ * — a lock left behind by a crashed peer stops every instance from ever
+ * starting, and the only symptom is silence after "PostgreSQL is accepting
+ * connections". Failing loudly after a bounded wait is recoverable; hanging
+ * with no output is not.
+ */
+const LOCK_ATTEMPTS = 60
+const LOCK_RETRY_MS = 1000
+
+/** How the migration connection identifies itself in `pg_stat_activity`. */
+const MIGRATION_APPLICATION_NAME = 'clavis-api-migrator'
 
 /**
  * Migrations folder, relative to this module.
@@ -30,12 +56,19 @@ export interface MigrationLogger {
   warn: (obj: Record<string, unknown>, msg: string) => void
 }
 
-interface MigrationFile {
+/** What the migrator needs to open its own connection. */
+export interface MigrationOptions {
+  connectionString: string
+}
+
+export interface MigrationFile {
   version: string
   fileName: string
   sql: string
   checksum: string
 }
+
+const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
 /** Reads and sorts the `.sql` files in the migrations folder. */
 async function loadMigrationFiles(): Promise<MigrationFile[]> {
@@ -58,22 +91,89 @@ async function loadMigrationFiles(): Promise<MigrationFile[]> {
 }
 
 /**
- * Applies the pending migrations. Safe to call on every startup.
+ * Takes the migration lock without ever blocking indefinitely.
+ * `pg_try_advisory_lock` returns immediately, so each failed attempt is a log
+ * line naming who we are waiting for rather than an unexplained pause.
  */
-export async function runMigrations(pool: Pool, logger: MigrationLogger): Promise<void> {
+async function acquireLock(client: PgClient, logger: MigrationLogger): Promise<void> {
+  for (let attempt = 1; attempt <= LOCK_ATTEMPTS; attempt += 1) {
+    const { rows } = await client.query<{ locked: boolean }>(
+      'SELECT pg_try_advisory_lock($1::bigint) AS locked',
+      [MIGRATION_LOCK_ID],
+    )
+    if (rows[0]?.locked === true) {
+      if (attempt > 1) logger.info({ attempt, lockId: MIGRATION_LOCK_ID }, 'Migration lock acquired')
+      return
+    }
+    logger.warn(
+      { attempt, attempts: LOCK_ATTEMPTS, lockId: MIGRATION_LOCK_ID },
+      'Another instance holds the migration lock; retrying',
+    )
+    await delay(LOCK_RETRY_MS)
+  }
+
+  throw new Error(
+    `Could not acquire the migration advisory lock ${MIGRATION_LOCK_ID} after ` +
+      `${LOCK_ATTEMPTS} attempts (${(LOCK_ATTEMPTS * LOCK_RETRY_MS) / 1000}s). ` +
+      'Another instance is either migrating or holding the lock from a session that ' +
+      'never ended. Look for it with: SELECT * FROM pg_locks WHERE locktype = ' +
+      "'advisory';",
+  )
+}
+
+/**
+ * Aborts when the database records a migration whose file is not here.
+ *
+ * The loop below walks the files on disk and looks each one up among the
+ * applied versions; without this check the opposite direction is invisible.
+ * A recorded version with no file means the file was renamed or deleted, or
+ * that this build is older than the database it is pointed at — all three are
+ * situations where continuing applies an unknown delta to an unknown schema.
+ */
+export function assertNoDrift(files: MigrationFile[], applied: Map<string, string>): void {
+  const onDisk = new Set(files.map((file) => file.version))
+  const orphans = [...applied.keys()].filter((version) => !onDisk.has(version)).sort()
+  if (orphans.length === 0) return
+
+  throw new Error(
+    `The database records migrations that no longer exist in this build: ${orphans.join(', ')}. ` +
+      'Migrations are looked up by filename, so a renamed file also looks like this — and ' +
+      'renaming one makes it run again against a schema that already has it. Restore the ' +
+      'file under its recorded name, or point the API at the database this build belongs to. ' +
+      'Deleting the row is only correct once you know which of the two happened.',
+  )
+}
+
+/**
+ * Applies the pending migrations. Safe to call on every startup.
+ *
+ * It opens and closes a **connection of its own** rather than borrowing one
+ * from the application pool. `client.release()` does not reset session state,
+ * so anything a migration `SET`s would leak into whatever request picks that
+ * connection up next; here the session simply ends. It also keeps the pool's
+ * `statement_timeout` and `idle_in_transaction_session_timeout` — tuned for
+ * request-sized work — away from DDL that is legitimately allowed to take
+ * minutes. Ending the session also releases the advisory lock, so there is no
+ * unlock path that can be skipped.
+ */
+export async function runMigrations(
+  options: MigrationOptions,
+  logger: MigrationLogger,
+): Promise<void> {
   const files = await loadMigrationFiles()
   if (files.length === 0) {
     logger.warn({ dir: MIGRATIONS_DIR.pathname }, 'No migration files found')
     return
   }
 
-  const client = await pool.connect()
-  let lockAcquired = false
+  const client = new Client({
+    connectionString: options.connectionString,
+    application_name: MIGRATION_APPLICATION_NAME,
+  })
+  await client.connect()
 
   try {
-    // Session-level lock: a second instance waits right here.
-    await client.query('SELECT pg_advisory_lock($1::bigint)', [MIGRATION_LOCK_ID])
-    lockAcquired = true
+    await acquireLock(client, logger)
 
     await client.query('CREATE SCHEMA IF NOT EXISTS clavis')
     await client.query(`
@@ -88,6 +188,8 @@ export async function runMigrations(pool: Pool, logger: MigrationLogger): Promis
       'SELECT version, checksum FROM clavis.schema_migrations',
     )
     const applied = new Map(rows.map((row) => [row.version, row.checksum]))
+
+    assertNoDrift(files, applied)
 
     let appliedCount = 0
 
@@ -134,9 +236,8 @@ export async function runMigrations(pool: Pool, logger: MigrationLogger): Promis
       logger.info({ applied: appliedCount, total: files.length }, 'Migrations completed')
     }
   } finally {
-    if (lockAcquired) {
-      await client.query('SELECT pg_advisory_unlock($1::bigint)', [MIGRATION_LOCK_ID]).catch(() => undefined)
-    }
-    client.release()
+    // Ending the session releases every advisory lock it holds, so this is the
+    // unlock as well as the disconnect.
+    await client.end().catch(() => undefined)
   }
 }
