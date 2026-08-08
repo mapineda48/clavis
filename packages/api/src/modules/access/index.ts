@@ -309,6 +309,21 @@ export const accessRoutes: FastifyPluginAsync = async (app) => {
           // judged before the self-lockout, so a self-directed escalation still
           // reports PRIVILEGE_ESCALATION and not SELF_MODIFICATION. Both throw
           // before any row is touched — clean ROLLBACK, no audit row, no bump.
+          //
+          // Lock the target row first. It serialises two administrators editing
+          // THIS user's overrides at once — otherwise the second write silently
+          // discards the first, a lost update independent of security — and it
+          // pins the target's own grants/revokes so the read below cannot shift
+          // under a concurrent override edit of the same user. It does NOT make
+          // the whole `before` snapshot-consistent: `rolePerms` reads
+          // `role_permissions`, which `PUT /access/roles/:slug/permissions`
+          // locks instead of this user row, so the role contribution can still
+          // straddle a concurrent role edit. That residue stays covered by the
+          // set-algebra bound — a role only carries keys some authorised author
+          // granted, so `before` can never exceed the target's real state and
+          // the delta can never come out too small.
+          await client.query(`SELECT 1 FROM clavis.users WHERE id = $1 FOR UPDATE`, [target.id])
+
           const targetContext = await loadAccessContext(client, target.id)
           if (!targetContext) throw notFound('User not found.')
           const rolePerms = await permissionsForRoles(client, targetContext.roles)
