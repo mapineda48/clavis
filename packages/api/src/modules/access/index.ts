@@ -279,27 +279,35 @@ export const accessRoutes: FastifyPluginAsync = async (app) => {
       }
 
       // The shortest path to the effective union in the whole API: a grant
-      // writes one permission key straight onto an account. The rule runs on a
-      // DELTA, not the whole set — exactly as the role routes do. PUT is a full
-      // replace and the UI re-sends every existing exception, so a grant already
-      // on the target is being preserved, not introduced: the actor is not
-      // handing that capability out, so it need not be one the actor holds.
-      // Checking the whole set instead refused any edit of a target that already
-      // held a grant the actor lacked, or silently stripped it — a regression
-      // this delta closes. Only the grants the target does not already have are
-      // vetted; a revoke takes away, which is the self check's business below,
-      // never this one's.
+      // writes one permission key straight onto an account. The grants this
+      // write would ADD are what the rule vets (the full-replace reasoning is
+      // below), computed from the request body here and checked inside the write
+      // transaction below.
       const requestedGrants = overrides
         .filter((override) => override.effect === 'grant')
         .map((override) => override.permissionKey)
-      const added = addedMembers(await currentGrantKeys(app.db, target.id), requestedGrants)
-      assertMayGrant(request.access, added)
-      // …and that self check is now purely about lockout: a revoke on your own
-      // account is one, and it needs a second pair of hands.
-      assertNotSelf(request.auth.sub, target.id, 'change your own permission overrides')
 
       await mutate(app, {
         run: async (client) => {
+          // The current-grants read and the replace share one connection and
+          // commit or roll back together, so a concurrent override write to this
+          // same target cannot change what "already held" means between the read
+          // and the write and slip an unheld grant past the rule. The rule runs
+          // on a DELTA, not the whole set — exactly as the role routes do: PUT
+          // is a full replace and the UI re-sends every existing exception, so a
+          // grant already on the target is being preserved, not introduced. The
+          // actor is not handing that capability out, so it need not be one the
+          // actor holds; checking the whole set instead refused any edit of a
+          // target that already held a grant the actor lacked, or silently
+          // stripped it. Escalation is judged before the self-lockout, so a
+          // self-directed escalation still reports PRIVILEGE_ESCALATION and not
+          // SELF_MODIFICATION; a revoke on your own account is the lockout the
+          // self check catches. Both throw before any row is touched — clean
+          // ROLLBACK, no audit row, no cache bump.
+          const added = addedMembers(await currentGrantKeys(client, target.id), requestedGrants)
+          assertMayGrant(request.access, added)
+          assertNotSelf(request.auth.sub, target.id, 'change your own permission overrides')
+
           await client.query(`DELETE FROM clavis.user_permission_overrides WHERE user_id = $1`, [
             target.id,
           ])
@@ -457,17 +465,21 @@ export const accessRoutes: FastifyPluginAsync = async (app) => {
         throw badRequest(`Unknown permissions: ${unknown.join(', ')}.`, 'UNKNOWN_PERMISSIONS')
       }
 
-      // `role_permissions` is the first branch of the effective union, so
-      // raising a role raises every one of its holders — the caller included,
-      // which is how this route escalated with no self-id anywhere in the
-      // request. The delta is what keeps it usable: only the keys this edit
-      // ADDS have to be held, so reducing a role, or reordering one you hold in
-      // part, still goes through.
-      const added = addedMembers(await permissionsForRoles(app.db, [slug]), permissions)
-      assertMayGrant(request.access, added)
-
       await mutate(app, {
         run: async (client) => {
+          // `role_permissions` is the first branch of the effective union, so
+          // raising a role raises every one of its holders — the caller
+          // included, which is how this route escalated with no self-id anywhere
+          // in the request. The delta keeps it usable: only the keys this edit
+          // ADDS have to be held, so reducing a role, or resaving one you hold in
+          // part, still goes through. The current set is read on the SAME
+          // connection as the replace and vetted here, so the check and the
+          // write commit or roll back as one — a concurrent edit cannot change
+          // what "already there" means between the read and the write. A refusal
+          // throws before any row is touched: clean ROLLBACK, no audit, no bump.
+          const added = addedMembers(await permissionsForRoles(client, [slug]), permissions)
+          assertMayGrant(request.access, added)
+
           await client.query(`DELETE FROM clavis.role_permissions WHERE role_slug = $1`, [slug])
           if (permissions.length > 0) {
             await client.query(

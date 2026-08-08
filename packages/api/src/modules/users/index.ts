@@ -282,8 +282,17 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
       // The account starts with nothing, so every role listed is added. This is
       // what stops `users:create` + `access:manage` from minting an `admin`
       // account and signing in as it: `admin` carries the whole catalog, and an
-      // actor holding those two keys does not. Before Keycloak is touched, so a
-      // refusal leaves nothing behind to clean up.
+      // actor holding those two keys does not.
+      //
+      // Unlike the two pure-database writers (overrides, role permissions) this
+      // check reads on `app.db`, NOT inside the write transaction, and it must:
+      // it has to run before Keycloak is touched, so an authorization refusal
+      // never creates then compensates an external identity — and the row write
+      // cannot enclose that Keycloak call (no network I/O in `tx`). The check
+      // and the write are therefore necessarily separated by the Keycloak round
+      // trip and cannot share a transaction. The resulting read-then-write
+      // window is bounded by the model: a role can only carry a key some
+      // authorised author already gave it.
       if (roles.length > 0) {
         assertMayGrant(request.access, await permissionsForRoles(app.db, roles))
       }
@@ -427,6 +436,14 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
         // role the actor does not hold the permissions of stays possible. The
         // delta runs after the slugs are known to exist, because resolving them
         // to permissions is a query against those very rows.
+        //
+        // Like `POST /users` and unlike the two pure-database writers, this
+        // reads on `app.db` rather than inside the write transaction, and must:
+        // the check has to precede the Keycloak status flip below (an
+        // authorization refusal must not flip then compensate an external
+        // system), and the write cannot enclose that Keycloak call (no network
+        // I/O in `tx`). The read-then-write window is inherent and bounded by
+        // the model — a role can only carry a key some authorised author gave it.
         const added = addedMembers(existing.roles, nextRoles)
         assertMayGrant(request.access, await permissionsForRoles(app.db, added))
       }
