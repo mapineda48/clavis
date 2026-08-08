@@ -344,6 +344,37 @@ chk "$(printf '%s' "$API_BODY" | jget error.code)" PRIVILEGE_ESCALATION "refused
 api POST /api/access/roles "$T_BOT" "{\"slug\": \"$BOT_ROLE2\", \"name\": \"Delegated auditors\", \"permissions\": [\"audit:read\"]}"
 chk "$API_STATUS" 201 "creating one that stays within them"
 
+# --- The overrides writer checks the DELTA, not the whole set. PUT is a full
+# replace and the UI re-sends every existing exception, so a grant already on
+# the target is preserved, not introduced: the actor is not handing it out and
+# need not hold it. This is the same delta the role routes check. Set the second
+# user up, through root who may grant anything, with a grant for a key the first
+# user holds nothing of.
+api PUT "/api/access/users/$BOT2_ID/overrides" "$T_ROOT" '{"overrides": [{"permissionKey": "users:delete", "effect": "grant"}]}'
+chk "$API_STATUS" 200 "root grants the second user users:delete, which the first user lacks"
+# The first user (no users:delete) re-sends that pre-existing grant AND adds one
+# it does hold. The pre-existing grant is preserved, nothing is stripped, and
+# the request is NOT refused. On the code before this fix the whole set was
+# checked and this answered 403 — the regression the delta closes.
+api PUT "/api/access/users/$BOT2_ID/overrides" "$T_BOT" '{"overrides": [{"permissionKey": "users:delete", "effect": "grant"}, {"permissionKey": "audit:read", "effect": "grant"}]}'
+chk "$API_STATUS" 200 "editing a target that already holds a grant the actor lacks"
+api GET "/api/access/users/$BOT2_ID" "$T_ROOT"
+KEPT=$(printf '%s' "$API_BODY" | python3 -c "import sys, json
+grants = {o['permissionKey'] for o in json.load(sys.stdin)['overrides'] if o['effect'] == 'grant'}
+print('kept' if {'users:delete', 'audit:read'} <= grants else 'LOST')")
+chk "$KEPT" kept "the pre-existing grant was preserved and the held one added"
+# But introducing a NEW grant for a key the actor lacks is still refused:
+# users:read is neither already on the target nor held by the first user, so it
+# is the capability being handed out, and the delta rule catches it.
+api PUT "/api/access/users/$BOT2_ID/overrides" "$T_BOT" '{"overrides": [{"permissionKey": "users:delete", "effect": "grant"}, {"permissionKey": "audit:read", "effect": "grant"}, {"permissionKey": "users:read", "effect": "grant"}]}'
+chk "$API_STATUS" 403 "adding a NEW grant for a key the actor lacks is still refused"
+chk "$(printf '%s' "$API_BODY" | jget error.code)" PRIVILEGE_ESCALATION "refused as a privilege escalation"
+api GET "/api/access/users/$BOT2_ID" "$T_ROOT"
+UNTOUCHED=$(printf '%s' "$API_BODY" | python3 -c "import sys, json
+grants = {o['permissionKey'] for o in json.load(sys.stdin)['overrides'] if o['effect'] == 'grant'}
+print('untouched' if 'users:read' not in grants and 'users:delete' in grants else 'CHANGED')")
+chk "$UNTOUCHED" untouched "the refused write left the target's overrides untouched"
+
 echo
 echo "=== 14. Cleanup ==="
 api DELETE "/api/users/$BOT_ID" "$T_ROOT"

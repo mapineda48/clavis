@@ -570,7 +570,7 @@ tables calls it on the keys the edit **adds**:
 
 | Route | Keys checked |
 |---|---|
-| `PUT /api/access/users/:id/overrides` | every `grant` in the body |
+| `PUT /api/access/users/:id/overrides` | the `grant`s in the body the target does not already hold |
 | `POST /api/access/roles` | the role's initial set — a new role starts empty, so all of it |
 | `PUT /api/access/roles/:slug/permissions` | the new set minus the current one |
 | `POST /api/users`, `PATCH /api/users/:id` | what the **newly assigned** roles carry |
@@ -661,7 +661,7 @@ role slug on a user with `400 UNKNOWN_ROLES`.
 | Route | Permission | Notes |
 |---|---|---|
 | `GET /api/access/users/:id` | `access:read` | Roles, overrides and the effective set |
-| `PUT /api/access/users/:id/overrides` | `access:manage` | **Replaces** the whole set of exceptions; refused on root (`403 ROOT_IMMUTABLE`), on a `grant` the caller does not hold (`403 PRIVILEGE_ESCALATION`, see [the delta rule](#privilege-delta)) and on oneself (`403 SELF_MODIFICATION`, see [what is still not bounded](#self-check-limits)) |
+| `PUT /api/access/users/:id/overrides` | `access:manage` | **Replaces** the whole set of exceptions; refused on root (`403 ROOT_IMMUTABLE`), on adding a `grant` the caller does not hold and the target does not already have (`403 PRIVILEGE_ESCALATION`, see [the delta rule](#privilege-delta)) and on oneself (`403 SELF_MODIFICATION`, see [what is still not bounded](#self-check-limits)) |
 
 `PUT` is a replacement, not a patch: the body is the complete list of exceptions for that user,
 and an empty array clears them. That makes the operation idempotent and makes the UI — which
@@ -787,7 +787,7 @@ them, the same way the user list hides the status, role and delete controls on o
 ## 10. The executable specification
 
 `scripts/verify-api.sh` is the document that cannot go stale. It walks the model from the
-outside, against the running stack, in 82 assertions:
+outside, against the running stack, in 88 assertions:
 
 ```bash
 ./scripts/verify-api.sh

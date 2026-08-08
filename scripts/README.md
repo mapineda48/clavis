@@ -31,7 +31,7 @@ fails, and `2` when a tool is missing or the stack is not answering.
 ## Why they check what they check
 
 **`verify-api.sh`** walks the whole database-backed permission model from the
-outside, 82 assertions long: root proves the bypass and the full catalog, then
+outside, 88 assertions long: root proves the bypass and the full catalog, then
 creates a throwaway user through the API (which registers it in Keycloak) and
 shapes that user's access live — the temporary password blocks the grant until
 the first-login change, an override `grant` opens a door **on the very next

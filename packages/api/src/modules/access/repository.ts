@@ -36,6 +36,27 @@ export async function findOverrideTarget(
 }
 
 /**
+ * The permission keys this user already holds as a `grant` override.
+ *
+ * The overrides write is a full replace and the UI re-sends the whole set, so a
+ * grant already in this set is being *preserved*, not introduced: the actor is
+ * not handing that capability out, and need not hold it. Only the grants not
+ * already here are the newly handed-out ones `assertMayGrant` has to vet — the
+ * same delta the role routes compute with `addedMembers`. Revokes never appear:
+ * they take a capability away, which is the self check's business, not this
+ * one's.
+ */
+export async function currentGrantKeys(db: Executor, userId: CanonicalUserId): Promise<string[]> {
+  const result = await db.query<{ permission_key: string }>(
+    `SELECT permission_key
+       FROM clavis.user_permission_overrides
+      WHERE user_id = $1 AND effect = 'grant'`,
+    [userId],
+  )
+  return result.rows.map((row) => row.permission_key)
+}
+
+/**
  * The deduplicated union of the permissions those roles carry.
  *
  * Assigning a role is an indirect grant: it adds every key the role holds to

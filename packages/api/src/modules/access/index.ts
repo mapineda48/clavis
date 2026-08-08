@@ -15,7 +15,7 @@ import type { Executor } from '../../lib/executor.js'
 import { mutate } from '../../lib/mutate.js'
 import { badRequest, conflict, forbidden, notFound } from '../../lib/errors.js'
 import { errorResponses } from '../shared/schemas.js'
-import { findOverrideTarget, permissionsForRoles } from './repository.js'
+import { currentGrantKeys, findOverrideTarget, permissionsForRoles } from './repository.js'
 
 interface IdParamsInput {
   id: string
@@ -240,9 +240,9 @@ export const accessRoutes: FastifyPluginAsync = async (app) => {
         summary: 'Replace the permission exceptions of one user',
         description:
           'The full set is replaced in one write: grants add permissions the roles do not give, ' +
-          'revokes remove permissions they do. Root accepts no overrides; a grant of a ' +
-          'permission the caller does not hold is refused (403 PRIVILEGE_ESCALATION), and ' +
-          'nobody may rewrite their own (403 SELF_MODIFICATION).',
+          'revokes remove permissions they do. Root accepts no overrides; adding a grant the ' +
+          'caller does not hold and the target does not already have is refused (403 ' +
+          'PRIVILEGE_ESCALATION), and nobody may rewrite their own (403 SELF_MODIFICATION).',
         security: [{ bearerAuth: [] }],
         params: IdParams,
         body: {
@@ -279,13 +279,21 @@ export const accessRoutes: FastifyPluginAsync = async (app) => {
       }
 
       // The shortest path to the effective union in the whole API: a grant
-      // writes one permission key straight onto an account. The delta rule runs
-      // first, and it runs on the grants only — a revoke takes away, which is
-      // the self check's business, not this one's.
-      assertMayGrant(
-        request.access,
-        overrides.filter((o) => o.effect === 'grant').map((o) => o.permissionKey),
-      )
+      // writes one permission key straight onto an account. The rule runs on a
+      // DELTA, not the whole set — exactly as the role routes do. PUT is a full
+      // replace and the UI re-sends every existing exception, so a grant already
+      // on the target is being preserved, not introduced: the actor is not
+      // handing that capability out, so it need not be one the actor holds.
+      // Checking the whole set instead refused any edit of a target that already
+      // held a grant the actor lacked, or silently stripped it — a regression
+      // this delta closes. Only the grants the target does not already have are
+      // vetted; a revoke takes away, which is the self check's business below,
+      // never this one's.
+      const requestedGrants = overrides
+        .filter((override) => override.effect === 'grant')
+        .map((override) => override.permissionKey)
+      const added = addedMembers(await currentGrantKeys(app.db, target.id), requestedGrants)
+      assertMayGrant(request.access, added)
       // …and that self check is now purely about lockout: a revoke on your own
       // account is one, and it needs a second pair of hands.
       assertNotSelf(request.auth.sub, target.id, 'change your own permission overrides')
