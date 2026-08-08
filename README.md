@@ -566,7 +566,7 @@ user (or sign out between steps), because Keycloak keeps the SSO session.
 ./scripts/verify-api.sh
 ```
 
-The same walk in 88 assertions, no browser involved. See [Verification](#verification).
+The same walk in 99 assertions, no browser involved. See [Verification](#verification).
 
 ---
 
@@ -659,7 +659,7 @@ pnpm run verify:reset    # password reset (needs the resend CLI)
 
 What they really cover:
 
-- **`verify-api.sh` — 88 assertions that walk the whole permission model from the outside.**
+- **`verify-api.sh` — 99 assertions that walk the whole permission model from the outside.**
   Root proves the bypass and the full catalog; it then creates a throwaway user through the API
   (which registers it in Keycloak) and shapes that user's access live: the temporary password
   **blocks the grant** until the first-login change, an override `grant` opens a door **on the

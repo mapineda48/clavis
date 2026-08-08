@@ -787,7 +787,7 @@ them, the same way the user list hides the status, role and delete controls on o
 ## 10. The executable specification
 
 `scripts/verify-api.sh` is the document that cannot go stale. It walks the model from the
-outside, against the running stack, in 88 assertions:
+outside, against the running stack, in 99 assertions:
 
 ```bash
 ./scripts/verify-api.sh
