@@ -422,7 +422,7 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
       const body = request.body
       const blocked = selfBlockedFields(body)
       if (blocked.length > 0) {
-        assertNotSelf(request.auth.sub, existing.id, `change your own ${blocked.join(' or ')}`)
+        assertNotSelf(request.access.user.id, existing.id, `change your own ${blocked.join(' or ')}`)
       }
       const nextRoles = body.roles === undefined ? undefined : [...new Set(body.roles)]
       if (nextRoles !== undefined) {
@@ -535,7 +535,7 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
       if (existing.is_root) {
         throw forbidden('The root user is managed by the deployment, not by the API.', 'ROOT_IMMUTABLE')
       }
-      assertNotSelf(request.auth.sub, existing.id, 'delete your own account')
+      assertNotSelf(request.access.user.id, existing.id, 'delete your own account')
 
       // Keycloak first, and DO NOT reorder this. An identity that can still log
       // in but has no application row is the state authenticate() already

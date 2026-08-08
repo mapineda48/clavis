@@ -196,6 +196,31 @@ export function addedMembers(current: readonly string[], next: readonly string[]
 }
 
 /**
+ * The effective permission set from its three parts: the permissions the roles
+ * carry, plus grant overrides, minus revoke overrides — the subtraction last,
+ * exactly as `loadAccessContext` resolves it in SQL, so a revoke beats both a
+ * role and a grant.
+ *
+ * The overrides guard states its delta over the CHANGE to this set rather than
+ * over the submitted rows, and that is what closes the escalations a body-shaped
+ * rule misses: dropping a revoke that masks a role, or flipping a revoke to a
+ * grant, both read as the addition they effectively are, while preserving a
+ * grant contributes nothing. **Both sides of that delta must be built through
+ * this one function** from the same `rolePermissions`, so the sets are
+ * comparable and an unrecognised key cannot appear on one side only and become a
+ * phantom member.
+ */
+export function effectivePermissions(
+  rolePermissions: readonly string[],
+  grants: readonly string[],
+  revokes: readonly string[],
+): string[] {
+  const revoked = new Set<string>(revokes)
+  const union = new Set<string>([...rolePermissions, ...grants])
+  return [...union].filter((key) => !revoked.has(key))
+}
+
+/**
  * Refuses an operation a caller is aiming at their own account.
  *
  * `phrase` completes "You cannot …", so it carries the verb: `'change your own
@@ -209,10 +234,20 @@ export function addedMembers(current: readonly string[], next: readonly string[]
  * revoking, disabling or deleting yourself, and the roles you would drop by
  * replacing your own set. Those take a second pair of hands.
  *
- * `targetId` is a `CanonicalUserId` on purpose: see the type. An identity-keyed
- * check is only as good as the identity it is given.
+ * **Both** ids are `CanonicalUserId` on purpose: an identity-keyed check is only
+ * as good as the identity it is given, and the original overrides escalation was
+ * a raw path parameter compared against the token `sub` — two spellings of the
+ * same uuid that a string `!==` reads as different accounts. Requiring the brand
+ * on both sides makes the actor `request.access.user.id` (read from the column,
+ * `u.id::text`) rather than the raw `sub`, so a differently-spelled but
+ * uuid-equal id can no longer slip through, and passing the raw claim is a
+ * compile error rather than a silent bypass.
  */
-export function assertNotSelf(actorId: string, targetId: CanonicalUserId, phrase: string): void {
+export function assertNotSelf(
+  actorId: CanonicalUserId,
+  targetId: CanonicalUserId,
+  phrase: string,
+): void {
   if (actorId !== targetId) return
   throw forbidden(`You cannot ${phrase}; another administrator has to.`, 'SELF_MODIFICATION')
 }

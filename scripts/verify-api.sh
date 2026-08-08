@@ -47,6 +47,11 @@ BOT2_EMAIL="verify.bot2@clavis.local"
 # create already carrying a role. It is named so the sweep below can prove it.
 BOT3_USER="verify.bot3"
 BOT3_EMAIL="verify.bot3@clavis.local"
+# A fourth user: a victim for the effective-set escalation. Root gives it the
+# full-catalog `admin` role masked by revoke overrides; a non-root actor then
+# tries to unmask it. Never logs in.
+BOT4_USER="verify.victim"
+BOT4_EMAIL="verify.victim@clavis.local"
 
 # jq-lite: read one field from JSON on stdin.
 jget() { python3 -c "import sys, json
@@ -96,7 +101,7 @@ echo "=== 4. Root creates a user (temporary password) ==="
 api GET '/api/users?limit=500' "$T_ROOT"
 OLD_IDS=$(printf '%s' "$API_BODY" | python3 -c "import sys, json
 items = json.load(sys.stdin)['items']
-print(' '.join(u['id'] for u in items if u['username'] in ('$BOT_USER', '$BOT2_USER', '$BOT3_USER')))")
+print(' '.join(u['id'] for u in items if u['username'] in ('$BOT_USER', '$BOT2_USER', '$BOT3_USER', '$BOT4_USER')))")
 for old_id in $OLD_IDS; do api DELETE "/api/users/$old_id" "$T_ROOT"; done
 api DELETE "/api/access/roles/$BOT_ROLE" "$T_ROOT"
 api DELETE "/api/access/roles/$BOT_ROLE2" "$T_ROOT"
@@ -375,12 +380,54 @@ grants = {o['permissionKey'] for o in json.load(sys.stdin)['overrides'] if o['ef
 print('untouched' if 'users:read' not in grants and 'users:delete' in grants else 'CHANGED')")
 chk "$UNTOUCHED" untouched "the refused write left the target's overrides untouched"
 
+# --- The delta is over the EFFECTIVE set, not the submitted rows. The sharpest
+# escalation a body-shaped rule misses: a victim holding a full-catalog role
+# masked by revoke overrides jumps to the whole catalog when an actor merely
+# EMPTIES the overrides — a dropped revoke is an omission, never a grant row. It
+# must be reproduced by a NON-ROOT access:manage holder, since root
+# short-circuits the guard. Root builds the victim: assign `admin` (the whole
+# catalog), then mask every key with a revoke so the effective set is empty.
+api POST /api/users "$T_ROOT" "{\"email\": \"$BOT4_EMAIL\", \"displayName\": \"Masked Admin\", \"username\": \"$BOT4_USER\", \"credentialMode\": \"temporary_password\", \"temporaryPassword\": \"$BOT_PASSWORD\"}"
+chk "$API_STATUS" 201 "root creates the victim user"
+BOT4_ID=$(printf '%s' "$API_BODY" | jget user.id)
+[ -n "$BOT4_ID" ] && ok "victim id received" || bad "no id came back for the victim"
+api PATCH "/api/users/$BOT4_ID" "$T_ROOT" '{"roles": ["admin"]}'
+chk "$API_STATUS" 200 "root gives the victim the full-catalog admin role"
+api PUT "/api/access/users/$BOT4_ID/overrides" "$T_ROOT" '{"overrides": [{"permissionKey": "access:manage", "effect": "revoke"}, {"permissionKey": "access:read", "effect": "revoke"}, {"permissionKey": "audit:read", "effect": "revoke"}, {"permissionKey": "users:create", "effect": "revoke"}, {"permissionKey": "users:delete", "effect": "revoke"}, {"permissionKey": "users:read", "effect": "revoke"}, {"permissionKey": "users:update", "effect": "revoke"}]}'
+chk "$API_STATUS" 200 "root masks every permission with a revoke"
+api GET "/api/access/users/$BOT4_ID" "$T_ROOT"
+MASKED=$(printf '%s' "$API_BODY" | python3 -c "import sys, json
+print('empty' if len(json.load(sys.stdin)['effectivePermissions']) == 0 else 'NONEMPTY')")
+chk "$MASKED" empty "the victim's effective set is empty while the revokes stand"
+
+# Exploit: emptying the overrides deletes the revokes and unmasks the catalog.
+# The delta over the effective set sees the whole catalog being added; the
+# actor holds only four keys of it, so it is refused.
+api PUT "/api/access/users/$BOT4_ID/overrides" "$T_BOT" '{"overrides": []}'
+chk "$API_STATUS" 403 "emptying the overrides to unmask a full-catalog role"
+chk "$(printf '%s' "$API_BODY" | jget error.code)" PRIVILEGE_ESCALATION "refused as a privilege escalation"
+# refuse-cleanly vs refuse-but-already-wrote are DIFFERENT bugs; only this
+# second assertion tells them apart. The victim must still be masked.
+api GET "/api/access/users/$BOT4_ID" "$T_ROOT"
+STILL=$(printf '%s' "$API_BODY" | python3 -c "import sys, json
+print('empty' if len(json.load(sys.stdin)['effectivePermissions']) == 0 else 'ESCALATED')")
+chk "$STILL" empty "the refused write rolled back: the victim is still masked"
+
+# revoke->grant flip on a key the actor lacks: keep the mask on every other key
+# but flip users:read to a grant. The flip unmasks users:read, which the actor
+# does not hold, so the net effect is still an addition and still refused.
+api PUT "/api/access/users/$BOT4_ID/overrides" "$T_BOT" '{"overrides": [{"permissionKey": "access:manage", "effect": "revoke"}, {"permissionKey": "access:read", "effect": "revoke"}, {"permissionKey": "audit:read", "effect": "revoke"}, {"permissionKey": "users:create", "effect": "revoke"}, {"permissionKey": "users:delete", "effect": "revoke"}, {"permissionKey": "users:read", "effect": "grant"}, {"permissionKey": "users:update", "effect": "revoke"}]}'
+chk "$API_STATUS" 403 "flipping a masking revoke to a grant on a key the actor lacks"
+chk "$(printf '%s' "$API_BODY" | jget error.code)" PRIVILEGE_ESCALATION "refused as a privilege escalation"
+
 echo
 echo "=== 14. Cleanup ==="
 api DELETE "/api/users/$BOT_ID" "$T_ROOT"
 chk "$API_STATUS" 204 "throwaway user deleted"
 api DELETE "/api/users/$BOT2_ID" "$T_ROOT"
 chk "$API_STATUS" 204 "second throwaway user deleted"
+api DELETE "/api/users/$BOT4_ID" "$T_ROOT"
+chk "$API_STATUS" 204 "the masked-admin victim deleted"
 api DELETE "/api/access/roles/$BOT_ROLE" "$T_ROOT"
 chk "$API_STATUS" 204 "throwaway role deleted"
 api DELETE "/api/access/roles/$BOT_ROLE2" "$T_ROOT"

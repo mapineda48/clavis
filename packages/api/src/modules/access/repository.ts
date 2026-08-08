@@ -35,25 +35,38 @@ export async function findOverrideTarget(
   return { id: row.id as CanonicalUserId, isRoot: row.is_root }
 }
 
+/** A user's existing override rows, split by effect. */
+export interface CurrentOverrides {
+  grants: string[]
+  revokes: string[]
+}
+
 /**
- * The permission keys this user already holds as a `grant` override.
+ * The user's existing override rows, split by effect.
  *
- * The overrides write is a full replace and the UI re-sends the whole set, so a
- * grant already in this set is being *preserved*, not introduced: the actor is
- * not handing that capability out, and need not hold it. Only the grants not
- * already here are the newly handed-out ones `assertMayGrant` has to vet — the
- * same delta the role routes compute with `addedMembers`. Revokes never appear:
- * they take a capability away, which is the self check's business, not this
- * one's.
+ * The overrides guard is stated over the change to the *effective* set, so it
+ * needs both halves: the grants AND the revokes. A revoke masks a role
+ * permission, so dropping one — an omission from the full-replace body, not a
+ * submitted grant — unmasks that permission, and the guard only sees it if it
+ * knows the revoke was there. Read on the same executor as the write, so the
+ * "before" it feeds is the state the write is actually replacing.
  */
-export async function currentGrantKeys(db: Executor, userId: CanonicalUserId): Promise<string[]> {
-  const result = await db.query<{ permission_key: string }>(
-    `SELECT permission_key
+export async function currentOverrides(
+  db: Executor,
+  userId: CanonicalUserId,
+): Promise<CurrentOverrides> {
+  const result = await db.query<{ permission_key: string; effect: 'grant' | 'revoke' }>(
+    `SELECT permission_key, effect
        FROM clavis.user_permission_overrides
-      WHERE user_id = $1 AND effect = 'grant'`,
+      WHERE user_id = $1`,
     [userId],
   )
-  return result.rows.map((row) => row.permission_key)
+  const grants: string[] = []
+  const revokes: string[] = []
+  for (const row of result.rows) {
+    ;(row.effect === 'grant' ? grants : revokes).push(row.permission_key)
+  }
+  return { grants, revokes }
 }
 
 /**

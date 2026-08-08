@@ -23,7 +23,8 @@ export interface UserRecord {
 type UserRow = Omit<UserRecord, 'id'> & { id: string }
 
 /**
- * The one place a user id becomes a `CanonicalUserId`.
+ * Where a user id becomes a `CanonicalUserId` in this module (the access module
+ * mints its own from `findOverrideTarget`).
  *
  * `USER_SELECT` reads `u.id::text`, so this is the spelling the column holds —
  * which is exactly what the brand claims and what `assertNotSelf` needs. Going

@@ -9,13 +9,14 @@ import {
   addedMembers,
   assertMayGrant,
   assertNotSelf,
+  effectivePermissions,
   loadAccessContext,
 } from '../../lib/access.js'
 import type { Executor } from '../../lib/executor.js'
 import { mutate } from '../../lib/mutate.js'
 import { badRequest, conflict, forbidden, notFound } from '../../lib/errors.js'
 import { errorResponses } from '../shared/schemas.js'
-import { currentGrantKeys, findOverrideTarget, permissionsForRoles } from './repository.js'
+import { currentOverrides, findOverrideTarget, permissionsForRoles } from './repository.js'
 
 interface IdParamsInput {
   id: string
@@ -240,9 +241,10 @@ export const accessRoutes: FastifyPluginAsync = async (app) => {
         summary: 'Replace the permission exceptions of one user',
         description:
           'The full set is replaced in one write: grants add permissions the roles do not give, ' +
-          'revokes remove permissions they do. Root accepts no overrides; adding a grant the ' +
-          'caller does not hold and the target does not already have is refused (403 ' +
-          'PRIVILEGE_ESCALATION), and nobody may rewrite their own (403 SELF_MODIFICATION).',
+          'revokes remove permissions they do. Root accepts no overrides; any change whose net ' +
+          'effect grants the target a permission the caller does not hold — including dropping a ' +
+          'revoke that masks a role — is refused (403 PRIVILEGE_ESCALATION), and nobody may ' +
+          'rewrite their own (403 SELF_MODIFICATION).',
         security: [{ bearerAuth: [] }],
         params: IdParams,
         body: {
@@ -278,35 +280,43 @@ export const accessRoutes: FastifyPluginAsync = async (app) => {
         throw badRequest(`Unknown permissions: ${unknown.join(', ')}.`, 'UNKNOWN_PERMISSIONS')
       }
 
-      // The shortest path to the effective union in the whole API: a grant
-      // writes one permission key straight onto an account. The grants this
-      // write would ADD are what the rule vets (the full-replace reasoning is
-      // below), computed from the request body here and checked inside the write
-      // transaction below.
-      const requestedGrants = overrides
+      // The two halves of the submitted body — the grants and the revokes of
+      // the state this write would leave behind. Pure, so they are split here;
+      // the effective sets they feed are built inside the transaction below.
+      const nextGrants = overrides
         .filter((override) => override.effect === 'grant')
+        .map((override) => override.permissionKey)
+      const nextRevokes = overrides
+        .filter((override) => override.effect === 'revoke')
         .map((override) => override.permissionKey)
 
       await mutate(app, {
         run: async (client) => {
-          // The current-grants read and the replace share one connection and
-          // commit or roll back together, so a concurrent override write to this
-          // same target cannot change what "already held" means between the read
-          // and the write and slip an unheld grant past the rule. The rule runs
-          // on a DELTA, not the whole set — exactly as the role routes do: PUT
-          // is a full replace and the UI re-sends every existing exception, so a
-          // grant already on the target is being preserved, not introduced. The
-          // actor is not handing that capability out, so it need not be one the
-          // actor holds; checking the whole set instead refused any edit of a
-          // target that already held a grant the actor lacked, or silently
-          // stripped it. Escalation is judged before the self-lockout, so a
-          // self-directed escalation still reports PRIVILEGE_ESCALATION and not
-          // SELF_MODIFICATION; a revoke on your own account is the lockout the
-          // self check catches. Both throw before any row is touched — clean
-          // ROLLBACK, no audit row, no cache bump.
-          const added = addedMembers(await currentGrantKeys(client, target.id), requestedGrants)
-          assertMayGrant(request.access, added)
-          assertNotSelf(request.auth.sub, target.id, 'change your own permission overrides')
+          // The guard is stated over the change to the target's EFFECTIVE set,
+          // not the submitted rows. A rule that only inspected the grant rows
+          // missed the shortest escalation of all: a target holding a
+          // full-catalog role masked by revokes jumps to the whole catalog when
+          // an actor merely empties the overrides — a dropped revoke is an
+          // omission, never a submitted grant, so the body-shaped rule never saw
+          // it. `before` and `after` are the effective set before and after this
+          // write, built from the SAME `rolePerms` through one helper so the two
+          // are comparable, and every input is read on `client` (Postgres, this
+          // transaction) — NEVER the actor-facing cache, whose staleness could
+          // make `before` too large, the delta too small, and the check fail
+          // open under cache warmth. `addedMembers` is then exactly the newly
+          // effective permissions; a preserved grant is in both sides and
+          // contributes nothing, so the over-restriction is gone. Escalation is
+          // judged before the self-lockout, so a self-directed escalation still
+          // reports PRIVILEGE_ESCALATION and not SELF_MODIFICATION. Both throw
+          // before any row is touched — clean ROLLBACK, no audit row, no bump.
+          const targetContext = await loadAccessContext(client, target.id)
+          if (!targetContext) throw notFound('User not found.')
+          const rolePerms = await permissionsForRoles(client, targetContext.roles)
+          const current = await currentOverrides(client, target.id)
+          const before = effectivePermissions(rolePerms, current.grants, current.revokes)
+          const after = effectivePermissions(rolePerms, nextGrants, nextRevokes)
+          assertMayGrant(request.access, addedMembers(before, after))
+          assertNotSelf(request.access.user.id, target.id, 'change your own permission overrides')
 
           await client.query(`DELETE FROM clavis.user_permission_overrides WHERE user_id = $1`, [
             target.id,

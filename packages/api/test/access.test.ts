@@ -9,6 +9,7 @@ import {
   assertMayGrant,
   assertNotSelf,
   contextHasPermission,
+  effectivePermissions,
 } from '../src/lib/access.js'
 import { AppError } from '../src/lib/errors.js'
 
@@ -139,6 +140,60 @@ describe('addedMembers', () => {
   })
 })
 
+describe('effectivePermissions', () => {
+  /** Order-independent comparison: the set is what matters, not the order. */
+  function sameSet(actual: readonly string[], expected: readonly string[]): void {
+    assert.deepEqual([...actual].sort(), [...expected].sort())
+  }
+
+  it('is roles plus grants minus revokes', () => {
+    sameSet(effectivePermissions(['a', 'b'], ['c'], ['b']), ['a', 'c'])
+  })
+
+  it('lets a revoke beat the role that grants the same key', () => {
+    sameSet(effectivePermissions(['a', 'b'], [], ['a']), ['b'])
+  })
+
+  it('lets a revoke beat a grant of the same key: the subtraction is last', () => {
+    sameSet(effectivePermissions([], ['a'], ['a']), [])
+  })
+
+  it('deduplicates a key carried by a role and granted again', () => {
+    sameSet(effectivePermissions(['a'], ['a'], []), ['a'])
+  })
+
+  // The three behaviours the overrides guard depends on, at the helper level:
+  // the whole point is that the delta is stated over THIS set, not the body.
+  it('makes dropping a revoke that masks a role read as an addition', () => {
+    // A full-catalog role fully masked -> empty; drop every revoke -> the
+    // catalog. `addedMembers` over the two is the whole catalog, which is
+    // exactly what the guard must vet — no `grant` row is submitted at all.
+    const catalog = [...PERMISSION_KEYS]
+    const before = effectivePermissions(catalog, [], catalog)
+    const after = effectivePermissions(catalog, [], [])
+    assert.deepEqual(before, [])
+    sameSet(addedMembers(before, after), catalog)
+  })
+
+  it('makes a revoke->grant flip read as an addition', () => {
+    // `k` comes from a role but is revoked (masked); flipping it to a grant
+    // drops the revoke, so it becomes effective — an addition, though the grant
+    // key was never "new" to the body in isolation.
+    const before = effectivePermissions(['k'], [], ['k'])
+    const after = effectivePermissions(['k'], ['k'], [])
+    assert.deepEqual(before, [])
+    assert.deepEqual(addedMembers(before, after), ['k'])
+  })
+
+  it('makes preserving a grant contribute nothing to the delta', () => {
+    // Re-sending an existing grant while adding an unrelated held one: the
+    // preserved key is in both sides, so only the genuinely new key is added.
+    const before = effectivePermissions([], ['held-by-target'], [])
+    const after = effectivePermissions([], ['held-by-target', 'new'], [])
+    assert.deepEqual(addedMembers(before, after), ['new'])
+  })
+})
+
 describe('assertNotSelf', () => {
   // Hex letters on purpose: they are what a case variation can move.
   const target = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d' as CanonicalUserId
@@ -157,7 +212,11 @@ describe('assertNotSelf', () => {
 
   it('lets anybody else through', () => {
     assert.doesNotThrow(() =>
-      assertNotSelf('00000000-0000-0000-0000-000000000002', target, 'delete your own account'),
+      assertNotSelf(
+        '00000000-0000-0000-0000-000000000002' as CanonicalUserId,
+        target,
+        'delete your own account',
+      ),
     )
   })
 
