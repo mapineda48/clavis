@@ -31,7 +31,7 @@ GitHub Actions
      docker compose:
        traefik    :80 :443        the only published ports
        app        nginx SPA       app.clavis.mapineda48.com
-       api        fastify         api.clavis.mapineda48.com (routes under /api)
+       api        express         api.clavis.mapineda48.com (routes under /api)
        keycloak   26.4.0          auth.clavis.mapineda48.com
        valkey     cache, no persistence
                         |

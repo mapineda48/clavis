@@ -1,12 +1,36 @@
-import type { FastifyInstance } from 'fastify'
-import fp from 'fastify-plugin'
 // ioredis is CommonJS: under ESM + NodeNext the default export is not
 // constructible, so the named export is the one to use.
 import { Redis } from 'ioredis'
 import type { AppConfig } from '../config/env.js'
+import type { Logger } from './logger.js'
 
-/** The slice of the configuration this plugin reads. */
-export type CachePluginOptions = Pick<AppConfig, 'VALKEY_URL' | 'CACHE_TTL_SECONDS'>
+/** The slice of the configuration this factory reads. */
+export type CacheOptions = Pick<AppConfig, 'VALKEY_URL' | 'CACHE_TTL_SECONDS'>
+
+/** Cache on Valkey (Redis protocol). */
+export interface Cache {
+  client: Redis
+  get<T>(key: string): Promise<T | null>
+  set(key: string, value: unknown, ttlSeconds?: number): Promise<void>
+  /**
+   * Current version of the namespace (created at 1 when missing).
+   * `null` when it could not be read, **and** while a lost `bumpVersion`
+   * has this namespace marked untrusted: fail closed and bypass the cache
+   * rather than compose a key from a guessed or superseded version.
+   */
+  version(namespace: string): Promise<number | null>
+  /**
+   * INCR of the version: invalidates every derived key.
+   * `null` when the invalidation was lost even after a retry. That also
+   * marks the namespace untrusted in this process, so `version()` answers
+   * `null` and every request resolves from PostgreSQL until a bump lands —
+   * callers cannot undo a committed write, so the cache degrades instead.
+   */
+  bumpVersion(namespace: string): Promise<number | null>
+  ping(): Promise<boolean>
+  /** Quits the connection (falls back to a hard disconnect). */
+  close(): Promise<void>
+}
 
 /** Prefix of the keys that hold the version of each namespace. */
 const VERSION_PREFIX = 'clavis:ver:'
@@ -137,7 +161,7 @@ export function createNamespaceVersions(ops: VersionOps, log: VersionLogger): Na
 }
 
 /**
- * Cache plugin backed by Valkey (Redis protocol).
+ * Cache backed by Valkey (Redis protocol).
  *
  * Invalidation works by *namespace version*: list keys embed the version
  * number, so a `bumpVersion` makes every derived entry stale without having to
@@ -159,85 +183,78 @@ export function createNamespaceVersions(ops: VersionOps, log: VersionLogger): Na
  * namespace stops being read from the cache at all — see
  * `createNamespaceVersions` above for why the callers cannot do that themselves.
  */
-export const cachePlugin = fp<CachePluginOptions>(
-  async (app: FastifyInstance, options) => {
-    const client = new Redis(options.VALKEY_URL, {
-      lazyConnect: false,
-      maxRetriesPerRequest: 3,
-      connectionName: 'clavis-api',
-      enableReadyCheck: true,
-      // Retry with growing backoff, capped at 3 seconds.
-      retryStrategy: (times: number) => Math.min(times * 200, 3000),
-    })
+export function createCache(options: CacheOptions, log: Logger): Cache {
+  const client = new Redis(options.VALKEY_URL, {
+    lazyConnect: false,
+    maxRetriesPerRequest: 3,
+    connectionName: 'clavis-api',
+    enableReadyCheck: true,
+    // Retry with growing backoff, capped at 3 seconds.
+    retryStrategy: (times: number) => Math.min(times * 200, 3000),
+  })
 
-    client.on('error', (error: Error) => {
-      app.log.warn({ err: error }, 'Valkey connection error')
-    })
-    client.on('ready', () => {
-      app.log.info({ url: options.VALKEY_URL }, 'Connected to Valkey')
-    })
+  client.on('error', (error: Error) => {
+    log.warn({ err: error }, 'Valkey connection error')
+  })
+  client.on('ready', () => {
+    log.info({ url: options.VALKEY_URL }, 'Connected to Valkey')
+  })
 
-    const versions = createNamespaceVersions(
-      {
-        read: (key) => client.get(key),
-        createIfAbsent: async (key, value) => {
-          await client.set(key, value, 'NX')
-        },
-        increment: (key) => client.incr(key),
+  const versions = createNamespaceVersions(
+    {
+      read: (key) => client.get(key),
+      createIfAbsent: async (key, value) => {
+        await client.set(key, value, 'NX')
       },
-      app.log,
-    )
+      increment: (key) => client.incr(key),
+    },
+    log,
+  )
 
-    const cache: FastifyInstance['cache'] = {
-      client,
+  return {
+    client,
 
-      async get(key) {
-        try {
-          const raw = await client.get(key)
-          if (raw === null) return null
-          return JSON.parse(raw)
-        } catch (error) {
-          app.log.warn({ err: error, key }, 'Could not read from the cache')
-          return null
-        }
-      },
+    async get(key) {
+      try {
+        const raw = await client.get(key)
+        if (raw === null) return null
+        return JSON.parse(raw)
+      } catch (error) {
+        log.warn({ err: error, key }, 'Could not read from the cache')
+        return null
+      }
+    },
 
-      async set(key, value, ttlSeconds) {
-        const ttl = ttlSeconds ?? options.CACHE_TTL_SECONDS
-        try {
-          await client.set(key, JSON.stringify(value), 'EX', ttl)
-        } catch (error) {
-          app.log.warn({ err: error, key }, 'Could not write to the cache')
-        }
-      },
+    async set(key, value, ttlSeconds) {
+      const ttl = ttlSeconds ?? options.CACHE_TTL_SECONDS
+      try {
+        await client.set(key, JSON.stringify(value), 'EX', ttl)
+      } catch (error) {
+        log.warn({ err: error, key }, 'Could not write to the cache')
+      }
+    },
 
-      version: versions.version,
+    version: versions.version,
 
-      bumpVersion: versions.bumpVersion,
+    bumpVersion: versions.bumpVersion,
 
-      async ping() {
-        try {
-          const pong = await client.ping()
-          return pong === 'PONG'
-        } catch (error) {
-          app.log.warn({ err: error }, 'Valkey is not responding')
-          return false
-        }
-      },
-    }
+    async ping() {
+      try {
+        const pong = await client.ping()
+        return pong === 'PONG'
+      } catch (error) {
+        log.warn({ err: error }, 'Valkey is not responding')
+        return false
+      }
+    },
 
-    app.decorate('cache', cache)
-
-    app.addHook('onClose', async () => {
+    async close() {
       try {
         await client.quit()
       } catch {
         client.disconnect()
       }
-      app.log.info('Valkey connection closed')
-    })
-  },
-  { name: 'clavis-cache' },
-)
-
-export default cachePlugin
+      log.info('Valkey connection closed')
+    },
+  }
+}

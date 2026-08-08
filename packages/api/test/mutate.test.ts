@@ -1,8 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import type { FastifyInstance } from 'fastify'
 import type { PoolClient } from 'pg'
-import { mutate } from '../src/lib/mutate.js'
+import { type MutateDeps, mutate } from '../src/lib/mutate.js'
 
 // The two properties `mutate` exists to guarantee are properties of ORDER, and
 // order is invisible to a typechecker: the audit row has to go on the
@@ -12,7 +11,7 @@ import { mutate } from '../src/lib/mutate.js'
 // assert against a fake that records what happened and in what sequence.
 
 interface Fake {
-  app: FastifyInstance
+  deps: MutateDeps
   /** Every step, in the order it happened. */
   calls: string[]
   /** Every statement, and which executor it ran on. */
@@ -25,7 +24,7 @@ function tag(sql: string): string {
   return (sql.trim().split(/\s+/)[0] ?? '').toLowerCase()
 }
 
-function fakeApp(behaviour: { failAudit?: boolean } = {}): Fake {
+function fakeDeps(behaviour: { failAudit?: boolean } = {}): Fake {
   const calls: string[] = []
   const queries: { on: 'pool' | 'tx'; sql: string }[] = []
 
@@ -44,7 +43,10 @@ function fakeApp(behaviour: { failAudit?: boolean } = {}): Fake {
     },
   } as unknown as PoolClient
 
-  const app = {
+  // Deliberately wider than MutateDeps: the pool-level `query` exists so a
+  // statement that escaped the transaction would be caught (recorded as
+  // 'pool'), which is exactly what the first test asserts never happens.
+  const deps = {
     db: {
       query: async (text: string) => {
         record('pool', text)
@@ -68,15 +70,15 @@ function fakeApp(behaviour: { failAudit?: boolean } = {}): Fake {
         return 2
       },
     },
-  } as unknown as FastifyInstance
+  }
 
-  return { app, calls, queries }
+  return { deps, calls, queries }
 }
 
 describe('mutate', () => {
   it('writes the audit row on the transaction client, never on the pool', async () => {
-    const { app, queries } = fakeApp()
-    await mutate(app, {
+    const { deps, queries } = fakeDeps()
+    await mutate(deps, {
       run: (client) => client.query('UPDATE clavis.users SET status = $1', ['disabled']),
       audit: () => ({ actorId: 'a', action: 'user.updated', entity: 'user', entityId: 'b' }),
       invalidate: 'access',
@@ -90,8 +92,8 @@ describe('mutate', () => {
   })
 
   it('bumps the namespace after COMMIT, and never before', async () => {
-    const { app, calls } = fakeApp()
-    await mutate(app, {
+    const { deps, calls } = fakeDeps()
+    await mutate(deps, {
       run: (client) => client.query('DELETE FROM clavis.users WHERE id = $1', ['b']),
       audit: () => ({ actorId: 'a', action: 'user.deleted', entity: 'user', entityId: 'b' }),
       invalidate: 'access',
@@ -102,9 +104,9 @@ describe('mutate', () => {
   })
 
   it('does not bump when the write itself failed', async () => {
-    const { app, calls } = fakeApp()
+    const { deps, calls } = fakeDeps()
     await assert.rejects(
-      mutate(app, {
+      mutate(deps, {
         run: () => Promise.reject(new Error('constraint violation')),
         audit: () => ({ actorId: 'a', action: 'user.updated', entity: 'user' }),
         invalidate: 'access',
@@ -118,9 +120,9 @@ describe('mutate', () => {
   it('fails the write when the audit row cannot be inserted', async () => {
     // The deliberate trade: in an access-control system an unaudited
     // privileged write is worse than a failed one.
-    const { app, calls } = fakeApp({ failAudit: true })
+    const { deps, calls } = fakeDeps({ failAudit: true })
     await assert.rejects(
-      mutate(app, {
+      mutate(deps, {
         run: (client) => client.query('UPDATE clavis.users SET status = $1', ['disabled']),
         audit: () => ({ actorId: 'a', action: 'user.updated', entity: 'user' }),
         invalidate: 'access',
@@ -133,8 +135,8 @@ describe('mutate', () => {
   })
 
   it('skips the bump when the mutation derives nothing', async () => {
-    const { app, calls } = fakeApp()
-    await mutate(app, {
+    const { deps, calls } = fakeDeps()
+    await mutate(deps, {
       run: (client) => client.query('INSERT INTO clavis.roles (slug) VALUES ($1)', ['x']),
       audit: () => ({ actorId: 'a', action: 'role.created', entity: 'role' }),
       invalidate: null,
@@ -143,9 +145,9 @@ describe('mutate', () => {
   })
 
   it('builds the audit entry from what the write returned', async () => {
-    const { app } = fakeApp()
+    const { deps } = fakeDeps()
     let seen: unknown
-    const result = await mutate(app, {
+    const result = await mutate(deps, {
       run: async () => ({ id: 'generated-id' }),
       audit: (value) => {
         seen = value

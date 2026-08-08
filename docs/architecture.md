@@ -61,43 +61,43 @@ which forces **every relative import to carry the `.js` extension** even though 
 
 | Area | Responsibility |
 |---|---|
-| `src/config/env.ts` | `loadConfig(env)`: validates an environment with **zod** and returns an `AppConfig`, or throws `ConfigError` naming every offending variable. It is the **only** place zod is used. It reads no ambient state and never exits — `src/main.ts` is the only file that touches `process.env` or calls `process.exit`, and `buildServer(config)` passes each plugin the slice it declares as its options. |
-| `src/plugins/` | Fastify plugins that decorate the instance: `db`, `cache`, `storage`, `mailer`, `keycloak-admin`, `bootstrap`, `auth`. All wrapped in `fastify-plugin` so the decorators reach the root scope. |
+| `src/config/env.ts` | `loadConfig(env)`: validates an environment with **zod** and returns an `AppConfig`, or throws `ConfigError` naming every offending variable. It is the **only** place zod is used. It reads no ambient state and never exits — `src/main.ts` is the only file that touches `process.env` or calls `process.exit`, and every factory declares the slice it reads as `Pick<AppConfig, …>`. |
+| `src/infra/` | Framework-free service factories: `logger` (pino), `db` (pg pool + `tx()`, runs the migrations), `cache` (Valkey, namespace versions), `storage` (Azure Blob), `mailer` (Resend or dry-run), `keycloak-admin` (Admin REST over plain `fetch`), and `services.ts`, which builds them all in dependency order and owns `close()`. |
+| `src/http/` | Everything Express-specific: `auth` (the `authenticate` / `requirePermissions` middlewares), `validate` (ajv request validation), `error-handler` (the envelope), `route` (the `RouteDef` registry) and `openapi` (the document and the swagger-ui router, derived from the same registry). |
 | `src/lib/access.ts` | `AccessUser`, `AccessContext`, the single query that resolves a user's effective permissions, the `access` cache namespace and its key format. |
-| `src/plugins/keycloak-admin.ts` | Admin REST client over plain `fetch`: `client_credentials` with the API client's service account, single-flight token cache, and the five user operations the application needs. |
-| `src/plugins/bootstrap.ts` | Runs once at startup: syncs the permission catalog, re-seeds the `admin` system role, links root. |
+| `src/bootstrap/seed.ts` | Runs once at startup, before the listener: syncs the permission catalog, re-seeds the `admin` system role, links root. |
 | `src/lib/errors.ts` | `AppError` with `statusCode` and `code`, plus the `badRequest`, `unauthorized`, `forbidden`, `notFound`, `conflict` helpers. The global *error handler* always answers `{ error: { code, message, statusCode } }`. |
-| `src/modules/` | One directory per domain (`health`, `me`, `users`, `access`, `audit`), each exporting a `FastifyPluginAsync`. |
+| `src/modules/` | One directory per domain (`health`, `me`, `users`, `access`, `audit`), split into layers: `routes.ts` (HTTP), `service.ts` (rules and orchestration), `repository.ts` (SQL), `schemas.ts` (contract + serializer). Modules without rules skip the service; every module keeps SQL out of its routes. |
 | `src/lib/migrator.ts` | Home-grown migrator: reads `migrations/*.sql`, computes a checksum and applies what is pending, on a connection of its own. |
 | `migrations/` | Versioned SQL, `YYYYMMDDHHMMSS_name.sql`, lexicographic order. |
 
-Request validation uses **Fastify's native JSON Schema** (the `schema` property of each route,
-validated by ajv), not zod. That same definition feeds Swagger, so the documentation at `/api/docs`
-cannot drift away from the validation that actually runs.
+Each module is one `ModuleDef`: its OpenAPI tag plus a list of `RouteDef`s. A `RouteDef` is the
+single source for the middleware stack (its `permissions` field wires `authenticate` and
+`requirePermissions`), the ajv validation (its `schema` field) and the OpenAPI operation
+(everything, including `security`, is derived from the same fields). The docs at `/api/docs`
+therefore cannot claim a guard or accept a shape the route does not actually have.
 
-Decorators available across the whole application:
+The layering inside a module is a one-way street:
 
-```ts
-fastify.authenticate                       // preHandler: verifies the Bearer, then resolves the access context
-fastify.requirePermissions(...perms)       // preHandler: logical AND over the permissions; root bypasses
-request.authState                          // { auth, access } — null until `authenticate` has run
-request.auth                               // AuthContext — identity from the token
-request.access                             // AccessContext — user, roles and permissions from the database
-fastify.db                                 // pg pool + query() + tx() + ping()
-fastify.cache                              // ioredis + get/set/version/bumpVersion/ping
-fastify.storage                            // Azure Blob: upload/download/remove/ping
-fastify.keycloakAdmin                      // Admin REST: ready/createUser/findUserByUsername/getUser/
-                                           //   setPassword/sendExecuteActionsEmail/setEnabled/deleteUser
-fastify.mailer                             // Resend or dry-run: send()
+```
+routes.ts      Express request/response: validation, RequestContext, serialization. No SQL, no Keycloak.
+service.ts     The rules: guards, Keycloak orchestration, mutate() with its audit row. No Express.
+repository.ts  The SQL, every function over an Executor. No transactions of its own, no rules.
+schemas.ts     JSON Schemas (documentation + validation) and the serializer they are tested against.
 ```
 
-The split between `request.auth` and `request.access` is the whole architecture in two lines:
-the first comes from the token and answers *who*, the second comes from PostgreSQL and answers
-*what*. Both are getters over `request.authState`, which is `null` until `authenticate` fills it
-in: handlers read them exactly as before, and reading one from a route that forgot
-`app.authenticate` fails there rather than further down on a value that was never set.
+Services receive their dependencies (`db`, `cache`, `keycloakAdmin`) from the composition root
+(`main.ts` → `createServices` → `buildApp`) and take a `RequestContext` — actor id, resolved
+access, request-scoped logger — instead of ever seeing a request object. That is what makes the
+guards unit-testable with plain fakes and keeps queries out of the endpoint layer.
 
-Every connection of `fastify.db`'s pool starts with a `statement_timeout` and an
+The split between `authState.auth` and `authState.access` is the whole architecture in two
+lines: the first comes from the token and answers *who*, the second comes from PostgreSQL and
+answers *what*. `req.authState` is absent until `authenticate` fills it in, and handlers read it
+through `authOf(req)` / `requestContext(req)`, which turn a read on a route that never wired
+authentication into a loud error instead of an `undefined` downstream.
+
+Every connection of the pool behind `db` starts with a `statement_timeout` and an
 `idle_in_transaction_session_timeout` (`DB_STATEMENT_TIMEOUT_MS`,
 `DB_IDLE_IN_TRANSACTION_TIMEOUT_MS`; `0` disables either). The second one is the one that matters
 at the database level: a transaction left open with nothing running pins `backend_xmin`, and
@@ -169,16 +169,16 @@ flowchart TB
 
     SH["@clavis/shared<br/>PERMISSION_DEFS · PermissionKey"]
 
-    subgraph api["@clavis/api — Fastify 5"]
-        AUTH["auth plugin<br/>jose + remote JWKS<br/>authenticate / requirePermissions"]
+    subgraph api["@clavis/api — Express 5"]
+        AUTH["http/auth<br/>jose + remote JWKS<br/>authenticate / requirePermissions"]
         ACC["lib/access<br/>effective permissions"]
-        BOOT["bootstrap plugin<br/>catalog · admin role · root"]
-        KA["keycloak-admin plugin<br/>service account · Admin REST"]
-        MOD["modules<br/>health · me · users · access · audit"]
-        DB["db plugin<br/>pg.Pool · query · tx"]
-        CACHE["cache plugin<br/>ioredis · version per namespace"]
-        STO["storage plugin<br/>@azure/storage-blob"]
-        MAIL["mailer plugin<br/>resend | dry-run"]
+        BOOT["bootstrap/seed<br/>catalog · admin role · root"]
+        KA["infra/keycloak-admin<br/>service account · Admin REST"]
+        MOD["modules (routes → service → repository)<br/>health · me · users · access · audit"]
+        DB["infra/db<br/>pg.Pool · query · tx"]
+        CACHE["infra/cache<br/>ioredis · version per namespace"]
+        STO["infra/storage<br/>@azure/storage-blob"]
+        MAIL["infra/mailer<br/>resend | dry-run"]
         MIG["migrator<br/>migrations/*.sql + checksum"]
     end
 
@@ -222,7 +222,7 @@ flowchart TB
 1. `authenticate` pulls the `Bearer` out of the `Authorization` header.
 2. `jose` verifies the signature (JWKS from the internal issuer), `iss`, `aud` and `exp`, with a
    5-second `clockTolerance`.
-3. `request.auth` is built from `sub`, `preferred_username`, `email` and `name`. **That is all
+3. `authState.auth` is built from `sub`, `preferred_username`, `email` and `name`. **That is all
    the token contributes** — it carries no roles and no permissions.
 4. The **access context** is resolved for that `sub`: read from Valkey under
    `clavis:v<version>:access:user:<sub>`, and on a miss from PostgreSQL in a single query that
@@ -231,8 +231,8 @@ flowchart TB
 5. Two refusals happen here, both `403` because authentication already succeeded: no row in
    `clavis.users` → `USER_NOT_PROVISIONED`; `status = 'disabled'` → `ACCOUNT_DISABLED`. There is
    **no just-in-time provisioning**: an identity does not become a user by showing up.
-6. `request.access` is set, and `last_seen_at` is refreshed fire-and-forget — never worth failing
-   a request over.
+6. `authState.access` is set, and `last_seen_at` is refreshed fire-and-forget — never worth
+   failing a request over.
 7. `requirePermissions(...)` checks the AND of the permissions the route demands (root bypasses);
    on failure it returns `403` with the standard envelope, naming the missing keys.
 8. The handler runs. Every handler that mutates roles, users or overrides bumps the `access`
@@ -435,8 +435,9 @@ Why a version instead of `DEL` by key:
   make atomic.
 - The price is the temporary memory held by dead keys, bounded by the TTL.
 
-Cache failures **degrade to a miss** rather than an error: every operation in the plugin catches,
-logs and falls through to PostgreSQL, so Valkey being down makes the API slower and not broken.
+Cache failures **degrade to a miss** rather than an error: every operation in the cache service
+catches, logs and falls through to PostgreSQL, so Valkey being down makes the API slower and not
+broken.
 
 ---
 
@@ -448,8 +449,8 @@ standard development connection string (`AZURE_STORAGE_CONNECTION_STRING`), whos
 `.env.example`. Swapping Azurite for a real Azure Storage account means changing that string and
 nothing else.
 
-Container: `AZURE_STORAGE_CONTAINER` = `clavis-attachments`, created by the `storage` plugin at
-startup if it does not exist (idempotent). The plugin exposes `upload`, `download`, `remove` and
+Container: `AZURE_STORAGE_CONTAINER` = `clavis-attachments`, created by the `storage` service at
+startup if it does not exist (idempotent). The service exposes `upload`, `download`, `remove` and
 `ping`, and `ping` is one of the four checks behind `GET /api/health/ready`.
 
 **No feature uses it today.** The access-control base has nothing to attach. It stays wired, and
@@ -457,8 +458,9 @@ in the readiness probe, on purpose: it is the piece a business module would need
 a dependency that is only added when it is first needed is a dependency whose Docker wiring,
 health check and production credentials all get debugged under pressure.
 
-`MAX_UPLOAD_BYTES` (10 MiB) still caps the Fastify body limit and `@fastify/multipart`, which cuts
-the stream instead of reading a whole file into memory before rejecting it.
+`MAX_UPLOAD_BYTES` (10 MiB) caps the JSON body limit today (`express.json({ limit })`). The first
+route that accepts a file upload brings its own multipart middleware (multer or busboy) and reuses
+the same ceiling, so the body a client may send never depends on which parser read it.
 
 ---
 
@@ -555,8 +557,8 @@ flowchart LR
     B --> L["listen"]
 ```
 
-Plugin registration order is `db → cache → storage → mailer → keycloak-admin → bootstrap → auth`,
-and every step above is idempotent, so a restart is always safe. `keycloakAdmin.ready()` retries
+Service creation order is `db → cache → storage → mailer → keycloak-admin`, then the seeding,
+then the listener, and every step above is idempotent, so a restart is always safe. `keycloakAdmin.ready()` retries
 the service-account token up to ten times at 1.5-second intervals, because `pnpm dev` outside
 Docker has none of Compose's ordering guarantees.
 

@@ -1,6 +1,13 @@
-import type { FastifyInstance } from 'fastify'
 import type { PoolClient } from 'pg'
+import type { Cache } from '../infra/cache.js'
+import type { Db } from '../infra/db.js'
 import { type AuditEntry, recordAudit } from '../modules/shared/audit.js'
+
+/** What `mutate` needs: the unit of work and the invalidation half of the cache. */
+export interface MutateDeps {
+  db: Pick<Db, 'tx'>
+  cache: Pick<Cache, 'bumpVersion'>
+}
 
 /**
  * One domain write: the statements, the audit row that describes them and the
@@ -32,15 +39,15 @@ export interface Mutation<T> {
  * forces the author to decide. Forgetting the bump produces a bug that is
  * invisible for up to `CACHE_TTL_SECONDS` and then fixes itself.
  */
-export async function mutate<T>(app: FastifyInstance, mutation: Mutation<T>): Promise<T> {
-  const result = await app.db.tx(async (client) => {
+export async function mutate<T>(deps: MutateDeps, mutation: Mutation<T>): Promise<T> {
+  const result = await deps.db.tx(async (client) => {
     const value = await mutation.run(client)
     await recordAudit(client, mutation.audit(value))
     return value
   })
 
   if (mutation.invalidate !== null) {
-    await app.cache.bumpVersion(mutation.invalidate)
+    await deps.cache.bumpVersion(mutation.invalidate)
   }
   return result
 }

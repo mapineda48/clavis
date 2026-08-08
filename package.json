@@ -2,7 +2,7 @@
   "name": "clavis",
   "version": "0.1.0",
   "private": true,
-  "description": "Clavis demo with Keycloak, Fastify, React and Docker Compose",
+  "description": "Clavis demo with Keycloak, Express, React and Docker Compose",
   "packageManager": "pnpm@11.9.0",
   "engines": {
     "node": ">=22.23.1 <23",

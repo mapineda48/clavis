@@ -136,7 +136,7 @@ are in [`architecture.md`](architecture.md#6-public-issuer-vs-internal-issuer).
 | Claim | Use |
 |---|---|
 | `sub` | Identity. It is **the primary key** of `clavis.users`. |
-| `preferred_username`, `email`, `name` | `request.auth`, and the SPA header. |
+| `preferred_username`, `email`, `name` | `authState.auth`, and the SPA header. |
 | `aud` | Must contain `clavis-api`, or the API rejects the token. |
 | `iss` | Must be exactly `http://localhost:8080/realms/clavis`. |
 | `exp`, `iat`, `jti`, `sid`, `azp` | Standard OIDC bookkeeping. Not used for authorization. |
@@ -201,7 +201,7 @@ No Keycloak adapter: plain `jose` against the published JWKS, which is standard 
 work unchanged against Auth0, Entra ID or anything else.
 
 ```ts
-// the essence of src/plugins/auth.ts
+// the essence of src/http/auth.ts
 const jwks = createRemoteJWKSet(
   new URL(`${env.KEYCLOAK_INTERNAL_ISSUER}/protocol/openid-connect/certs`),
   { timeoutDuration: 5000, cooldownDuration: 30000, cacheMaxAge: 600000 },
@@ -227,12 +227,12 @@ In order:
    another application in the same realm would open this API.
 5. **`exp` / `nbf`** within a 5-second `clockTolerance`, which is what keeps a laptop whose
    clock drifted a second from producing spurious `401`s.
-6. `request.auth` is filled with `{ sub, username, email, name, token }` — identity, and nothing
-   else.
+6. `authState.auth` is filled with `{ sub, username, email, name, token }` — identity, and
+   nothing else.
 
 Any failure is a `401` with the standard envelope `{ error: { code, message, statusCode } }`.
 
-**From here on, Keycloak is out of the picture.** The same `preHandler` goes on to resolve the
+**From here on, Keycloak is out of the picture.** The same middleware goes on to resolve the
 access context from PostgreSQL and Valkey, and that is where a `403` can still happen — see
 [access-control.md](access-control.md#request-resolution).
 

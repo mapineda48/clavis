@@ -371,7 +371,7 @@ somebody may do, `FLUSHALL` is the safe first move and a missing
 
 ## 6. Listing Azurite blobs
 
-The storage plugin is wired and health-checked, but **no feature writes to it today** — the
+The storage service is wired and health-checked, but **no feature writes to it today** — the
 access-control base has nothing to store. Expect the container to be empty; the commands are here
 because the first module that needs a file will need them.
 
@@ -915,7 +915,7 @@ There are **two** CORS layers and you have to look at both:
 | Blocked request | Who decides | Where it is fixed |
 |---|---|---|
 | Towards `localhost:8080` (Keycloak) | *Web origins* of the `clavis-app` client | `realm-clavis.template.json`, derived from `APP_DEV_URL` / `APP_PROD_URL`; requires `down -v` |
-| Towards `localhost:3000` (API) | `@fastify/cors` with `CORS_ORIGINS` | `.env` (`APP_DEV_URL`, `APP_PROD_URL`) + `docker compose up -d --force-recreate api` |
+| Towards `localhost:3000` (API) | the `cors` middleware with `CORS_ORIGINS` | `.env` (`APP_DEV_URL`, `APP_PROD_URL`) + `docker compose up -d --force-recreate api` |
 
 ```bash
 docker compose config | grep CORS_ORIGINS

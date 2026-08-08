@@ -51,7 +51,7 @@ const MIGRATION_APPLICATION_NAME = 'clavis-api-migrator'
  */
 const MIGRATIONS_DIR = new URL('../../migrations/', import.meta.url)
 
-/** The subset of the Fastify logger that the migrator needs. */
+/** The subset of the logger that the migrator needs. */
 export interface MigrationLogger {
   info: (obj: Record<string, unknown>, msg: string) => void
   warn: (obj: Record<string, unknown>, msg: string) => void

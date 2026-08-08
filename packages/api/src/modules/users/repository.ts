@@ -1,7 +1,7 @@
-// SQL layer of the users module. Handlers own the flow; this owns the queries.
+// SQL layer of the users module. The service owns the flow; this owns the queries.
 //
 // Every function here takes an `Executor` and never opens a transaction: the
-// caller decides whether the statement runs on its own (`app.db`) or inside a
+// caller decides whether the statement runs on its own (`db`) or inside a
 // transaction it already started (`client`). See `lib/executor.ts`.
 import type { Executor } from '../../lib/executor.js'
 
@@ -95,6 +95,29 @@ export async function insertUser(db: Executor, user: NewUser): Promise<void> {
     [user.id, user.username, user.email, user.displayName],
   )
   await assignRoles(db, user.id, user.roles)
+}
+
+/**
+ * Applies the profile and status fields an update carries.
+ * COALESCE keeps whatever the caller did not send.
+ */
+export async function updateUserFields(
+  db: Executor,
+  id: string,
+  fields: { displayName?: string; status?: 'active' | 'disabled' },
+): Promise<void> {
+  await db.query(
+    `UPDATE clavis.users
+        SET display_name = COALESCE($2, display_name),
+            status = COALESCE($3, status)
+      WHERE id = $1`,
+    [id, fields.displayName ?? null, fields.status ?? null],
+  )
+}
+
+/** Deletes the user row; role assignments and overrides cascade away. */
+export async function deleteUser(db: Executor, id: string): Promise<void> {
+  await db.query(`DELETE FROM clavis.users WHERE id = $1`, [id])
 }
 
 /** Replaces the user's role set. Two statements: run it inside a `tx`. */

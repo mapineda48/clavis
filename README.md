@@ -359,7 +359,7 @@ flowchart LR
     subgraph net["Docker network clavis-net"]
         KCR["keycloak-realm (one-shot)<br/>node:22.23.1-alpine<br/>render-realm.mjs"]
         KC["keycloak :8080<br/>quay.io/keycloak/keycloak:26.4.0"]
-        API["api :3000<br/>@clavis/api (Fastify)"]
+        API["api :3000<br/>@clavis/api (Express)"]
         PG[("postgres :5432<br/>databases clavis + keycloak")]
         VK[("valkey :6379")]
         AZ[("azurite :10000-10002<br/>blob clavis-attachments")]
@@ -617,7 +617,7 @@ This repository is built to produce **exactly the same result** on any machine a
 ├── scripts/                    # end-to-end verification suites and deployment helpers
 └── packages/
     ├── shared/                 # @clavis/shared — the typed permission catalog, imported by both
-    ├── api/                    # @clavis/api — Fastify 5, strict ESM, SQL migrations
+    ├── api/                    # @clavis/api — Express 5, strict ESM, SQL migrations
     └── app/                    # @clavis/app — React 19 + Vite 7 + TanStack Router + keycloak-js
 ```
 

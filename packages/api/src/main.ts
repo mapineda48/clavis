@@ -1,13 +1,22 @@
-import type { FastifyInstance } from 'fastify'
+import { once } from 'node:events'
+import type { Server } from 'node:http'
+import { buildApp } from './app.js'
+import { seedAccessControl } from './bootstrap/seed.js'
 import { ConfigError, loadConfig } from './config/env.js'
-import { buildServer } from './server.js'
+import { type Logger, createLogger } from './infra/logger.js'
+import { type Services, createServices } from './infra/services.js'
 
 /**
- * Process entry point.
+ * Process entry point, and the composition root.
  *
  * This is the only file that reads `process.env` and the only one that calls
- * `process.exit`. Everything below it takes its configuration as an argument,
- * which is what makes `buildServer` parameterisable and `loadConfig` testable.
+ * `process.exit`. Everything below it takes its configuration and its services
+ * as arguments, which is what makes `buildApp` parameterisable and every layer
+ * under it testable in isolation.
+ *
+ * Startup order matters: configuration, logger, infrastructure (the database
+ * factory runs the migrations), boot seeding, and only then the listener —
+ * no request can observe a half-seeded permission catalog.
  */
 
 /** Signals that trigger a graceful shutdown. */
@@ -19,49 +28,66 @@ function displayHost(host: string): string {
 }
 
 /** Wires the graceful shutdown of the server on SIGINT/SIGTERM. */
-function registerShutdownHooks(app: FastifyInstance): void {
+function registerShutdownHooks(server: Server, services: Services, log: Logger): void {
   let shuttingDown = false
 
   for (const signal of SHUTDOWN_SIGNALS) {
     process.once(signal, () => {
       if (shuttingDown) return
       shuttingDown = true
-      app.log.info({ signal }, 'Shutting the API down...')
+      log.info({ signal }, 'Shutting the API down...')
 
-      app
-        .close()
-        .then(() => {
-          app.log.info('API stopped cleanly')
-          process.exit(0)
-        })
-        .catch((error: unknown) => {
-          app.log.error({ err: error }, 'Error during shutdown')
-          process.exit(1)
-        })
+      // `close` waits for in-flight requests but not for idle keep-alive
+      // sockets, which would hold the callback forever; closing those
+      // explicitly is what lets a busy browser tab not block the shutdown.
+      server.close((error?: Error) => {
+        const finish = error
+          ? Promise.reject(error)
+          : services.close().then(() => log.info('API stopped cleanly'))
+        finish
+          .then(() => process.exit(0))
+          .catch((shutdownError: unknown) => {
+            log.error({ err: shutdownError }, 'Error during shutdown')
+            process.exit(1)
+          })
+      })
+      server.closeIdleConnections()
     })
   }
 }
 
 async function main(): Promise<void> {
   const config = loadConfig(process.env)
-  const app = await buildServer(config)
-  registerShutdownHooks(app)
+  const log = createLogger(config)
 
-  try {
-    await app.listen({ host: config.HOST, port: config.PORT })
-    const baseUrl = `http://${displayHost(config.HOST)}:${config.PORT}`
-    app.log.info(
-      { url: baseUrl, docs: `${baseUrl}/api/docs` },
-      `API ready — documentation at ${baseUrl}/api/docs`,
-    )
-  } catch (error) {
-    app.log.error({ err: error }, 'Could not start the server')
-    process.exit(1)
-  }
+  const services = await createServices(config, log)
+  // Seeds the permission catalog, the system role and root before any request.
+  await seedAccessControl(services, config)
+
+  const app = buildApp(config, services)
+  const server = app.listen(config.PORT, config.HOST)
+  // Node's own keep-alive default is 5 seconds; the reverse proxy in front
+  // keeps idle upstream sockets for ~90. An upstream that closes first turns
+  // every reused connection into an intermittent 502/ECONNRESET under real
+  // traffic — which is why Fastify shipped 72 s, restored here. The headers
+  // timeout sits just above it so a request that starts on the connection's
+  // last keep-alive second is not cut off mid-headers.
+  server.keepAliveTimeout = 72_000
+  server.headersTimeout = 73_000
+  // `once` rejects if the server emits `error` first (port in use, bad host),
+  // which lands in the catch below like any other startup failure.
+  await once(server, 'listening')
+  registerShutdownHooks(server, services, log)
+
+  const baseUrl = `http://${displayHost(config.HOST)}:${config.PORT}`
+  log.info(
+    { url: baseUrl, docs: `${baseUrl}/api/docs` },
+    `API ready — documentation at ${baseUrl}/api/docs`,
+  )
 }
 
 main().catch((error: unknown) => {
-  // Failure before a logger is available (configuration, migrations, plugins).
+  // Failure before a logger is available (configuration, migrations, services).
   // A bad environment gets its own report: the list of offending variables is
   // the whole answer, and a stack trace would only bury it.
   if (error instanceof ConfigError) {

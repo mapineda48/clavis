@@ -88,19 +88,53 @@ Every one of these cost a real failure. Do not rediscover them.
   `.js` extension, even though the source is `.ts`.
 - `ioredis` is CommonJS: under ESM you must use the **named** export
   (`import { Redis } from 'ioredis'`); the default export is not constructible.
-- Route validation uses **Fastify JSON Schema**, not zod. `zod` is only used in
-  `src/config/env.ts`.
-- If you declare `response` in a route `schema`, Fastify **serialises and drops** the
-  fields you did not declare. Declare them all, or do not declare `response` at all.
-  The error envelope is registered once with `addSchema` and referenced: use
-  `errorResponses(401, 403, 404)` from `modules/shared/schemas.ts`, not a copy.
+  `ajv-formats` is the same trap in the other direction: Node hands its default
+  binding the function, TypeScript types it as the namespace — the bridge lives in
+  `http/validate.ts`, do not repeat the fight at call sites.
+- The layering is one-way and it is the point of the structure: `routes.ts`
+  (Express, validation, serialization) → `service.ts` (rules, Keycloak
+  orchestration, `mutate()`) → `repository.ts` (SQL over an `Executor`).
+  **No SQL and no Keycloak calls in routes; no Express in services.** Modules
+  without rules (audit, health, me) skip the service layer, they do not fake one.
+- Route validation uses **JSON Schema compiled with ajv** (`http/validate.ts`),
+  not zod. `zod` is only used in `src/config/env.ts`. The ajv options mirror the
+  previous Fastify behaviour on purpose: query/params coerce, defaults fill in,
+  and `additionalProperties: false` **strips** extras instead of rejecting.
+- **Nothing filters a response against its schema at runtime** (that Fastify
+  behaviour is gone): `responses` in a `RouteDef` is documentation, the
+  serializer in `schemas.ts` is the contract, and the unit test comparing them
+  field for field is the guarantee. Add a field in both or that test fails.
+  For error statuses use `errorResponses(401, 403, 404)` from `http/openapi.ts`,
+  not a copy of the `$ref`.
+- A `RouteDef.permissions` field wires the middleware AND documents `security`:
+  `null` = public, `[]` = any authenticated user, keys = authenticated + all of
+  them. There is no separate security annotation to forget.
 - **Configuration is passed, never imported.** `loadConfig(env)` is pure — it
   returns or throws, it does not read `process.env` and it does not exit.
-  `src/main.ts` is the only file that may do either. Plugins take their slice
-  through registration options (`Pick<AppConfig, …>`); a plugin that imports the
+  `src/main.ts` is the only file that may do either. Every factory takes its
+  slice as options (`Pick<AppConfig, …>`); a module that imports the
   configuration puts an exit back behind every import of it.
-- Adding an OpenAPI tag or a route module means adding **one entry** to `MODULES`
-  in `server.ts`, which is read for the tag list and for the registrations.
+- Adding an OpenAPI tag or a route module means adding **one entry** to the
+  `modules` list in `app.ts`, which is read for the routers and for the
+  document (tags and paths).
+- Express 5 exposes `req.query` through a **getter**: assigning it throws and
+  in-place coercion does not stick. `http/validate.ts` validates a copy and
+  shadows the property with `Object.defineProperty` — new middleware that
+  normalises request data must do the same.
+- pino-http's DEFAULT `req` serializer logs **every request header**, and every
+  authenticated request here carries `Authorization: Bearer <live token>` — the
+  default writes a replayable credential into the logs. The slim `req`/`res`
+  serializers in `app.ts` are the fix; removing them reintroduces the leak.
+- Express matches routes case-insensitively and ignores trailing slashes by
+  default, and a Router does **not** inherit the app's settings. The app sets
+  `strict routing` + `case sensitive routing` and `createModuleRouter` passes
+  `{ caseSensitive: true, strict: true }`; a new Router needs the same flags or
+  `/API/users/` quietly becomes an alias.
+- Node's HTTP server closes idle keep-alive sockets after **5 seconds**; the
+  reverse proxy reuses them for ~90. `main.ts` sets `keepAliveTimeout` to 72 s
+  (Fastify's default, the reason this never bit before) with `headersTimeout`
+  just above it — losing that race surfaces as intermittent 502/ECONNRESET
+  under real traffic only.
 - Unit tests live in `packages/api/test/` and run with `node --import tsx --test`
   (`node:test`, no new dependency). They cover **pure logic only** — the live
   stack is `scripts/verify-api.sh`'s job, and it already runs in CI.
@@ -250,9 +284,10 @@ Every one of these cost a real failure. Do not rediscover them.
   instead of showing up as a blank label at runtime. Add the key to `en.ts` first.
 - The Keycloak theme mirrors the same rule: `messages_en.properties` is the reference
   catalogue, `messages_es.properties` must carry every key it has.
-- OpenAPI tag names are shared state. Renaming a tag means renaming it in **every**
-  route that uses it *and* in `MODULES` (`server.ts`); miss one and the docs
-  silently grow a duplicate section.
+- OpenAPI tag names are shared state. Each module declares its tag once, in its
+  `ModuleDef` (`modules/<name>/routes.ts`), and every route in the module is
+  published under it; renaming the tag is that one edit, and the routers and the
+  document cannot disagree because both are derived from the same list.
 - Renaming a documentation file means fixing **every** reference to it across the
   repo (`README.md`, the other docs, this file, source comments). Heading anchors
   change too when the headings change language, so the deep links break with them.
@@ -318,7 +353,7 @@ single variable, use `envval` from `scripts/_common.sh`.
 ## Structure
 
 ```
-packages/api/     Fastify 5 + TypeScript (ESM). Validates the token, resolves access from Postgres.
+packages/api/     Express 5 + TypeScript (ESM). Validates the token, resolves access from Postgres.
 packages/app/     React 19 + Vite + keycloak-js (PKCE S256) + @tanstack/react-router.
 packages/shared/  The typed permission catalog: source of truth for API and SPA.
 infra/keycloak/   Realm template (__VAR__ placeholders) and the custom theme.

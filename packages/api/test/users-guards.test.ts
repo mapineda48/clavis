@@ -2,12 +2,8 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { AppError } from '../src/lib/errors.js'
 import type { AccessContext } from '../src/lib/access.js'
-import {
-  UserSchema,
-  assertMayAssignRoles,
-  selfBlockedFields,
-  serializeUser,
-} from '../src/modules/users/index.js'
+import { UserSchema, serializeUser } from '../src/modules/users/schemas.js'
+import { assertMayAssignRoles, selfBlockedFields } from '../src/modules/users/service.js'
 import type { UserRecord } from '../src/modules/users/repository.js'
 
 function access(permissions: AccessContext['permissions'], isRoot = false): AccessContext {
@@ -108,12 +104,12 @@ describe('serializeUser', () => {
     )
   })
 
-  it('agrees field for field with the response schema that serialises it', () => {
-    // Compared against the real schema, not a copy of its field list. Fastify
-    // serialises against the declared schema and drops anything that is not
-    // there, so a field added to the serializer alone vanishes from every
-    // response without a word — and a field removed from the schema has to
-    // fail here rather than keep a hard-coded list green.
+  it('agrees field for field with the response schema that documents it', () => {
+    // Compared against the real schema, not a copy of its field list. Nothing
+    // filters a response against its schema at runtime any more — the schema
+    // is the published contract, the serializer is what leaves the process —
+    // so this comparison IS the guarantee: a field added to one alone either
+    // ships undocumented or is documented but never sent, and both fail here.
     assert.deepEqual(
       Object.keys(serializeUser(row)).sort(),
       Object.keys(UserSchema.properties).sort(),

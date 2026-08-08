@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { type VersionLogger, createNamespaceVersions } from '../src/plugins/cache.js'
+import { type VersionLogger, createNamespaceVersions } from '../src/infra/cache.js'
 
 // The security-relevant half of the cache is the invalidation, and its failure
 // mode is silent by construction: Valkey is up, the version is readable, and

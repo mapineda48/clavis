@@ -243,19 +243,24 @@ no database migration**: the catalog is not schema.
 ### Step 3 — Require it on the route
 
 ```ts
-app.get('/reports/export', {
-  preHandler: [app.authenticate, app.requirePermissions('reports:export')],
-  schema: { tags: ['reports'], security: [{ bearerAuth: [] }], /* … */ },
-}, handler)
+// one RouteDef inside the module's routes list (modules/reports/routes.ts)
+{
+  method: 'get',
+  path: '/reports/export',
+  summary: 'Export the report',
+  permissions: ['reports:export'],   // wires authenticate + requirePermissions AND documents security
+  responses: { 200: ExportResponse, ...errorResponses(401, 403) },
+  handler: async (req, res) => { /* … */ },
+}
 ```
 
 `requirePermissions` is a **logical AND** over everything it receives, and root bypasses it. On
 failure it answers `403` with `{ error: { code: 'FORBIDDEN', message, statusCode } }`, naming
 the missing keys in the message.
 
-> A new OpenAPI tag, or a whole new routes file, is **one entry** in the `MODULES` array in
-> `packages/api/src/server.ts`: it is read once for the tag list and once for the registrations.
-> There is no second list to keep in step.
+> A new OpenAPI tag, or a whole new module, is **one entry** in the `modules` list in
+> `packages/api/src/app.ts`: the same list builds the routers and the OpenAPI document
+> (tags and paths). There is no second list to keep in step.
 
 ### Step 4 — Use it in the SPA
 
@@ -334,7 +339,7 @@ sequenceDiagram
     C->>A: GET /api/users · Authorization Bearer
     A->>K: JWKS from the internal issuer, cached by jose
     A->>A: jwtVerify: signature, iss, aud, exp
-    A->>A: request.auth = sub, username, email, name, token
+    A->>A: authState.auth = sub, username, email, name, token
     A->>V: read the access namespace version, N
     A->>V: GET clavis:vN:access:user:[sub]
     alt cache miss
@@ -342,7 +347,7 @@ sequenceDiagram
         A->>P: one query: user row + roles + effective permissions
         A->>V: SET clavis:vN:access:user:[sub] with TTL CACHE_TTL_SECONDS
     end
-    A->>A: request.access = user, roles, permissions
+    A->>A: authState.access = user, roles, permissions
     A->>A: requirePermissions('users:read')
     A-->>C: 200, or 403 naming the missing keys
 ```
@@ -351,8 +356,8 @@ The two contexts are deliberately separate objects:
 
 | Property | Filled by | Contains |
 |---|---|---|
-| `request.auth` | The verified token | `sub`, `username`, `email`, `name`, `token` |
-| `request.access` | The database | `user` (id, username, email, displayName, isRoot, status), `roles`, `permissions` |
+| `authState.auth` | The verified token | `sub`, `username`, `email`, `name`, `token` |
+| `authState.access` | The database | `user` (id, username, email, displayName, isRoot, status), `roles`, `permissions` |
 
 ### Two refusals that are not `401`
 
@@ -517,8 +522,8 @@ worse outcome. The response carries `invite: { sent: false, reason: … }` and t
 
 ### Two rules the route table cannot express
 
-`requirePermissions` is a static preHandler: it sees the token and the resolved access context,
-never the body. Two rules therefore live inside the handlers.
+`requirePermissions` is a static middleware: it sees the token and the resolved access context,
+never the body. Two rules therefore live inside the users service.
 
 - **Assigning roles needs `access:manage`** (`403 ROLE_ASSIGNMENT_DENIED`), on `POST` and on
   `PATCH` alike. `users:create` and `users:update` provision people and edit their profile and
@@ -769,9 +774,10 @@ Each of these has cost a real failure.
 
 - **Forgetting `bumpVersion(ACCESS_NAMESPACE)`** on a new mutating route. The change appears to
   work, then does not for up to 60 seconds, then works again.
-- **Declaring a `response` schema without every field.** Fastify serialises against the schema
-  and silently drops what is not declared, so a permission list can come back empty for reasons
-  that are nowhere in the logs.
+- **Letting a serializer and its response schema drift.** Nothing filters a response against its
+  schema at runtime — Express sends whatever the handler returns — so the schema is the published
+  contract and the serializer is what actually leaves the process. The unit tests hold them to
+  each other field for field; add a field in both, or the test that compares them is what fails.
 - **Expecting a new permission to need a realm re-import.** It does not. The realm has no
   business roles at all; anything that reaches for `docker compose down -v` is solving the wrong
   problem.

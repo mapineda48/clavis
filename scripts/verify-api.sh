@@ -226,8 +226,8 @@ api PATCH "/api/users/$BOT_ID" "$T_BOT" "{\"roles\": [\"$BOT_ROLE\"]}"
 chk "$API_STATUS" 403 "changing your own roles"
 chk "$(printf '%s' "$API_BODY" | jget error.code)" SELF_MODIFICATION "refused as a self-modification"
 
-# users:delete is what gets past the preHandler here: without it the 403 would
-# come from the missing permission and prove nothing about the self check.
+# users:delete is what gets past the permission middleware here: without it the
+# 403 would come from the missing permission and prove nothing about the self check.
 api PUT "/api/access/users/$BOT_ID/overrides" "$T_ROOT" '{"overrides": [{"permissionKey": "users:delete", "effect": "grant"}]}'
 chk "$API_STATUS" 200 "the first user is granted users:delete"
 api DELETE "/api/users/$BOT_ID" "$T_BOT"

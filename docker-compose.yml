@@ -217,7 +217,7 @@ services:
       - clavis-net
 
   # ---------------------------------------------------------------------------
-  # Fastify API. The build context is the ROOT of the repo (pnpm monorepo).
+  # Express API. The build context is the ROOT of the repo (pnpm monorepo).
   # ---------------------------------------------------------------------------
   api:
     build:

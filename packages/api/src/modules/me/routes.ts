@@ -1,8 +1,7 @@
 // Profile of the authenticated user: the database truth, not the token.
-import type { FastifyPluginAsync } from 'fastify'
-// Pulls in the @fastify/swagger type augmentation (tags, summary, security inside `schema`).
-import type {} from '@fastify/swagger'
-import { errorResponses } from '../shared/schemas.js'
+import { authOf } from '../../http/auth.js'
+import { errorResponses } from '../../http/openapi.js'
+import type { ModuleDef } from '../../http/route.js'
 
 /** Response schema of /api/me. */
 const MeResponse = {
@@ -35,32 +34,32 @@ const MeResponse = {
   required: ['user', 'roles', 'permissions', 'requestedAt'],
 }
 
-export const meRoutes: FastifyPluginAsync = async (app) => {
-  app.get(
-    '/me',
-    {
-      preHandler: [app.authenticate],
-      schema: {
-        tags: ['profile'],
+export function meModule(): ModuleDef {
+  return {
+    tag: { name: 'profile', description: 'Data about the authenticated user' },
+    routes: [
+      {
+        method: 'get',
+        path: '/me',
         summary: 'Authenticated user profile',
         description:
           'Returns the application user linked to the verified identity together with their ' +
           'roles and effective permissions, so the frontend can decide what it is allowed to show.',
-        security: [{ bearerAuth: [] }],
-        response: {
+        permissions: [],
+        responses: {
           200: MeResponse,
           ...errorResponses(401, 403),
         },
+        handler: async (req, res) => {
+          const { user, roles, permissions } = authOf(req).access
+          res.json({
+            user,
+            roles,
+            permissions,
+            requestedAt: new Date().toISOString(),
+          })
+        },
       },
-    },
-    async (request) => {
-      const { user, roles, permissions } = request.access
-      return {
-        user,
-        roles,
-        permissions,
-        requestedAt: new Date().toISOString(),
-      }
-    },
-  )
+    ],
+  }
 }

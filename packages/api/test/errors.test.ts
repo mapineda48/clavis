@@ -32,8 +32,8 @@ describe('mapSqlState', () => {
     assert.equal(mapSqlState('42P01'), null)
   })
 
-  it('does not mistake a Fastify or Node error code for a SQLSTATE', () => {
-    assert.equal(mapSqlState('FST_ERR_VALIDATION'), null)
+  it('does not mistake an application or Node error code for a SQLSTATE', () => {
+    assert.equal(mapSqlState('VALIDATION_ERROR'), null)
     assert.equal(mapSqlState('ERR_MODULE_NOT_FOUND'), null)
     assert.equal(mapSqlState('ECONNREFUSED'), null)
   })

@@ -5,8 +5,10 @@ packages:
 # pnpm 10+ blocks dependency install scripts (preinstall/install/postinstall) by
 # default. Only the ones that genuinely need them to link their native binary are
 # approved here, explicitly and under version control: esbuild is the one Vite uses
-# underneath.
+# underneath. @scarf/scarf (dragged in by swagger-ui-dist) only phones home
+# install analytics from its postinstall, so it stays blocked deliberately.
 allowBuilds:
+  '@scarf/scarf': false
   esbuild: true
 
 # Packages exempted from the minimum publish-age policy.

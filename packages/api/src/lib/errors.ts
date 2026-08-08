@@ -1,9 +1,7 @@
-import type { FastifyError, FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
-
 /**
  * Application error carrying an HTTP status and a symbolic code.
- * The global handler turns it into the `{ error: { code, message, statusCode } }`
- * envelope.
+ * The global handler (`http/error-handler.ts`) turns it into the
+ * `{ error: { code, message, statusCode } }` envelope.
  */
 export class AppError extends Error {
   readonly statusCode: number
@@ -149,97 +147,6 @@ export interface ErrorEnvelope {
 }
 
 /** Builds the error envelope in a uniform way. */
-function envelope(statusCode: number, code: string, message: string): ErrorEnvelope {
+export function errorEnvelope(statusCode: number, code: string, message: string): ErrorEnvelope {
   return { error: { code, message, statusCode } }
-}
-
-/** Name of the field an ajv error refers to, when it can be determined. */
-function validationFieldName(issue: { instancePath?: string; params?: unknown }): string {
-  if (typeof issue.instancePath === 'string' && issue.instancePath.length > 0) {
-    return issue.instancePath.replace(/^\//, '').replace(/\//g, '.')
-  }
-  if (typeof issue.params === 'object' && issue.params !== null) {
-    const missing = (issue.params as Record<string, unknown>)['missingProperty']
-    if (typeof missing === 'string') return missing
-  }
-  return ''
-}
-
-/** Turns ajv validation errors into a readable message. */
-function formatValidationError(error: FastifyError): string {
-  const context = error.validationContext ? `${error.validationContext}: ` : ''
-  const issues = (error.validation ?? [])
-    .map((issue) => {
-      const field = validationFieldName(issue)
-      const detail = issue.message ?? 'invalid value'
-      return field ? `${field} ${detail}` : detail
-    })
-    .join('; ')
-
-  return `Invalid request data (${context}${issues || 'malformed payload'}).`
-}
-
-/**
- * Installs the global error handler and the not-found handler.
- * Every error response of the API shares the same envelope.
- */
-export function registerErrorHandler(app: FastifyInstance): void {
-  app.setErrorHandler((error: FastifyError, request: FastifyRequest, reply: FastifyReply) => {
-    // 1) Schema validation errors (ajv) -> 400 VALIDATION_ERROR
-    if (error.validation) {
-      const message = formatValidationError(error)
-      request.log.warn({ err: error, url: request.url }, 'Invalid request')
-      return reply.code(400).type('application/json').send(envelope(400, 'VALIDATION_ERROR', message))
-    }
-
-    // 2) Errors raised by the application itself
-    if (error instanceof AppError) {
-      const logPayload = { err: error, code: error.code, url: request.url }
-      if (error.statusCode >= 500) request.log.error(logPayload, error.message)
-      else request.log.warn(logPayload, error.message)
-      return reply
-        .code(error.statusCode)
-        .type('application/json')
-        .send(envelope(error.statusCode, error.code, error.message))
-    }
-
-    // 3) PostgreSQL errors: a constraint violation is a conflict or a bad
-    //    request, never an internal error.
-    const sqlState = mapSqlState(error.code)
-    if (sqlState !== null) {
-      request.log.warn(
-        { err: error, sqlstate: error.code, url: request.url },
-        'Database constraint rejected the request',
-      )
-      return reply
-        .code(sqlState.statusCode)
-        .type('application/json')
-        .send(envelope(sqlState.statusCode, sqlState.code, sqlState.message))
-    }
-
-    // 4) Fastify or plugin errors that already carry a known 4xx status
-    const statusCode = typeof error.statusCode === 'number' ? error.statusCode : 500
-    if (statusCode < 500) {
-      const code = typeof error.code === 'string' && error.code.length > 0 ? error.code : 'BAD_REQUEST'
-      request.log.warn({ err: error, url: request.url }, error.message)
-      return reply
-        .code(statusCode)
-        .type('application/json')
-        .send(envelope(statusCode, code, error.message))
-    }
-
-    // 5) Anything else: 500 without leaking internal details to the client
-    request.log.error({ err: error, url: request.url }, 'Unhandled error')
-    return reply
-      .code(500)
-      .type('application/json')
-      .send(envelope(500, 'INTERNAL_ERROR', 'Internal server error.'))
-  })
-
-  app.setNotFoundHandler((request: FastifyRequest, reply: FastifyReply) => {
-    return reply
-      .code(404)
-      .type('application/json')
-      .send(envelope(404, 'ROUTE_NOT_FOUND', `Route not found: ${request.method} ${request.url}`))
-  })
 }
