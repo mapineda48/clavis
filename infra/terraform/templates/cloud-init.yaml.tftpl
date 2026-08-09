@@ -63,7 +63,11 @@ runcmd:
   - chmod a+r /etc/apt/keyrings/docker.asc
   - echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu noble stable" > /etc/apt/sources.list.d/docker.list
   - apt-get update
-  - apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+  # Pinned, same deal as blobfuse2: Docker's apt repository keeps only a handful
+  # of patch levels, so the pin WILL go stale, and falling back to the newest is
+  # better than a droplet that never finishes booting. The `docker --version`
+  # lines below record what actually landed.
+  - apt-get install -y docker-ce=5:29.7.2-1~ubuntu.24.04~noble docker-ce-cli=5:29.7.2-1~ubuntu.24.04~noble containerd.io=2.3.3-1~ubuntu.24.04~noble docker-buildx-plugin=0.36.1-1~ubuntu.24.04~noble docker-compose-plugin=5.4.0-1~ubuntu.24.04~noble || apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
   - docker --version | tee -a /etc/clavis/versions
   - docker compose version | tee -a /etc/clavis/versions
 

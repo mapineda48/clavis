@@ -48,6 +48,12 @@ is republishing an older pointer. That is not only a preference: a DigitalOcean
 firewall rule takes at most 1000 source CIDRs and GitHub's runner ranges are
 about 7300, so allow-listing runners for SSH is arithmetically impossible.
 
+`deploy.yml` runs after every successful `images.yml`, but the infrastructure is
+down most of the time: a preflight job reads the Terraform state first, and with
+no droplet in it the run skips without publishing anything. After a failed
+publish, use **Re-run all jobs** rather than *Re-run failed jobs*: the latter
+reuses the preflight's recorded result instead of asking the state again.
+
 ---
 
 ## 2. Running it
@@ -57,7 +63,7 @@ Everything is manual, from the Actions tab:
 | Workflow | Input | What happens |
 |---|---|---|
 | **Infra** | `apply` | Creates the droplet, the firewall and the three DNS records. ~2 min, plus ~3 min of cloud-init. |
-| **Deploy** | — | Publishes a bundle and waits for the host to serve it, then runs the smoke test. Runs automatically after **Images**. |
+| **Deploy** | — | Publishes a bundle and waits for the host to serve it, then runs the smoke test. Runs automatically after **Images**; with no droplet in the Terraform state a preflight job skips the run cleanly instead of failing. |
 | **Infra** | `destroy` | Removes the droplet and the records. The certificates and the database survive. |
 
 `Infra apply` on an existing droplet is a no-op unless cloud-init changed, in
