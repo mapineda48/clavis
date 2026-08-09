@@ -1,7 +1,11 @@
 /**
  * Application error carrying an HTTP status and a symbolic code.
  * The global handler (`http/error-handler.ts`) turns it into the
- * `{ error: { code, message, statusCode } }` envelope.
+ * `{ error: { code, message, statusCode, details? } }` envelope.
+ *
+ * `details` is the structured half of the message: the permission keys a 403
+ * is missing, for instance. Raising it here is what publishes it, so nothing
+ * goes into `details` that the caller must not read.
  */
 export class AppError extends Error {
   readonly statusCode: number
@@ -143,10 +147,27 @@ export interface ErrorEnvelope {
     code: string
     message: string
     statusCode: number
+    /**
+     * Machine-readable context for the error, when the raiser attached any.
+     * Optional on purpose: a client reading it must treat its absence as the
+     * normal case, and the shape belongs to the `code`, not to the envelope.
+     */
+    details?: unknown
   }
 }
 
-/** Builds the error envelope in a uniform way. */
-export function errorEnvelope(statusCode: number, code: string, message: string): ErrorEnvelope {
-  return { error: { code, message, statusCode } }
+/**
+ * Builds the error envelope in a uniform way.
+ *
+ * The key is omitted rather than set to `undefined` when there are no
+ * details: `JSON.stringify` drops an undefined value anyway, so writing it
+ * would leave the interface and the wire disagreeing about the field.
+ */
+export function errorEnvelope(
+  statusCode: number,
+  code: string,
+  message: string,
+  details?: unknown,
+): ErrorEnvelope {
+  return { error: { code, message, statusCode, ...(details !== undefined ? { details } : {}) } }
 }

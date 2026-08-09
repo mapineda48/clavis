@@ -18,7 +18,16 @@ export const DOCS_PATH = '/api/docs'
 /** Name of the shared error envelope in `components/schemas`. */
 const ERROR_RESPONSE_NAME = 'ErrorResponse'
 
-/** Global API error envelope: `{ error: { code, message, statusCode } }`. */
+/**
+ * Global API error envelope: `{ error: { code, message, statusCode } }`, plus
+ * the optional `details`.
+ *
+ * `details` carries no `type`: its shape belongs to the `code` that produced
+ * it (a 403 from the escalation guard lists the missing permission keys, a
+ * validation error would list fields), so declaring one here would document a
+ * contract the API does not keep. Only errors the application raised ever
+ * carry it — see `http/error-handler.ts`.
+ */
 const errorEnvelopeSchema = {
   type: 'object',
   properties: {
@@ -28,7 +37,13 @@ const errorEnvelopeSchema = {
         code: { type: 'string', description: 'Stable error code' },
         message: { type: 'string', description: 'Human-readable message' },
         statusCode: { type: 'integer', description: 'HTTP status code' },
+        details: {
+          description:
+            'Optional machine-readable context for this error. Present only when the ' +
+            'error code defines one; its shape depends on that code.',
+        },
       },
+      required: ['code', 'message', 'statusCode'],
     },
   },
 }
@@ -124,11 +139,18 @@ function operationFor(tagName: string, def: RouteDef) {
   }
 }
 
-/** The slice of the configuration the document mentions. */
+/**
+ * The slice of the configuration the document may read.
+ *
+ * Nothing reads it today — the server list became relative — but the
+ * parameter stays: `app.ts` passes the whole configuration, so keeping it is
+ * free, and the next document field that does depend on the environment adds
+ * itself here instead of changing the signature and its call site.
+ */
 export type OpenApiOptions = Pick<AppConfig, 'PORT'>
 
 /** Assembles the whole OpenAPI 3.1 document from the module list. */
-export function buildOpenApiDocument(options: OpenApiOptions, modules: readonly ModuleDef[]) {
+export function buildOpenApiDocument(_options: OpenApiOptions, modules: readonly ModuleDef[]) {
   const paths: Record<string, Record<string, unknown>> = {}
   for (const module of modules) {
     for (const def of module.routes) {
@@ -147,7 +169,13 @@ export function buildOpenApiDocument(options: OpenApiOptions, modules: readonly 
         'resolves what the caller is allowed to do.',
       version: '1.0.0',
     },
-    servers: [{ url: `http://localhost:${options.PORT}`, description: 'Local environment' }],
+    // A RELATIVE server URL, resolved by the client against wherever the
+    // document was served from. The absolute `http://localhost:PORT` it
+    // replaces was only ever right on a developer's machine: behind the
+    // reverse proxy the docs page published a base URL that no browser
+    // outside that host could reach, so every "Try it out" aimed at the
+    // reader's own machine. One entry, correct in both places.
+    servers: [{ url: '/', description: 'This origin' }],
     tags: modules.map((module) => module.tag),
     components: {
       securitySchemes: {

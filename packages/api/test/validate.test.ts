@@ -3,6 +3,9 @@ import { describe, it } from 'node:test'
 import type { Request, Response } from 'express'
 import { validate } from '../src/http/validate.js'
 import { AppError } from '../src/lib/errors.js'
+import { ReplacePermissionsBody } from '../src/modules/access/schemas.js'
+import { SlugParams } from '../src/modules/shared/params.js'
+import { CreateUserBody, ListUsersQuery } from '../src/modules/users/schemas.js'
 
 // The validation middleware inherited Fastify's ajv behaviour on purpose:
 // query strings coerce to the declared types, defaults fill in, and a body
@@ -117,5 +120,74 @@ describe('validate', () => {
     assert.equal(run(validate({ query: LimitQuery }), req), null)
     assert.equal((req.query as { limit?: number }).limit, 7)
     assert.equal(original['limit'], '7')
+  })
+})
+
+// The ceilings, exercised through the REAL schemas rather than a copy of them:
+// a copy would keep passing after the schema it copies has moved. Two things
+// have to hold at once — the payloads the product actually sends are untouched,
+// and the ones that only exist to be expensive are a 400 rather than a slow
+// 200 that walks the list a lookup at a time.
+describe('request schema ceilings', () => {
+  const validUser = {
+    email: 'verify.bot@clavis.local',
+    displayName: 'Verification Bot',
+    username: 'verify.bot',
+    credentialMode: 'temporary_password',
+    temporaryPassword: 's3cret-password',
+  }
+
+  function roleList(count: number): string[] {
+    return Array.from({ length: count }, (_, index) => `role-${index}`)
+  }
+
+  it('leaves a realistic create payload alone, default and all', () => {
+    const req = fakeReq({ body: { ...validUser } })
+    assert.equal(run(validate({ body: CreateUserBody }), req), null)
+    assert.deepEqual(req.body, { ...validUser, roles: [] })
+  })
+
+  it('accepts a role list right up to the ceiling', () => {
+    const req = fakeReq({ body: { ...validUser, roles: roleList(50) } })
+    assert.equal(run(validate({ body: CreateUserBody }), req), null)
+    assert.equal((req.body as { roles: string[] }).roles.length, 50)
+  })
+
+  it('refuses one role past the ceiling', () => {
+    const req = fakeReq({ body: { ...validUser, roles: roleList(51) } })
+    const error = run(validate({ body: CreateUserBody }), req)
+    assert.ok(error)
+    assert.equal(error.statusCode, 400)
+    assert.equal(error.code, 'VALIDATION_ERROR')
+    assert.match(error.message, /roles/)
+  })
+
+  it('refuses a role name no column could hold', () => {
+    const req = fakeReq({ body: { ...validUser, roles: ['r'.repeat(65)] } })
+    const error = run(validate({ body: CreateUserBody }), req)
+    assert.ok(error)
+    assert.equal(error.statusCode, 400)
+  })
+
+  it('refuses a permission list past the ceiling', () => {
+    const permissions = Array.from({ length: 201 }, (_, index) => `demo:${index}`)
+    const error = run(validate({ body: ReplacePermissionsBody }), fakeReq({ body: { permissions } }))
+    assert.ok(error)
+    assert.equal(error.statusCode, 400)
+    assert.match(error.message, /permissions/)
+  })
+
+  it('refuses a slug past the ceiling the role pattern already implies', () => {
+    const error = run(validate({ params: SlugParams }), fakeReq({ params: { slug: 's'.repeat(65) } }))
+    assert.ok(error)
+    assert.equal(error.statusCode, 400)
+  })
+
+  it('still fills the listing default in, DTO binding and all', () => {
+    // `ListUsersQuery` gained `required: []` when it was bound to its DTO.
+    // Coercion and defaults are what that must not have disturbed.
+    const req = fakeReq({ query: { junk: 'stripped' } })
+    assert.equal(run(validate({ query: ListUsersQuery }), req), null)
+    assert.deepEqual(req.query, { limit: 100 })
   })
 })

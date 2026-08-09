@@ -109,14 +109,32 @@ describe('buildOpenApiDocument', () => {
     })
   })
 
+  it('documents details as the one optional field of the error envelope', () => {
+    // The handler fills it only for errors the application raised, so a
+    // client has to treat its absence as the normal case. It carries no
+    // `type` on purpose: the shape belongs to the error code.
+    const error = doc.components.schemas.ErrorResponse.properties.error
+    assert.deepEqual(error.required, ['code', 'message', 'statusCode'])
+    assert.ok(error.properties.details)
+    assert.equal(error.properties.details.type, undefined)
+    assert.equal(typeof error.properties.details.description, 'string')
+  })
+
   it('publishes 204 without content, as the status demands', () => {
     const response = doc.paths['/api/users/{id}'].delete.responses['204']
     assert.equal(response.content, undefined)
     assert.equal(typeof response.description, 'string')
   })
 
-  it('mentions the configured port in the server list', () => {
-    assert.deepEqual(doc.servers, [{ url: 'http://localhost:3000', description: 'Local environment' }])
+  it('publishes a single relative server, not the local host', () => {
+    // Resolved by the client against wherever the document was served from,
+    // so the same document is right in dev and behind the production proxy.
+    // An absolute http://localhost:PORT pointed every reader's "Try it out"
+    // at their own machine.
+    assert.deepEqual(doc.servers, [{ url: '/', description: 'This origin' }])
+    for (const server of doc.servers) {
+      assert.ok(!/^https?:/i.test(server.url), 'the server list must not hardcode an origin')
+    }
   })
 })
 

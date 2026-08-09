@@ -22,6 +22,18 @@ import { type Services, createServices } from './infra/services.js'
 /** Signals that trigger a graceful shutdown. */
 const SHUTDOWN_SIGNALS: NodeJS.Signals[] = ['SIGINT', 'SIGTERM']
 
+/**
+ * How long the shutdown waits for in-flight requests before it stops asking.
+ *
+ * `server.close` calls back only once the LAST connection is gone, so a single
+ * request stuck on a slow dependency holds the whole shutdown open until the
+ * orchestrator loses patience and sends SIGKILL — and SIGKILL skips
+ * `services.close()`, so the pool and Valkey never close, only the kernel does.
+ * Cutting the stragglers here is worse for that one request and better for
+ * everything else, because it is what lets the normal cleanup path run at all.
+ */
+const FORCE_CLOSE_TIMEOUT_MS = 10_000
+
 /** Human-friendly host for the log links (0.0.0.0 is not browsable). */
 function displayHost(host: string): string {
   return host === '0.0.0.0' || host === '::' ? 'localhost' : host
@@ -52,6 +64,18 @@ function registerShutdownHooks(server: Server, services: Services, log: Logger):
           })
       })
       server.closeIdleConnections()
+
+      // `unref` is what makes this safe to schedule unconditionally: a shutdown
+      // that finishes in 50 ms must not sit here for ten seconds waiting for a
+      // timer, and an unref'd one cannot be the last handle keeping the event
+      // loop alive.
+      setTimeout(() => {
+        log.warn(
+          { timeoutMs: FORCE_CLOSE_TIMEOUT_MS },
+          'Requests still in flight after the grace period; closing the remaining connections',
+        )
+        server.closeAllConnections()
+      }, FORCE_CLOSE_TIMEOUT_MS).unref()
     })
   }
 }

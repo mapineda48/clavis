@@ -50,8 +50,15 @@ function dispatch(error: unknown, options: { headersSent?: boolean } = {}): Sent
 }
 
 /** The envelope's error object, asserted to exist. */
-function envelopeOf(sent: Sent): { code: string; message: string; statusCode: number } {
-  const body = sent.body as { error?: { code: string; message: string; statusCode: number } }
+function envelopeOf(sent: Sent): {
+  code: string
+  message: string
+  statusCode: number
+  details?: unknown
+} {
+  const body = sent.body as {
+    error?: { code: string; message: string; statusCode: number; details?: unknown }
+  }
   assert.ok(body?.error, 'the response must carry the error envelope')
   return body.error
 }
@@ -66,6 +73,26 @@ describe('errorHandler', () => {
       statusCode: 403,
     })
     assert.equal(sent.logged[0]?.level, 'warn')
+  })
+
+  it('publishes the details an AppError carries', () => {
+    // What `requirePermissions` and `assertMayGrant` attach: the caller can
+    // name the missing keys without parsing the message.
+    const error = new AppError(403, 'FORBIDDEN', 'Not enough permissions.', {
+      missing: ['users:create'],
+    })
+    const sent = dispatch(error)
+    assert.equal(sent.status, 403)
+    assert.deepEqual(envelopeOf(sent).details, { missing: ['users:create'] })
+  })
+
+  it('omits details entirely for an AppError that carries none', () => {
+    const sent = dispatch(new AppError(404, 'NOT_FOUND', 'User not found.'))
+    assert.deepEqual(envelopeOf(sent), {
+      code: 'NOT_FOUND',
+      message: 'User not found.',
+      statusCode: 404,
+    })
   })
 
   it('logs a 5xx AppError as an error, not a warning', () => {
@@ -102,6 +129,31 @@ describe('errorHandler', () => {
     assert.equal(envelopeOf(sent).code, 'ALREADY_EXISTS')
     // The pg detail names constraint and value; the envelope must not.
     assert.ok(!envelopeOf(sent).message.includes('duplicate key'))
+  })
+
+  it('never publishes details for an error the application did not raise', () => {
+    // Only the AppError branch forwards them. A pg error, a body-parser error
+    // and a middleware error all describe internals — constraint and table
+    // names, paths, values — and those stay in the log.
+    const pgError = Object.assign(new Error('duplicate key value'), {
+      code: '23505',
+      detail: 'Key (email)=(root@clavis.local) already exists.',
+      details: { table: 'clavis.users', constraint: 'users_email_key' },
+    })
+    const bodyError = Object.assign(new SyntaxError('Unexpected token'), {
+      type: 'entity.parse.failed',
+      statusCode: 400,
+      details: { body: '{"secret":' },
+    })
+    const passthrough = Object.assign(new Error('Failed to decode param'), {
+      statusCode: 400,
+      details: { path: '/api/users/%ZZ' },
+    })
+
+    for (const error of [pgError, bodyError, passthrough]) {
+      const envelope = envelopeOf(dispatch(error))
+      assert.ok(!('details' in envelope), `${envelope.code} leaked details`)
+    }
   })
 
   it('keeps the status of an error that already carries a 4xx', () => {

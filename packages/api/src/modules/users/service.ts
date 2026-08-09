@@ -14,11 +14,11 @@ import {
   assertNotSelf,
   contextHasPermission,
 } from '../../lib/access.js'
+import { recordAuditBestEffort } from '../../lib/audit.js'
 import type { RequestContext } from '../../lib/context.js'
 import { AppError, badRequest, conflict, forbidden, notFound } from '../../lib/errors.js'
 import { mutate } from '../../lib/mutate.js'
-import { permissionsForRoles } from '../access/repository.js'
-import { recordAuditBestEffort } from '../shared/audit.js'
+import { lockUserRow, permissionsForRoles } from '../access/repository.js'
 import {
   deleteUser as deleteUserRow,
   findUser,
@@ -151,14 +151,15 @@ export function createUsersService(deps: UsersServiceDeps): UsersService {
       // account and signing in as it: `admin` carries the whole catalog, and an
       // actor holding those two keys does not.
       //
-      // Unlike the two pure-database writers (overrides, role permissions) this
-      // check reads on `db`, NOT inside the write transaction, and it must: it
-      // has to run before Keycloak is touched, so an authorization refusal
-      // never creates then compensates an external identity — and the row write
-      // cannot enclose that Keycloak call (no network I/O in `tx`). The check
-      // and the write are therefore necessarily separated by the Keycloak round
-      // trip and cannot share a transaction. The resulting read-then-write
-      // window is bounded by the model: a role can only carry a key some
+      // This check reads on `db`, NOT inside the write transaction, and it
+      // must: it has to run before Keycloak is touched, so an authorization
+      // refusal never creates then compensates an external identity — and the
+      // row write cannot enclose that Keycloak call (no network I/O in `tx`).
+      // `update()` has the same constraint and answers it by vetting twice,
+      // outside as a fast path and again under the row lock; here there is no
+      // row to lock and no concurrent editor of a user that does not exist yet,
+      // so this single check is the whole of it. The read-then-write window it
+      // leaves is bounded by the model: a role can only carry a key some
       // authorised author already gave it.
       if (roles.length > 0) {
         assertMayGrant(ctx.access, await permissionsForRoles(db, roles))
@@ -252,10 +253,14 @@ export function createUsersService(deps: UsersServiceDeps): UsersService {
     async update(ctx, id, input) {
       const existing = await findEditableUser(id)
 
-      const blocked = selfBlockedFields(input)
-      if (blocked.length > 0) {
-        assertNotSelf(ctx.access.user.id, existing.id, `change your own ${blocked.join(' or ')}`)
-      }
+      // Everything down to the Keycloak call is a FAST-PATH refusal. It runs
+      // outside the transaction because it has to run before the `setEnabled`
+      // flip: an authorization refusal must never flip an external system and
+      // then compensate it. It reads on `db` and is therefore inherently stale
+      // by the time the write happens — the authoritative version of the roles
+      // vet is the one inside the transaction below, which locks the row first.
+      // What this half buys is that a request that was never going to be allowed
+      // is refused before Keycloak is touched at all.
       const nextRoles = input.roles === undefined ? undefined : [...new Set(input.roles)]
       if (nextRoles !== undefined) {
         assertMayAssignRoles(ctx.access)
@@ -268,16 +273,19 @@ export function createUsersService(deps: UsersServiceDeps): UsersService {
         // role the actor does not hold the permissions of stays possible. The
         // delta runs after the slugs are known to exist, because resolving them
         // to permissions is a query against those very rows.
-        //
-        // Like create() and unlike the two pure-database writers, this reads on
-        // `db` rather than inside the write transaction, and must: the check
-        // has to precede the Keycloak status flip below (an authorization
-        // refusal must not flip then compensate an external system), and the
-        // write cannot enclose that Keycloak call (no network I/O in `tx`).
-        // The read-then-write window is inherent and bounded by the model — a
-        // role can only carry a key some authorised author gave it.
         const added = addedMembers(existing.roles, nextRoles)
         assertMayGrant(ctx.access, await permissionsForRoles(db, added))
+      }
+
+      // The capability questions are judged before the self-lockout, the order
+      // the overrides writer already uses. A self-directed role change therefore
+      // answers ROLE_ASSIGNMENT_DENIED or PRIVILEGE_ESCALATION rather than
+      // SELF_MODIFICATION: the same shaped attempt gets the same code whichever
+      // route it came through, instead of one that depends on which guard this
+      // handler happened to run first.
+      const blocked = selfBlockedFields(input)
+      if (blocked.length > 0) {
+        assertNotSelf(ctx.access.user.id, existing.id, `change your own ${blocked.join(' or ')}`)
       }
 
       // Keycloak first, so a refusal leaves the database untouched. Outside the
@@ -295,6 +303,44 @@ export function createUsersService(deps: UsersServiceDeps): UsersService {
       try {
         await mutate(deps, {
           run: async (client) => {
+            if (nextRoles !== undefined) {
+              // The authoritative vet, and the reason the one above is only a
+              // fast path. Both checks exist because neither alone is enough:
+              // that one has to precede the Keycloak flip, this one has to be
+              // the state the write actually replaces.
+              //
+              // The lock closes two windows the outside read leaves open. Two
+              // concurrent PATCHes of this user interleave under READ COMMITTED
+              // — the second computes its delta against a role list the first
+              // already replaced, so it re-adds roles it never vetted and
+              // silently discards the first write. And the delta itself was
+              // computed from a snapshot taken before a Keycloak round trip,
+              // which is unbounded in time. Locking the row and re-reading
+              // through `findUser` makes both the delta and the write derive
+              // from the same pinned row.
+              //
+              // It also serialises this writer against the overrides writer:
+              // both now take `FOR UPDATE` on the same `clavis.users` row, so a
+              // role assignment and an override edit aimed at one person can no
+              // longer vet each against a state the other is replacing.
+              //
+              // What the lock does not pin is `role_permissions`: resolving the
+              // added slugs reads rows whose writer serialises on the role row,
+              // not on this user row. That is the same residue the overrides
+              // writer carries, and the same bound covers it — a role only ever
+              // holds keys some authorised author granted it.
+              //
+              // `is_root` is not re-read: it is set at boot seeding and by
+              // nothing in the request path, so the check in `findEditableUser`
+              // does not go stale. The roles do, which is the whole point here.
+              await lockUserRow(client, existing.id)
+              const current = await findUser(client, existing.id)
+              if (!current) throw notFound('User not found.')
+
+              const added = addedMembers(current.roles, nextRoles)
+              assertMayGrant(ctx.access, await permissionsForRoles(client, added))
+            }
+
             if (input.displayName !== undefined || input.status !== undefined) {
               await updateUserFields(client, existing.id, {
                 ...(input.displayName !== undefined ? { displayName: input.displayName } : {}),
@@ -318,7 +364,9 @@ export function createUsersService(deps: UsersServiceDeps): UsersService {
         // Compensation, the mirror of the one on creation: Keycloak has already
         // been flipped and the database has not, so without this the two
         // systems disagree permanently — Keycloak refusing to authenticate
-        // somebody the application still lists as active, or the reverse.
+        // somebody the application still lists as active, or the reverse. It
+        // covers the in-transaction refusal above as well: a 403 raised after
+        // the flip is a failed write like any other, and the flip goes back.
         if (statusChanged) {
           await keycloakAdmin
             .setEnabled(existing.id, existing.status === 'active')

@@ -234,6 +234,14 @@ items = json.load(sys.stdin)['items']
 print('absent' if all(u['username'] != '$BOT3_USER' for u in items) else 'present')")
 chk "$LEFTOVER" absent "the refused creation left no user behind"
 
+# access:manage is what gets past the role-assignment gate here: that check
+# now runs AHEAD of the self check (escalation outranks lockout everywhere),
+# so without it the 403 would be ROLE_ASSIGNMENT_DENIED and prove nothing
+# about the self check. The role sent is the one the user already holds, so
+# the privilege delta is empty and the refusal can only be about the target
+# being the caller — the same construction as the overrides case below.
+api PUT "/api/access/users/$BOT_ID/overrides" "$T_ROOT" '{"overrides": [{"permissionKey": "users:update", "effect": "grant"}, {"permissionKey": "access:manage", "effect": "grant"}]}'
+chk "$API_STATUS" 200 "the first user is granted users:update and access:manage"
 api PATCH "/api/users/$BOT_ID" "$T_BOT" "{\"roles\": [\"$BOT_ROLE\"]}"
 chk "$API_STATUS" 403 "changing your own roles"
 chk "$(printf '%s' "$API_BODY" | jget error.code)" SELF_MODIFICATION "refused as a self-modification"

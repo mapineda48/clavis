@@ -66,7 +66,7 @@ which forces **every relative import to carry the `.js` extension** even though 
 | `src/http/` | Everything Express-specific: `auth` (the `authenticate` / `requirePermissions` middlewares), `validate` (ajv request validation), `error-handler` (the envelope), `route` (the `RouteDef` registry) and `openapi` (the document and the swagger-ui router, derived from the same registry). |
 | `src/lib/access.ts` | `AccessUser`, `AccessContext`, the single query that resolves a user's effective permissions, the `access` cache namespace and its key format. |
 | `src/bootstrap/seed.ts` | Runs once at startup, before the listener: syncs the permission catalog, re-seeds the `admin` system role, links root. |
-| `src/lib/errors.ts` | `AppError` with `statusCode` and `code`, plus the `badRequest`, `unauthorized`, `forbidden`, `notFound`, `conflict` helpers. The global *error handler* always answers `{ error: { code, message, statusCode } }`. |
+| `src/lib/errors.ts` | `AppError` with `statusCode` and `code`, plus the `badRequest`, `unauthorized`, `forbidden`, `notFound`, `conflict` helpers. The global *error handler* always answers `{ error: { code, message, statusCode } }`, with an optional `details` field when the application error carries structured context (for example the `missing` permission list on a 403). |
 | `src/modules/` | One directory per domain (`health`, `me`, `users`, `access`, `audit`), split into layers: `routes.ts` (HTTP), `service.ts` (rules and orchestration), `repository.ts` (SQL), `schemas.ts` (contract + serializer). Modules without rules skip the service; every module keeps SQL out of its routes. |
 | `src/lib/migrator.ts` | Home-grown migrator: reads `migrations/*.sql`, computes a checksum and applies what is pending, on a connection of its own. |
 | `migrations/` | Versioned SQL, `YYYYMMDDHHMMSS_name.sql`, lexicographic order. |
@@ -458,9 +458,11 @@ in the readiness probe, on purpose: it is the piece a business module would need
 a dependency that is only added when it is first needed is a dependency whose Docker wiring,
 health check and production credentials all get debugged under pressure.
 
-`MAX_UPLOAD_BYTES` (10 MiB) caps the JSON body limit today (`express.json({ limit })`). The first
-route that accepts a file upload brings its own multipart middleware (multer or busboy) and reuses
-the same ceiling, so the body a client may send never depends on which parser read it.
+`MAX_UPLOAD_BYTES` (10 MiB) is the ceiling reserved for file uploads. It no longer bounds JSON
+bodies: those are capped by `JSON_BODY_LIMIT_BYTES` (128 KiB by default), because a JSON body is
+parsed whole on the event loop while an upload will stream past it — two different costs, two
+different ceilings. The first route that accepts a file upload brings its own multipart middleware
+(multer or busboy) and reuses `MAX_UPLOAD_BYTES`.
 
 ---
 

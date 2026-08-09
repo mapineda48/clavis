@@ -1,4 +1,5 @@
 // Response schema of the audit module and the serializer that produces it.
+import type { RequestSchema } from '../shared/params.js'
 import { toIso } from '../shared/serialize.js'
 import type { AuditRow } from './repository.js'
 
@@ -6,9 +7,11 @@ export interface ListQueryInput {
   limit?: number
 }
 
-export const ListAuditQuery = {
+// The only thing this module accepts, and it was already bounded on both ends.
+export const ListAuditQuery: RequestSchema<ListQueryInput> = {
   type: 'object',
   additionalProperties: false,
+  required: [],
   properties: {
     limit: { type: 'integer', minimum: 1, maximum: 200, default: 50 },
   },

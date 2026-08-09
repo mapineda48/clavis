@@ -4,6 +4,7 @@
 // the serializer is what actually leaves the process, and the unit tests
 // assert they agree field for field — nothing at runtime filters a response
 // against its schema any more, so the test is the guarantee.
+import type { RequestSchema } from '../shared/params.js'
 import { toIso } from '../shared/serialize.js'
 import type { UserRecord } from './repository.js'
 
@@ -80,7 +81,11 @@ export const InviteSchema = {
   required: ['sent', 'reason'],
 }
 
-export const CreateUserBody = {
+// Every array and string a body accepts carries a ceiling. The body size limit
+// refuses the megabyte; these refuse the thousand-element list that fits under
+// it and still costs a role lookup each. The numbers are absurd-payload
+// territory on purpose — a realistic user carries a handful of roles.
+export const CreateUserBody: RequestSchema<CreateUserInput> = {
   type: 'object',
   additionalProperties: false,
   required: ['email', 'displayName', 'credentialMode'],
@@ -94,7 +99,7 @@ export const CreateUserBody = {
       pattern: '^[a-z0-9._-]+$',
       description: 'Defaults to the local part of the email',
     },
-    roles: { type: 'array', items: { type: 'string' }, default: [] },
+    roles: { type: 'array', items: { type: 'string', maxLength: 64 }, maxItems: 50, default: [] },
     credentialMode: {
       type: 'string',
       enum: ['temporary_password', 'invite'],
@@ -106,20 +111,24 @@ export const CreateUserBody = {
   },
 }
 
-export const UpdateUserBody = {
+export const UpdateUserBody: RequestSchema<UpdateUserInput> = {
   type: 'object',
   additionalProperties: false,
+  // No field is mandatory on its own, but a patch that changes nothing is not
+  // a patch: `minProperties` is what says so.
+  required: [],
   minProperties: 1,
   properties: {
     displayName: { type: 'string', minLength: 1, maxLength: 255 },
     status: { type: 'string', enum: ['active', 'disabled'] },
-    roles: { type: 'array', items: { type: 'string' } },
+    roles: { type: 'array', items: { type: 'string', maxLength: 64 }, maxItems: 50 },
   },
 }
 
-export const ListUsersQuery = {
+export const ListUsersQuery: RequestSchema<ListQueryInput> = {
   type: 'object',
   additionalProperties: false,
+  required: [],
   properties: {
     limit: { type: 'integer', minimum: 1, maximum: 500, default: 100 },
   },

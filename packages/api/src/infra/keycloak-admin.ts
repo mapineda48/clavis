@@ -125,24 +125,71 @@ export function createKeycloakAdmin(options: KeycloakAdminOptions, log: Logger):
     return body.access_token
   }
 
-  async function token(): Promise<string> {
-    if (cached && cached.staleAt > Date.now()) return cached.value
+  /**
+   * The service-account token, and whether it came from the cache.
+   *
+   * `fromCache` is what tells a 401 apart afterwards: a token this call just
+   * minted is authoritative, a cached one may have been invalidated behind
+   * our back.
+   */
+  async function token(): Promise<{ value: string; fromCache: boolean }> {
+    if (cached && cached.staleAt > Date.now()) return { value: cached.value, fromCache: true }
     // Single flight: concurrent callers share one refresh.
     refreshing ??= requestToken().finally(() => {
       refreshing = null
     })
-    return refreshing
+    return { value: await refreshing, fromCache: false }
+  }
+
+  /**
+   * Drops the token that just failed and returns a usable one.
+   *
+   * The entry is cleared only if it is still the one that failed: a
+   * concurrent 401 may already have replaced it, and discarding that fresh
+   * token would send every other in-flight retry back to the token endpoint
+   * for nothing. `token()` then either hands back that replacement or joins
+   * the single refresh in flight, so a burst of 401s costs one grant.
+   */
+  async function replaceToken(used: string): Promise<string> {
+    if (cached?.value === used) cached = null
+    return (await token()).value
   }
 
   async function adminFetch(path: string, init: RequestInit = {}): Promise<Response> {
-    const response = await fetch(`${adminBase}${path}`, {
-      ...init,
-      headers: {
-        Authorization: `Bearer ${await token()}`,
-        'Content-Type': 'application/json',
-        ...init.headers,
-      },
-    })
+    const url = `${adminBase}${path}`
+    const send = (bearer: string): Promise<Response> =>
+      fetch(url, {
+        ...init,
+        headers: {
+          Authorization: `Bearer ${bearer}`,
+          'Content-Type': 'application/json',
+          ...init.headers,
+        },
+      })
+
+    const { value, fromCache } = await token()
+    let response = await send(value)
+
+    // Keycloak can stop honouring a token before `staleAt` — a realm restart,
+    // a revoked session — and the cache has no way to hear about it: without
+    // this, every admin call answers 502 until the timer runs out on its own.
+    // A 401 on a CACHED token is that signal, so the token is dropped and the
+    // request replayed once. A token we minted for this very call answering
+    // 401 is a real authorization failure (the service account lost a role),
+    // which a retry would only double; and no other status is retried,
+    // because a 409 or a 500 means Keycloak read the request. Replaying is
+    // safe here because every body this client sends is a string.
+    if (response.status === 401 && fromCache) {
+      // Release the discarded response: an undici body left unread holds its
+      // socket out of the connection pool.
+      await response.body?.cancel().catch(() => undefined)
+      log.warn(
+        { path },
+        'Keycloak rejected the cached service-account token; retrying with a new one',
+      )
+      response = await send(await replaceToken(value))
+    }
+
     if (!response.ok) {
       throw new KeycloakAdminError(response.status, await readErrorMessage(response))
     }

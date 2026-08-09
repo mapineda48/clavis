@@ -90,20 +90,24 @@ export function buildApp(config: AppConfig, services: Services): express.Express
     }),
   )
 
-  // --- CORS: frontend origins only; X-Cache must be readable by the browser.
+  // --- CORS: frontend origins only.
   app.use(
     cors({
       origin: config.CORS_ORIGINS,
       credentials: true,
       methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
       allowedHeaders: ['Content-Type', 'Authorization'],
-      exposedHeaders: ['X-Cache'],
     }),
   )
 
-  // JSON bodies only. The ceiling is the same one uploads will get: a body
-  // nobody can parse into anything useful should not be buffered either.
-  app.use(express.json({ limit: config.MAX_UPLOAD_BYTES }))
+  // JSON bodies only, on their own ceiling rather than the upload one. The two
+  // limits bound different resources: a JSON body is buffered whole and parsed
+  // on the event loop, so its ceiling is how much CPU one request can claim
+  // before anything has authenticated it, while an upload streams past the
+  // parser to storage and can afford to be orders of magnitude larger. Sharing
+  // MAX_UPLOAD_BYTES meant raising the file limit quietly raised the parsing
+  // one with it.
+  app.use(express.json({ limit: config.JSON_BODY_LIMIT_BYTES }))
 
   const auth = createAuth(config, { db, cache, log })
 

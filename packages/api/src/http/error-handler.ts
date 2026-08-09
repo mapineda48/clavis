@@ -6,6 +6,12 @@ import { AppError, errorEnvelope, mapSqlState } from '../lib/errors.js'
  * the `{ error: { code, message, statusCode } }` envelope. Both are mounted
  * LAST in `app.ts` — Express dispatches in registration order, so anything
  * that falls through every router lands here.
+ *
+ * Only branch 1 fills the envelope's optional `details`. An `AppError` was
+ * built by this codebase, so whatever it attached was written to be read by
+ * the caller; the details of everything else — a body-parser error, a pg
+ * error, a middleware error — describe our internals (constraint and table
+ * names, paths, values) and stay in the log.
  */
 
 /** The shape of the errors `body-parser` (express.json) raises. */
@@ -87,7 +93,9 @@ export const errorHandler: ErrorRequestHandler = (error: unknown, req, res, next
     const logPayload = { err: error, code: error.code, url }
     if (error.statusCode >= 500) req.log.error(logPayload, error.message)
     else req.log.warn(logPayload, error.message)
-    res.status(error.statusCode).json(errorEnvelope(error.statusCode, error.code, error.message))
+    res
+      .status(error.statusCode)
+      .json(errorEnvelope(error.statusCode, error.code, error.message, error.details))
     return
   }
 

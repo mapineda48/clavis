@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { mapSqlState } from '../src/lib/errors.js'
+import { errorEnvelope, forbidden, mapSqlState } from '../src/lib/errors.js'
 
 // A pg error carries no `statusCode`, so anything this mapper does not
 // recognise comes back to the caller as 500 INTERNAL_ERROR: the caller's
@@ -64,5 +64,57 @@ describe('mapSqlState', () => {
       assert.ok(!/clavis\./.test(message), `${code} leaks a schema name`)
       assert.ok(!/_key|_pkey|_fkey/.test(message), `${code} leaks a constraint name`)
     }
+  })
+})
+
+// The envelope is the API's error contract: the SPA matches on `code`, and
+// `details` is the machine-readable half a client can act on (which
+// permission keys a 403 is missing). What matters is that the key is ABSENT,
+// not `undefined`, when there is nothing to say — a client testing
+// `'details' in error` must not see one that carries nothing.
+
+describe('errorEnvelope', () => {
+  it('builds the base envelope without a details key', () => {
+    const envelope = errorEnvelope(404, 'NOT_FOUND', 'Resource not found.')
+    assert.deepEqual(envelope, {
+      error: { code: 'NOT_FOUND', message: 'Resource not found.', statusCode: 404 },
+    })
+    assert.ok(!('details' in envelope.error))
+  })
+
+  it('publishes details when the raiser attached them', () => {
+    const envelope = errorEnvelope(403, 'FORBIDDEN', 'Not enough permissions.', {
+      missing: ['users:create'],
+    })
+    assert.deepEqual(envelope, {
+      error: {
+        code: 'FORBIDDEN',
+        message: 'Not enough permissions.',
+        statusCode: 403,
+        details: { missing: ['users:create'] },
+      },
+    })
+  })
+
+  it('does not write the key for an explicit undefined', () => {
+    // `JSON.stringify` drops an undefined value anyway; writing it would
+    // leave the declared interface and the wire disagreeing.
+    const envelope = errorEnvelope(500, 'INTERNAL_ERROR', 'Internal server error.', undefined)
+    assert.ok(!('details' in envelope.error))
+  })
+
+  it('keeps falsy details, which are still details', () => {
+    for (const details of [null, 0, false, '']) {
+      const envelope = errorEnvelope(400, 'BAD_REQUEST', 'Bad request.', details)
+      assert.equal(envelope.error.details, details)
+    }
+  })
+
+  it('carries what the AppError factories attach', () => {
+    // The path the escalation guard in lib/access.ts and requirePermissions
+    // in http/auth.ts both take.
+    const error = forbidden('You cannot grant that.', 'FORBIDDEN', { missing: ['access:manage'] })
+    const envelope = errorEnvelope(error.statusCode, error.code, error.message, error.details)
+    assert.deepEqual(envelope.error.details, { missing: ['access:manage'] })
   })
 })

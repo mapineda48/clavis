@@ -1,6 +1,7 @@
 // Request/response schemas of the access module and the role serializer.
 // Same contract as the users module: schemas document, serializers produce,
 // and nothing at runtime filters one against the other.
+import type { RequestSchema } from '../shared/params.js'
 import type { RoleRow } from './repository.js'
 
 export interface OverrideInput {
@@ -54,10 +55,16 @@ export const CatalogResponse = {
   required: ['permissions', 'roles'],
 }
 
-export const OverrideSchema = {
+/**
+ * One override, in both directions: it is what `PUT .../overrides` accepts and
+ * what `GET .../access` publishes, so it is declared once. The `maxLength` only
+ * bites on the way in — nothing filters a response — and it is far above the
+ * longest key the catalog declares.
+ */
+export const OverrideSchema: RequestSchema<OverrideInput> = {
   type: 'object',
   properties: {
-    permissionKey: { type: 'string' },
+    permissionKey: { type: 'string', maxLength: 128 },
     effect: { type: 'string', enum: ['grant', 'revoke'] },
   },
   required: ['permissionKey', 'effect'],
@@ -76,16 +83,20 @@ export const UserAccessResponse = {
   required: ['userId', 'username', 'isRoot', 'roles', 'overrides', 'effectivePermissions'],
 }
 
-export const ReplaceOverridesBody = {
+// The ceilings on these three sit far above the product on purpose: the
+// catalog declares single-digit permission counts, so a body naming two
+// hundred of them is not a use case. What they buy is the absurd list being
+// refused before `assertMayGrant` resolves it a key at a time.
+export const ReplaceOverridesBody: RequestSchema<ReplaceOverridesInput> = {
   type: 'object',
   additionalProperties: false,
   required: ['overrides'],
   properties: {
-    overrides: { type: 'array', items: OverrideSchema },
+    overrides: { type: 'array', items: OverrideSchema, maxItems: 200 },
   },
 }
 
-export const CreateRoleBody = {
+export const CreateRoleBody: RequestSchema<CreateRoleInput> = {
   type: 'object',
   additionalProperties: false,
   required: ['slug', 'name'],
@@ -93,16 +104,21 @@ export const CreateRoleBody = {
     slug: { type: 'string', pattern: '^[a-z][a-z0-9-]{1,63}$' },
     name: { type: 'string', minLength: 1, maxLength: 255 },
     description: { type: 'string', maxLength: 1000 },
-    permissions: { type: 'array', items: { type: 'string' }, default: [] },
+    permissions: {
+      type: 'array',
+      items: { type: 'string', maxLength: 128 },
+      maxItems: 200,
+      default: [],
+    },
   },
 }
 
-export const ReplacePermissionsBody = {
+export const ReplacePermissionsBody: RequestSchema<ReplacePermissionsInput> = {
   type: 'object',
   additionalProperties: false,
   required: ['permissions'],
   properties: {
-    permissions: { type: 'array', items: { type: 'string' } },
+    permissions: { type: 'array', items: { type: 'string', maxLength: 128 }, maxItems: 200 },
   },
 }
 

@@ -1,7 +1,7 @@
 import type { PoolClient } from 'pg'
 import type { Cache } from '../infra/cache.js'
 import type { Db } from '../infra/db.js'
-import { type AuditEntry, recordAudit } from '../modules/shared/audit.js'
+import { type AuditEntry, recordAudit } from './audit.js'
 
 /** What `mutate` needs: the unit of work and the invalidation half of the cache. */
 export interface MutateDeps {

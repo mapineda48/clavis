@@ -6,7 +6,12 @@
 // silently miss a privileged change is not a trail. The trade is deliberate —
 // an `audit_log` insert failure now fails the user's write, and in an
 // access-control system an unaudited privileged write is the worse of the two.
-import type { Executor } from '../../lib/executor.js'
+//
+// It lives in `lib/` rather than under `modules/` because `lib/mutate.ts` — the
+// base every module's writes go through — depends on it, and the layering here
+// is one-way: modules build on `lib`, never the reverse. From `modules/shared/`
+// this one import inverted that for the whole project.
+import type { Executor } from './executor.js'
 
 /** Entry persisted into `clavis.audit_log`. */
 export interface AuditEntry {

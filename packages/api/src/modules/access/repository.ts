@@ -194,6 +194,26 @@ export async function lockUserRow(db: Executor, userId: CanonicalUserId): Promis
 }
 
 /**
+ * Locks the role row for the length of the caller's transaction.
+ *
+ * The role-permissions writer takes it first, for the same two reasons the
+ * overrides writer locks the user row: it serialises two administrators editing
+ * THIS role at once — otherwise the second write silently discards the first, a
+ * lost update independent of security — and it pins the role's current
+ * permission set, so the "already there" the delta is computed from cannot
+ * shift between the read and the write.
+ *
+ * Returns whether the row is still there. A role a concurrent
+ * `DELETE /access/roles/:slug` removed has to surface as a 404: without the
+ * answer the writer would go on to delete rows that are already gone and commit
+ * an audit entry for a role that no longer exists.
+ */
+export async function lockRoleRow(db: Executor, slug: string): Promise<boolean> {
+  const result = await db.query(`SELECT 1 FROM clavis.roles WHERE slug = $1 FOR UPDATE`, [slug])
+  return result.rows.length > 0
+}
+
+/**
  * Replaces the full override set of one user.
  * Two statements that belong together: run it inside a `tx`.
  */

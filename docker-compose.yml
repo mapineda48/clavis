@@ -236,7 +236,12 @@ services:
       keycloak:
         condition: service_healthy
     environment:
-      NODE_ENV: production
+      # Not `production`: under NODE_ENV=production the API refuses the
+      # development-default secrets this stack runs on (loadConfig's fail-safe).
+      # Not `development` either: the image strips devDependencies, so the
+      # pino-pretty transport that mode loads is not installed. `test` keeps
+      # NDJSON logging and skips the production refusal.
+      NODE_ENV: test
       # Inside the container the port is always 3000; API_PORT only changes the
       # port published on the host.
       API_PORT: "3000"

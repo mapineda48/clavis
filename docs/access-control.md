@@ -255,8 +255,8 @@ no database migration**: the catalog is not schema.
 ```
 
 `requirePermissions` is a **logical AND** over everything it receives, and root bypasses it. On
-failure it answers `403` with `{ error: { code: 'FORBIDDEN', message, statusCode } }`, naming
-the missing keys in the message.
+failure it answers `403` with `{ error: { code: 'FORBIDDEN', message, statusCode, details } }`,
+naming the missing keys in the message and carrying them as a list in `details.missing`.
 
 > A new OpenAPI tag, or a whole new module, is **one entry** in the `modules` list in
 > `packages/api/src/app.ts`: the same list builds the routers and the OpenAPI document
@@ -445,6 +445,16 @@ matters:
   request; the next successful bump clears it. The mark lives in memory because the only thing
   that could record it in Valkey is the call that just failed.
 
+**That mark is per process, and the residue is worth stating rather than leaving to be
+discovered.** The instance that lost the bump stops trusting the namespace; the other instances
+know nothing about it. They read the version they can still read and go on serving the entries
+built from it, so a permission change that is already committed in PostgreSQL can stay invisible
+to them for up to `CACHE_TTL_SECONDS`. It is bounded — an unbounded staleness is the thing
+versioned keys exist to prevent, and the TTL is the backstop — and it is deliberate, because the
+only place that could record the mark for everybody is the Valkey call that just failed. It is
+not zero, though, and none of the guards further down this page speak to it: they decide whether
+a write is allowed, not how quickly every replica sees it.
+
 ---
 
 <a id="user-lifecycle"></a>
@@ -592,6 +602,61 @@ Three things follow from that shape.
   in as it.
 - **The self check is not what stops escalation any more.** It stops lockout. The two guards are
   independent: the delta rule ignores identity, and the identity rule ignores the permission set.
+
+The **order** of the refusals is uniform too, and deliberately so: the capability questions come
+first — may you assign roles at all, and does this edit hand out something you do not hold — and
+the identity question comes last. A self-directed escalation therefore answers
+`403 PRIVILEGE_ESCALATION` (or `403 ROLE_ASSIGNMENT_DENIED`, when the caller may not assign roles
+at all) rather than `403 SELF_MODIFICATION`, whichever door it came through. The same shaped
+attempt gets the same code instead of one that depends on which guard the handler happened to run
+first.
+
+<a id="writer-discipline"></a>
+
+#### Where the check runs, and what makes "already there" true
+
+A delta rule is only as good as the state it was computed from. All three tables are replaced
+whole, so every writer has to compare the body against what is *already there* — and that is a
+read another administrator can invalidate before the write lands. PostgreSQL runs at READ
+COMMITTED, where every statement takes its own snapshot: two `PUT`s on the same role interleave,
+the second computes its delta against a set the first has already replaced, and it re-adds —
+unvetted — exactly what the first removed, on top of the plain lost update of overwriting somebody
+else's edit. Running the check "inside the transaction" is not by itself enough to stop that; a
+transaction is not a lock.
+
+The discipline is therefore the same at every writer, and it is one rule:
+
+> **Lock the anchor row, then compute and vet the delta inside the transaction that writes it.**
+
+| Route | Row locked `FOR UPDATE` | Delta computed against |
+|---|---|---|
+| `PUT /api/access/users/:id/overrides` | the target's `clavis.users` row | the target's effective set, re-read under the lock |
+| `PUT /api/access/roles/:slug/permissions` | the `clavis.roles` row | the role's current keys, re-read under the lock |
+| `PATCH /api/users/:id` with `roles` | the target's `clavis.users` row | the target's current roles, re-read under the lock |
+| `POST /api/access/roles` | *(nothing to lock)* | nothing: a new role starts empty, so its whole set is added |
+| `POST /api/users` | *(nothing to lock)* | nothing: a new account starts empty, and no request can be editing a user that does not exist yet |
+
+The two `users:*` routes carry a constraint the pure-database writers do not: their check has to
+precede the Keycloak call, because an authorization refusal must never flip an external system and
+then compensate it — and the transaction cannot enclose that call, since no network I/O may happen
+inside a `tx`. `PATCH` answers it by vetting **twice**: once outside, as a fast-path refusal before
+Keycloak is touched at all, and once under the row lock, which is the authoritative one. Neither
+alone is both early enough and current enough.
+
+Locking the same `clavis.users` row has a second effect worth naming: it serialises the two routes
+that can raise one person's permissions — role assignment and per-user exceptions — against each
+other, so neither vets against a state the other is in the middle of replacing.
+
+Existence is rechecked under the lock as well. The `404` that opens each of these handlers ran
+outside the transaction, and a `DELETE` of that user or role can commit in between; without the
+recheck the write would replace rows that are already gone and audit an edit to something that no
+longer exists.
+
+What no lock here pins is `role_permissions` while a *user* is being edited: resolving the added
+slugs into keys reads rows whose own writer serialises on the role row instead. That residue is
+deliberate, and it is bounded by set algebra rather than by locking — a role only ever holds keys
+some authorised author granted it, so a delta computed across a concurrent role edit comes out too
+large, never too small.
 
 <a id="self-check-limits"></a>
 
@@ -792,7 +857,7 @@ them, the same way the user list hides the status, role and delete controls on o
 ## 10. The executable specification
 
 `scripts/verify-api.sh` is the document that cannot go stale. It walks the model from the
-outside, against the running stack, in 99 assertions:
+outside, against the running stack, in 100 assertions:
 
 ```bash
 ./scripts/verify-api.sh
@@ -851,7 +916,9 @@ Each of these has cost a real failure.
   without [the delta check](#privilege-delta).** Those three tables are one union; a writer that
   does not share the guard is a way around it, and that is precisely how the two live escalations
   happened. Call `assertMayGrant` on what the edit adds, before any Keycloak call or database
-  write.
+  write — and compute that delta under the anchor row's lock, inside the transaction that writes
+  it, or the state it was computed from is one a concurrent editor can replace
+  ([how the writers do it](#writer-discipline)).
 - **Comparing a user id from a path parameter against the caller's `sub`.** PostgreSQL compares
   uuids and JavaScript compares strings, so `'A1B2…'` and `'a1b2…'` are the same row and two
   different values. `assertNotSelf` takes a `CanonicalUserId`, which only a repository can

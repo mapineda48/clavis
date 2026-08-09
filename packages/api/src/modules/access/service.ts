@@ -24,6 +24,7 @@ import {
   listOverrides,
   listPermissions,
   listRoles,
+  lockRoleRow,
   lockUserRow,
   permissionsForRoles,
   replaceOverrides,
@@ -141,12 +142,12 @@ export function createAccessService(deps: AccessServiceDeps): AccessService {
           // The row lock serialises two administrators editing THIS user's
           // overrides at once and pins the target's own grants/revokes for the
           // reads below. It does NOT make the whole `before` snapshot-consistent:
-          // `rolePerms` reads `role_permissions`, which the role-permissions
-          // writer locks instead of this user row, so the role contribution can
-          // still straddle a concurrent role edit. That residue stays covered by
-          // the set-algebra bound — a role only carries keys some authorised
-          // author granted, so `before` can never exceed the target's real state
-          // and the delta can never come out too small.
+          // `rolePerms` reads `role_permissions`, and the writer of that table
+          // serialises on the role row rather than on this user row, so the role
+          // contribution can still straddle a concurrent role edit. That residue
+          // stays covered by the set-algebra bound — a role only carries keys
+          // some authorised author granted, so `before` can never exceed the
+          // target's real state and the delta can never come out too small.
           await lockUserRow(client, target.id)
 
           const targetContext = await loadAccessContext(client, target.id)
@@ -210,6 +211,10 @@ export function createAccessService(deps: AccessServiceDeps): AccessService {
     },
 
     async replaceRolePermissions(ctx, slug, permissionInput) {
+      // Fast refusals, outside the transaction on purpose: they answer 404 and
+      // 403 without ever opening one. Neither reads state the write depends on —
+      // `is_system` only changes at boot, and the existence this checks is
+      // rechecked under the lock below, which is where it has to hold.
       const role = await findRole(db, slug)
       if (!role) throw notFound('Role not found.')
       if (role.is_system) throw forbidden('System roles are managed at boot.', 'SYSTEM_ROLE')
@@ -224,11 +229,26 @@ export function createAccessService(deps: AccessServiceDeps): AccessService {
           // included, which is how this write escalated with no self-id anywhere
           // in the request. The delta keeps it usable: only the keys this edit
           // ADDS have to be held, so reducing a role, or resaving one you hold in
-          // part, still goes through. The current set is read on the SAME
-          // connection as the replace and vetted here, so the check and the
-          // write commit or roll back as one — a concurrent edit cannot change
-          // what "already there" means between the read and the write. A refusal
-          // throws before any row is touched: clean ROLLBACK, no audit, no bump.
+          // part, still goes through. A refusal throws before any row is touched:
+          // clean ROLLBACK, no audit, no bump.
+          //
+          // The row lock is what makes "already there" mean anything, and it is
+          // taken FIRST. Reading the current set on the transaction client is not
+          // enough on its own: under READ COMMITTED every statement takes a fresh
+          // snapshot, so a concurrent PUT on this same role commits between this
+          // read and the DELETE below. The second writer then vets its body
+          // against a set that no longer exists — re-adding, unvetted, whatever
+          // the first one removed — on top of the plain lost update of
+          // overwriting it. The lock serialises the two: the loser waits for the
+          // winner to commit and computes its delta from what the winner left.
+          //
+          // The existence check is repeated under the lock because the 404 above
+          // ran outside this transaction and `DELETE /access/roles/:slug` can
+          // commit in between. Without it, a body that adds nothing would delete
+          // rows that are already gone and commit an audit entry describing an
+          // edit to a role that does not exist.
+          if (!(await lockRoleRow(client, slug))) throw notFound('Role not found.')
+
           const added = addedMembers(await permissionsForRoles(client, [slug]), permissions)
           assertMayGrant(ctx.access, added)
 

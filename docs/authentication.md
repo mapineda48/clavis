@@ -230,7 +230,8 @@ In order:
 6. `authState.auth` is filled with `{ sub, username, email, name, token }` — identity, and
    nothing else.
 
-Any failure is a `401` with the standard envelope `{ error: { code, message, statusCode } }`.
+Any failure is a `401` with the standard envelope `{ error: { code, message, statusCode } }`
+(plus an optional `details` field on errors that carry structured context).
 
 **From here on, Keycloak is out of the picture.** The same middleware goes on to resolve the
 access context from PostgreSQL and Valkey, and that is where a `403` can still happen — see

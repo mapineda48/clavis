@@ -169,6 +169,16 @@ Every one of these cost a real failure. Do not rediscover them.
   or database write. A new route that writes any of those tables inherits the
   rule or reopens the hole: leaving one writer ungated is exactly the asymmetry
   that shipped two live escalations at once.
+- **The vet is only as good as the snapshot it reads.** Every writer of those
+  tables locks its anchor row (`lockUserRow` / `lockRoleRow`, `FOR UPDATE`) and
+  vets the delta INSIDE the transaction that writes — under READ COMMITTED an
+  unlocked read lets a concurrent edit change what "already there" means between
+  the read and the write (lost update, and a stale delta that vets too little).
+  `POST /users` is the one exception (no row exists yet, nothing to lock);
+  `PATCH /users/:id` keeps an additional fast-path vet before its Keycloak call
+  so an authorization refusal never flips then compensates an external system.
+  Refusal precedence is uniform: escalation (`PRIVILEGE_ESCALATION`,
+  `ROLE_ASSIGNMENT_DENIED`) is judged before lockout (`SELF_MODIFICATION`).
 - **`assertNotSelf` covers only the removal/lockout direction** — self-revoke,
   self-disable, self-delete, dropping your own roles — on `PATCH /users/:id`
   (`roles`, `status`), `DELETE /users/:id` and
