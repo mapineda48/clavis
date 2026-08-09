@@ -47,7 +47,8 @@ export function usersModule(deps: UsersServiceDeps): ModuleDef {
           'Registers the user in Keycloak first (which assigns the id and owns the credentials), ' +
           'then sets the temporary password and stores the application user and their roles. ' +
           'If any of those fails the Keycloak user is deleted again, so the two systems cannot ' +
-          'drift on creation. A non-empty `roles` additionally requires `access:manage`.',
+          'drift on creation. A non-empty `roles` additionally requires `access:manage`, and ' +
+          'may not carry permissions the caller does not hold (403 PRIVILEGE_ESCALATION).',
         permissions: ['users:create'],
         schema: { body: CreateUserBody },
         responses: {
@@ -70,8 +71,9 @@ export function usersModule(deps: UsersServiceDeps): ModuleDef {
         summary: 'Update a user: profile, status or roles',
         description:
           'Disabling a user also disables them in Keycloak. The root user cannot be edited here. ' +
-          'Changing `roles` additionally requires `access:manage`, and nobody may change their ' +
-          'own roles or status.',
+          'Changing `roles` additionally requires `access:manage`, the roles it ADDS may not ' +
+          'carry permissions the caller does not hold (403 PRIVILEGE_ESCALATION), and nobody ' +
+          'may change their own roles or status.',
         permissions: ['users:update'],
         schema: { params: IdParams, body: UpdateUserBody },
         responses: {

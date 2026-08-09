@@ -9,12 +9,15 @@ import { type KeycloakAdmin, KeycloakAdminError } from '../../infra/keycloak-adm
 import {
   ACCESS_NAMESPACE,
   type AccessContext,
+  addedMembers,
+  assertMayGrant,
   assertNotSelf,
   contextHasPermission,
 } from '../../lib/access.js'
 import type { RequestContext } from '../../lib/context.js'
 import { AppError, badRequest, conflict, forbidden, notFound } from '../../lib/errors.js'
 import { mutate } from '../../lib/mutate.js'
+import { permissionsForRoles } from '../access/repository.js'
 import { recordAuditBestEffort } from '../shared/audit.js'
 import {
   deleteUser as deleteUserRow,
@@ -143,6 +146,24 @@ export function createUsersService(deps: UsersServiceDeps): UsersService {
       if (unknownRoles.length > 0) {
         throw badRequest(`Unknown roles: ${unknownRoles.join(', ')}.`, 'UNKNOWN_ROLES')
       }
+      // The account starts with nothing, so every role listed is added. This is
+      // what stops `users:create` + `access:manage` from minting an `admin`
+      // account and signing in as it: `admin` carries the whole catalog, and an
+      // actor holding those two keys does not.
+      //
+      // Unlike the two pure-database writers (overrides, role permissions) this
+      // check reads on `db`, NOT inside the write transaction, and it must: it
+      // has to run before Keycloak is touched, so an authorization refusal
+      // never creates then compensates an external identity — and the row write
+      // cannot enclose that Keycloak call (no network I/O in `tx`). The check
+      // and the write are therefore necessarily separated by the Keycloak round
+      // trip and cannot share a transaction. The resulting read-then-write
+      // window is bounded by the model: a role can only carry a key some
+      // authorised author already gave it.
+      if (roles.length > 0) {
+        assertMayGrant(ctx.access, await permissionsForRoles(db, roles))
+      }
+
       const taken = await takenField(db, email, username)
       if (taken !== null) {
         throw conflict(`A user with that ${taken} already exists.`, 'USER_EXISTS')
@@ -233,14 +254,30 @@ export function createUsersService(deps: UsersServiceDeps): UsersService {
 
       const blocked = selfBlockedFields(input)
       if (blocked.length > 0) {
-        assertNotSelf(ctx.actorId, existing.id, `change your own ${blocked.join(' or ')}`)
+        assertNotSelf(ctx.access.user.id, existing.id, `change your own ${blocked.join(' or ')}`)
       }
-      if (input.roles !== undefined) {
+      const nextRoles = input.roles === undefined ? undefined : [...new Set(input.roles)]
+      if (nextRoles !== undefined) {
         assertMayAssignRoles(ctx.access)
-        const unknownRoles = await missingRoles(db, input.roles)
+        const unknownRoles = await missingRoles(db, nextRoles)
         if (unknownRoles.length > 0) {
           throw badRequest(`Unknown roles: ${unknownRoles.join(', ')}.`, 'UNKNOWN_ROLES')
         }
+        // `roles` is sent whole, so the delta is what makes the rule usable:
+        // only the roles this edit ADDS are an indirect grant, and stripping a
+        // role the actor does not hold the permissions of stays possible. The
+        // delta runs after the slugs are known to exist, because resolving them
+        // to permissions is a query against those very rows.
+        //
+        // Like create() and unlike the two pure-database writers, this reads on
+        // `db` rather than inside the write transaction, and must: the check
+        // has to precede the Keycloak status flip below (an authorization
+        // refusal must not flip then compensate an external system), and the
+        // write cannot enclose that Keycloak call (no network I/O in `tx`).
+        // The read-then-write window is inherent and bounded by the model — a
+        // role can only carry a key some authorised author gave it.
+        const added = addedMembers(existing.roles, nextRoles)
+        assertMayGrant(ctx.access, await permissionsForRoles(db, added))
       }
 
       // Keycloak first, so a refusal leaves the database untouched. Outside the
@@ -264,8 +301,8 @@ export function createUsersService(deps: UsersServiceDeps): UsersService {
                 ...(input.status !== undefined ? { status: input.status } : {}),
               })
             }
-            if (input.roles !== undefined) {
-              await replaceRoles(client, existing.id, [...new Set(input.roles)])
+            if (nextRoles !== undefined) {
+              await replaceRoles(client, existing.id, nextRoles)
             }
           },
           audit: () => ({
@@ -303,7 +340,7 @@ export function createUsersService(deps: UsersServiceDeps): UsersService {
 
     async remove(ctx, id) {
       const existing = await findEditableUser(id)
-      assertNotSelf(ctx.actorId, existing.id, 'delete your own account')
+      assertNotSelf(ctx.access.user.id, existing.id, 'delete your own account')
 
       // Keycloak first, and DO NOT reorder this. An identity that can still log
       // in but has no application row is the state authenticate() already

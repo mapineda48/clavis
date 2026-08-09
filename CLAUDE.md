@@ -158,14 +158,31 @@ Every one of these cost a real failure. Do not rediscover them.
   rather than optional; anything outside a request (boot seeding) still calls
   `cache.bumpVersion('access')` by hand. `is_root` bypasses everything and root
   is immutable through the API.
-- **Nobody edits their own privileges**, and the check is `assertNotSelf`
-  (`lib/access.ts`), not a copy per route. It guards `PATCH /users/:id`
+- **The guard against escalation is `assertMayGrant`** (`lib/access.ts`): no
+  actor may introduce a permission they do not themselves hold (root holds
+  everything). It runs at **every** writer of the three tables the effective
+  union sums — `PUT /access/users/:id/overrides` (the grants),
+  `POST /access/roles` (the initial set),
+  `PUT /access/roles/:slug/permissions` (the added keys) and
+  `POST`/`PATCH /users` (what the newly assigned roles carry, resolved through
+  `permissionsForRoles`) — on what the edit **adds**, and before any Keycloak
+  or database write. A new route that writes any of those tables inherits the
+  rule or reopens the hole: leaving one writer ungated is exactly the asymmetry
+  that shipped two live escalations at once.
+- **`assertNotSelf` covers only the removal/lockout direction** — self-revoke,
+  self-disable, self-delete, dropping your own roles — on `PATCH /users/:id`
   (`roles`, `status`), `DELETE /users/:id` and
-  `PUT /access/users/:id/overrides` — a new route that changes what somebody
-  may do needs it too. It is keyed on identity, so it stops one account raising
-  itself in one request and nothing more: two accounts can still grant each
-  other, and `POST /users` can still create a privileged account. Say that in
-  the docs rather than implying the guard is stronger than it is.
+  `PUT /access/users/:id/overrides`. It takes a `CanonicalUserId`, minted only
+  where a repository builds a row from SQL, because PostgreSQL compares uuids
+  and JavaScript compares strings: a case-varied id reaches the same row and
+  defeats a string `!==`. Do not cast around the type. `:id` params addressing
+  `clavis.users` carry `format: 'uuid'`, which rejects the malformed spellings
+  but *not* case variance — uuids are case-insensitive, so the type is what
+  closes it.
+- Two accounts can still pool what they already hold, and taking privileges
+  away is not covered by any of this. Say that in the docs
+  (`docs/access-control.md`) rather than implying the guards are stronger than
+  they are.
 - Request mutations go through `mutate()` (`lib/mutate.ts`): one transaction
   carrying the write **and** its `audit_log` row, then the bump after COMMIT.
   So an `audit_log` insert failure fails the user's write — deliberate: in an
@@ -180,7 +197,7 @@ Every one of these cost a real failure. Do not rediscover them.
   it while the table is small is not.
 - Every function that touches the database takes an `Executor` first
   (`lib/executor.ts`) and **never opens a transaction of its own**: whether a
-  statement runs alone (`app.db`) or inside one somebody else began (`client`)
+  statement runs alone (`db`) or inside one somebody else began (`client`)
   is the caller's decision. A function that opens its own cannot be composed
   into a larger unit of work, which is exactly how the audit row ended up
   outside the transaction it describes.

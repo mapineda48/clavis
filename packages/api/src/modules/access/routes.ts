@@ -58,8 +58,10 @@ export function accessModule(deps: AccessServiceDeps): ModuleDef {
         summary: 'Replace the permission exceptions of one user',
         description:
           'The full set is replaced in one write: grants add permissions the roles do not give, ' +
-          'revokes remove permissions they do. Root accepts no overrides, and nobody may edit ' +
-          'their own.',
+          'revokes remove permissions they do. Root accepts no overrides; any change whose net ' +
+          'effect grants the target a permission the caller does not hold — including dropping a ' +
+          'revoke that masks a role — is refused (403 PRIVILEGE_ESCALATION), and nobody may ' +
+          'rewrite their own (403 SELF_MODIFICATION).',
         permissions: ['access:manage'],
         schema: { params: IdParams, body: ReplaceOverridesBody },
         responses: {
@@ -77,6 +79,9 @@ export function accessModule(deps: AccessServiceDeps): ModuleDef {
         method: 'post',
         path: '/access/roles',
         summary: 'Create a role',
+        description:
+          'The initial permission set may not reach beyond what the caller holds ' +
+          '(403 PRIVILEGE_ESCALATION).',
         permissions: ['access:manage'],
         schema: { body: CreateRoleBody },
         responses: {
@@ -93,7 +98,10 @@ export function accessModule(deps: AccessServiceDeps): ModuleDef {
         method: 'put',
         path: '/access/roles/:slug/permissions',
         summary: 'Replace the permission set of a role',
-        description: 'System roles are seeded at boot and cannot be edited.',
+        description:
+          'System roles are seeded at boot and cannot be edited. Keys the edit ADDS may not ' +
+          'reach beyond what the caller holds (403 PRIVILEGE_ESCALATION); removing keys, and ' +
+          'keeping the ones already there, is unrestricted.',
         permissions: ['access:manage'],
         schema: { params: SlugParams, body: ReplacePermissionsBody },
         responses: {

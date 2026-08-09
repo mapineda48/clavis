@@ -13,9 +13,28 @@ import type { Executor } from './executor.js'
  * `is_root` short-circuits to the full catalog before any of that runs.
  */
 
+/**
+ * A user id in the exact spelling `clavis.users` stores it.
+ *
+ * The brand exists for one reason: `assertNotSelf` compares strings and
+ * PostgreSQL compares uuids, and those are not the same comparison.
+ * `'A1B2…'::uuid = 'a1b2…'::uuid` is true, as are the brace and unhyphenated
+ * spellings, so a path parameter can address the caller's own row while a
+ * string `!==` sees two different values — which is how a holder of
+ * `access:manage` granted itself the whole catalog by uppercasing one letter of
+ * its own id.
+ *
+ * Only a value the database handed back is branded (`row.id as CanonicalUserId`
+ * inside a repository, and nowhere else), so passing `request.params.id`
+ * straight to the self check is now a compile error rather than a silent
+ * bypass. Nothing else about the type is special: it is a `string` everywhere a
+ * `string` is wanted.
+ */
+export type CanonicalUserId = string & { readonly __brand: 'CanonicalUserId' }
+
 /** Application-side view of a user row. */
 export interface AccessUser {
-  id: string
+  id: CanonicalUserId
   username: string
   email: string
   displayName: string | null
@@ -101,7 +120,9 @@ export async function loadAccessContext(
 
   return {
     user: {
-      id: row.id,
+      // `u.id::text` above: this is the canonical spelling, straight from the
+      // column, which is the only thing the brand claims.
+      id: row.id as CanonicalUserId,
       username: row.username,
       email: row.email,
       displayName: row.display_name,
@@ -123,6 +144,83 @@ export function contextHasPermission(context: AccessContext, key: PermissionKey)
 }
 
 /**
+ * Refuses an operation that would introduce a capability the actor does not
+ * hold. **The guard against privilege escalation.**
+ *
+ *   No actor may grant a permission they do not themselves hold.
+ *
+ * Three tables feed the union at the top of this file, each written by its own
+ * route, and each route used to carry its own idea of what a caller may do.
+ * That asymmetry is what produced two escalations: one route compared identity
+ * with a bypassable id, another related the write to the caller not at all.
+ * The question those guards were reaching for is not "are you editing
+ * yourself?" — that is answerable only about one of the three tables, and two
+ * accounts defeat it by editing each other. It is "may you hand out this
+ * capability?", which is a statement about the permission set, so it holds
+ * whoever the target is and whichever table the write lands in.
+ *
+ * Called with the keys an edit **adds**, never the ones it removes: removal is
+ * the lockout direction and belongs to `assertNotSelf`. Root short-circuits,
+ * because root holds the catalog by definition.
+ *
+ * `keys` is `string[]` rather than `PermissionKey[]` on purpose. A key outside
+ * the catalog is then refused (nobody holds it) instead of needing a narrowing
+ * step at every call site — and a narrowing step is exactly where a `filter`
+ * that silently drops the unrecognised key would end up, which fails open.
+ */
+export function assertMayGrant(actor: AccessContext, keys: readonly string[]): void {
+  if (actor.user.isRoot) return
+  const held = new Set<string>(actor.permissions)
+  const missing = [...new Set(keys)].filter((key) => !held.has(key))
+  if (missing.length === 0) return
+  throw forbidden(
+    `You cannot grant permissions you do not hold yourself: ${missing.join(', ')}.`,
+    'PRIVILEGE_ESCALATION',
+    { missing },
+  )
+}
+
+/**
+ * The members of `next` that `current` does not already contain — the *added*
+ * side of a replacement.
+ *
+ * Both routes that replace a set need it, and both need only this side of it:
+ * a role's permission set and a user's role list are sent whole, so without the
+ * delta an administrator could not so much as reduce a role they partly hold.
+ * It is a plain set difference over strings, used for permission keys and for
+ * role slugs alike.
+ */
+export function addedMembers(current: readonly string[], next: readonly string[]): string[] {
+  const present = new Set<string>(current)
+  return next.filter((member) => !present.has(member))
+}
+
+/**
+ * The effective permission set from its three parts: the permissions the roles
+ * carry, plus grant overrides, minus revoke overrides — the subtraction last,
+ * exactly as `loadAccessContext` resolves it in SQL, so a revoke beats both a
+ * role and a grant.
+ *
+ * The overrides guard states its delta over the CHANGE to this set rather than
+ * over the submitted rows, and that is what closes the escalations a body-shaped
+ * rule misses: dropping a revoke that masks a role, or flipping a revoke to a
+ * grant, both read as the addition they effectively are, while preserving a
+ * grant contributes nothing. **Both sides of that delta must be built through
+ * this one function** from the same `rolePermissions`, so the sets are
+ * comparable and an unrecognised key cannot appear on one side only and become a
+ * phantom member.
+ */
+export function effectivePermissions(
+  rolePermissions: readonly string[],
+  grants: readonly string[],
+  revokes: readonly string[],
+): string[] {
+  const revoked = new Set<string>(revokes)
+  const union = new Set<string>([...rolePermissions, ...grants])
+  return [...union].filter((key) => !revoked.has(key))
+}
+
+/**
  * Refuses an operation a caller is aiming at their own account.
  *
  * `phrase` completes "You cannot …", so it carries the verb: `'change your own
@@ -130,14 +228,26 @@ export function contextHasPermission(context: AccessContext, key: PermissionKey)
  * somebody may do calls this with the same code, `SELF_MODIFICATION`, so the
  * SPA and the verification suite recognise the refusal wherever it comes from.
  *
- * What it buys: granting yourself is escalation and revoking or disabling
- * yourself is a lockout, and both take a second pair of hands. What it does
- * **not** buy is stated where it is documented (`docs/access-control.md`): a
- * check keyed on identity cannot stop two accounts from granting each other,
- * and it says nothing about creating a new privileged account. It closes the
- * one-request path, not the class.
+ * **This guards the removal direction.** Escalation — handing out a capability
+ * — is `assertMayGrant`'s job, because that question is about the permission
+ * set and not about identity. What is left here is the lockout direction:
+ * revoking, disabling or deleting yourself, and the roles you would drop by
+ * replacing your own set. Those take a second pair of hands.
+ *
+ * **Both** ids are `CanonicalUserId` on purpose: an identity-keyed check is only
+ * as good as the identity it is given, and the original overrides escalation was
+ * a raw path parameter compared against the token `sub` — two spellings of the
+ * same uuid that a string `!==` reads as different accounts. Requiring the brand
+ * on both sides makes the actor `ctx.access.user.id` (read from the column,
+ * `u.id::text`) rather than the raw `sub`, so a differently-spelled but
+ * uuid-equal id can no longer slip through, and passing the raw claim is a
+ * compile error rather than a silent bypass.
  */
-export function assertNotSelf(actorId: string, targetId: string, phrase: string): void {
+export function assertNotSelf(
+  actorId: CanonicalUserId,
+  targetId: CanonicalUserId,
+  phrase: string,
+): void {
   if (actorId !== targetId) return
   throw forbidden(`You cannot ${phrase}; another administrator has to.`, 'SELF_MODIFICATION')
 }
