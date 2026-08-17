@@ -50,11 +50,37 @@ AUTH_URL="https://${CLAVIS_AUTH_FQDN}"
 # The API takes the URL whole; Keycloak needs the parts, because its JDBC URL
 # must carry only sslmode. Both point at the same Neon project, different
 # databases.
-DB_USER="$(printf '%s' "$CLAVIS_DATABASE_URL" | sed -E 's|^postgres(ql)?://([^:]+):.*|\2|')"
-DB_PASSWORD="$(printf '%s' "$CLAVIS_DATABASE_URL" | sed -E 's|^postgres(ql)?://[^:]+:([^@]+)@.*|\2|')"
-DB_HOST="$(printf '%s' "$CLAVIS_DATABASE_URL" | sed -E 's|^postgres(ql)?://[^@]+@([^/]+)/.*|\2|')"
+#
+# Parsed with node's WHATWG URL parser, not sed: KC_DB_PASSWORD travels as its
+# own variable rather than inside a URL, so it must be DECODED — the old regex
+# handed Keycloak a percent-encoded password verbatim, and one containing '@'
+# or ':' split at the wrong place. Latent only because Neon's generated
+# passwords are alphanumeric, which a rotation is free to stop being. node is
+# already a hard dependency: render-realm.mjs runs a few lines below.
+# The throw is caught on purpose: node's ERR_INVALID_URL prints its INPUT in
+# the error — here the full connection string, password included. GitHub's
+# secret masking would probably catch it, but only as an exact substring; the
+# message below names the variable and never its value.
+db_cred() { node -e 'try { process.stdout.write(decodeURIComponent(new URL(process.argv[2])[process.argv[1]])) } catch { console.error("could not parse CLAVIS_DATABASE_URL"); process.exit(1) }' "$1" "$CLAVIS_DATABASE_URL"; }
+DB_USER="$(db_cred username)"
+DB_PASSWORD="$(db_cred password)"
+# The host is never percent-encoded; it keeps the port when one is present,
+# exactly as the old regex captured it.
+DB_HOST="$(node -e 'try { process.stdout.write(new URL(process.argv[1]).host) } catch { console.error("could not parse CLAVIS_DATABASE_URL"); process.exit(1) }' "$CLAVIS_DATABASE_URL")"
 [ -n "$DB_USER" ] && [ -n "$DB_PASSWORD" ] && [ -n "$DB_HOST" ] || {
   echo "could not parse CLAVIS_DATABASE_URL" >&2; exit 1; }
+
+# Decoding is what makes these bytes possible, and the decoded password then
+# travels through the bundle .env, where Compose's dotenv parser expands `$`,
+# treats ` #` as a comment and keeps quotes literal — no quoting style carries
+# arbitrary bytes through that file. Refuse here, loudly, rather than let
+# Keycloak fail password auth against Neon five minutes into a deploy with
+# nothing pointing at this line.
+case "$DB_PASSWORD" in
+  *[\$\#[:space:]\'\"]*)
+    echo "CLAVIS_DB_PASSWORD contains a character the bundle .env cannot carry (\$, #, quote or whitespace): rotate the Neon password without it" >&2
+    exit 1 ;;
+esac
 
 # --- realm --------------------------------------------------------------------
 echo "==> rendering the realm"

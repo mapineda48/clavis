@@ -19,6 +19,11 @@ on:
         default: plan
         type: choice
         options: [plan, apply, destroy]
+      skip_acme_flush:
+        description: Destroy immediately, without waiting out the ACME backup window
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -138,18 +143,31 @@ jobs:
         run: terraform apply -auto-approve tfplan
 
       # The droplet is about to disappear, and with it anything Traefik issued
-      # in the last few minutes. The backup path unit is edge-triggered, so
-      # without this a certificate obtained seconds ago is simply lost — and
-      # Let's Encrypt only grants five per week for the same names.
-      - name: Flush the ACME state before tearing down
-        if: inputs.action == 'destroy'
-        continue-on-error: true
+      # in the last few minutes. Nothing can reach the host to ask for a backup
+      # — no SSH by design — so time is the only lever: the backup timer fires
+      # every 10 minutes (AccuracySec=30s, so a tick lands within ~630s plus
+      # the run itself), and waiting 12 minutes from now means one tick happens
+      # before the droplet dies. What that tick then achieves cannot be
+      # observed from here — if the blob mount is dead the backup fails and the
+      # wait buys nothing; the path unit publishing on rewrite is the primary
+      # mechanism and this window only covers its coalesced-inotify gap. Let's
+      # Encrypt grants five certificates per week for the same names; twelve
+      # minutes of droplet-hours is the cheap side of that trade.
+      # `skip_acme_flush` is the escape hatch when nothing was issued recently.
+      #
+      # `output -json`, not `-raw … || true`: an empty state (no droplet,
+      # nothing to wait for) must not look like an unreadable one. A transient
+      # storage error would silently skip the wait, and the destroy right after
+      # can succeed on its own retry — the one path where "the destroy would
+      # fail first anyway" is false.
+      - name: Wait out the ACME backup window before tearing down
+        if: inputs.action == 'destroy' && !inputs.skip_acme_flush
         run: |
-          ip=$(terraform output -raw droplet_ipv4 2>/dev/null || true)
-          if [ -z "$ip" ]; then echo "no droplet in state, nothing to flush"; exit 0; fi
-          echo "Asking the droplet to publish its ACME state is only possible over SSH."
-          echo "It is not open by default, so this relies on the 10-minute timer having run."
-          echo "Droplet: $ip"
+          outputs=$(terraform output -json)
+          ip=$(printf '%s' "$outputs" | jq -r '.droplet_ipv4.value // empty')
+          if [ -z "$ip" ]; then echo "no droplet in state, nothing to wait for"; exit 0; fi
+          echo "Droplet ${ip} exists: waiting 12 minutes so the 10-minute backup timer gets one tick."
+          sleep 720
 
       - name: Destroy
         if: inputs.action == 'destroy'

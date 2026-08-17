@@ -64,7 +64,7 @@ Everything is manual, from the Actions tab:
 |---|---|---|
 | **Infra** | `apply` | Creates the droplet, the firewall and the three DNS records. ~2 min, plus ~3 min of cloud-init. |
 | **Deploy** | — | Publishes a bundle and waits for the host to serve it, then runs the smoke test. Runs automatically after **Images**; with no droplet in the Terraform state a preflight job skips the run cleanly instead of failing. |
-| **Infra** | `destroy` | Removes the droplet and the records. The certificates and the database survive. |
+| **Infra** | `destroy` | Removes the droplet and the records. The certificates and the database survive. Waits 12 minutes first so the host's 10-minute ACME backup timer gets one tick before the droplet dies; `skip_acme_flush` skips the wait when nothing was issued recently. |
 
 `Infra apply` on an existing droplet is a no-op unless cloud-init changed, in
 which case the droplet is **replaced** — that is deliberate, since DigitalOcean

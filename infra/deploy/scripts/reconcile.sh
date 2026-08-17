@@ -72,9 +72,29 @@ commit=$(jq -r '.commit // empty' "$CURRENT_JSON")
 bundle=$(jq -r '.bundle // empty' "$CURRENT_JSON")
 [ -n "$commit" ] && [ -n "$bundle" ] || { echo "reconcile: current.json is malformed" >&2; exit 1; }
 
+# Converged means every DECLARED service is running — a SUBSET test, not set
+# equality, and the difference is a live stack: `config --services` filters
+# out profiled one-shots (keycloak-import) but `ps` does NOT, and `--rm`
+# cleanup is client-side, so a reconcile killed mid-import (TimeoutStartSec)
+# leaves that container running. Equality would then read "not converged"
+# forever and re-run the full path — realm import included — every minute,
+# killing every live session each cycle, on a host nothing can SSH into.
+#
+# The old "at least one container answers" test failed the other way: a stack
+# that lost its api to an OOM kill still matched the recorded commit and read
+# as "nothing to do" while the timer reported success. A missing service is
+# logged BY NAME, because otherwise a convergence loop looks exactly like a
+# normal deploy in the journal.
 running() {
   [ -f "${STACK}/docker-compose.yml" ] || return 1
-  [ -n "$(docker compose --project-directory "$STACK" ps --status running -q 2>/dev/null)" ]
+  local expected actual missing
+  expected=$(docker compose --project-directory "$STACK" config --services 2>/dev/null | sort) || return 1
+  actual=$(docker compose --project-directory "$STACK" ps --status running --format '{{.Service}}' 2>/dev/null | sort -u) || return 1
+  [ -n "$expected" ] || return 1
+  missing=$(comm -23 <(printf '%s\n' "$expected") <(printf '%s\n' "$actual"))
+  [ -z "$missing" ] && return 0
+  log "not converged: not running: $(printf '%s' "$missing" | tr '\n' ' ')"
+  return 1
 }
 
 if [ -f "$STATE" ] && [ "$(cat "$STATE")" = "$commit" ] && running; then

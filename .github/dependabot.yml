@@ -1,0 +1,21 @@
+# Keeps the SHA-pinned actions from rotting: every `uses:` in the workflows is
+# frozen to a commit, so without this nothing would ever surface that an action
+# has a newer — or security-patched — release. Dependabot bumps the SHA and the
+# version comment together.
+#
+# Actions only, deliberately: the npm, Docker and Terraform pins are bumped by
+# hand, with the reasoning in the commit that bumps them.
+version: 2
+
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    # One grouped PR instead of one per action: the review cost is what makes
+    # update PRs rot unmerged.
+    groups:
+      actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: "chore(ci)"
